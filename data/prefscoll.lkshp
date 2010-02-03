@@ -1,0 +1,4 @@
+Paths under which haskell sources for packages may be found:
+               ["~/Develop"]
+Maybe a directory for unpacking cabal packages:
+               Just "~/Haskell"
