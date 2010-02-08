@@ -25,6 +25,7 @@ import RdrName(showRdrName)
 import IDE.Utils.GHCUtils
 import Control.Monad.Trans (liftIO)
 import Data.Maybe (mapMaybe)
+import Outputable(pprHsVar,showSDoc)
 
 parseTheHeader :: FilePath -> IO ServerAnswer
 parseTheHeader filePath = do
@@ -32,8 +33,16 @@ parseTheHeader filePath = do
     parseResult <- liftIO $ myParseHeader filePath text
     case parseResult of
         Left str                                      -> return (ServerFailed str)
-        Right (pr@HsModule{ hsmodImports = imports }) -> return (ServerHeader (Just
-                                                            (transformImports imports)))
+        Right (pr@HsModule{ hsmodImports = []})       -> do
+            let i = case hsmodDecls pr of
+                        decls@(hd:tl) -> (foldl (\ a b -> min a (srcSpanStartLine (getLoc b))) 0 decls) - 1
+                        [] -> case hsmodExports pr of
+                            Just list ->  (foldl (\ a b -> max a (srcSpanEndLine (getLoc b))) 0 list) + 1
+                            Nothing -> case hsmodName pr of
+                                        Nothing -> 0
+                                        Just mn -> srcSpanEndLine (getLoc mn) + 2
+            return (ServerHeader (Right i))
+        Right (pr@HsModule{ hsmodImports = imports }) -> return (ServerHeader (Left (transformImports imports)))
 
 transformImports :: [LImportDecl RdrName] -> [ImportDecl]
 transformImports = map transformImport
@@ -61,7 +70,7 @@ transformImport (L srcSpan importDecl) =
                         Just (hide, list) -> Just (ImportSpecList hide (mapMaybe transformEntity list))
 
 transformEntity :: LIE RdrName -> Maybe ImportSpec
-transformEntity (L _ (IEVar name))              = Just (IVar (showRdrName name))
+transformEntity (L _ (IEVar name))              = Just (IVar (showSDoc (pprHsVar name)))
 transformEntity (L _ (IEThingAbs name))         = Just (IAbs (showRdrName name))
 transformEntity (L _ (IEThingAll name))         = Just (IThingAll (showRdrName name))	
 transformEntity (L _ (IEThingWith name list))   = Just (IThingWith (showRdrName name)
@@ -74,29 +83,3 @@ srcSpanToLocation span | not (isGoodSrcSpan span)
 srcSpanToLocation span
     =   Location (srcSpanStartLine span) (srcSpanStartCol span)
                  (srcSpanEndLine span) (srcSpanEndCol span)
-
--- | A single Haskell @import@ declaration.
-{--
-type LImportDecl name = Located (ImportDecl name)
-data ImportDecl name
-  = ImportDecl {
-      ideclName      :: Located ModuleName, -- ^ Module name.
-      ideclPkgQual   :: Maybe FastString,   -- ^ Package qualifier.
-      ideclSource    :: Bool,               -- ^ True <=> {-# SOURCE #-} import
-      ideclQualified :: Bool,               -- ^ True => qualified
-      ideclAs        :: Maybe ModuleName,   -- ^ as Module
-      ideclHiding    :: Maybe (Bool, [LIE name]) -- ^ (True => hiding, names)
-    }
-type LIE name = Located (IE name)
-
--- | Imported or exported entity.
-data IE name
-  = IEVar               name
-  | IEThingAbs          name		 -- ^ Class/Type (can't tell)
-  | IEThingAll          name		 -- ^ Class/Type plus all methods/constructors
-  | IEThingWith         name [name]	 -- ^ Class/Type plus some methods/constructors
-  | IEModuleContents    ModuleName	 -- ^ (Export Only)
-  | IEGroup             Int (HsDoc name) -- ^ Doc section heading
-  | IEDoc               (HsDoc name)     -- ^ Some documentation
-  | IEDocNamed          String           -- ^ Reference to named doc
---}

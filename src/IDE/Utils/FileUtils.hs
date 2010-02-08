@@ -129,7 +129,7 @@ find' (h:t)         =   catch (do
         else find' t)
         $ \ _ -> return Nothing
 
--- The directory where config files reside
+-- | The directory where config files reside
 --
 getConfigDir :: IO FilePath
 getConfigDir = do

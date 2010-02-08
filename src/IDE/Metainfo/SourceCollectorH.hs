@@ -23,10 +23,8 @@ module IDE.Metainfo.SourceCollectorH (
 import IDE.Core.CTypes
        (PackageDescr(..), TypeDescr(..), RealDescr(..), Descr(..),
         ModuleDescr(..), PackModule(..), SimpleDescr(..), packageIdentifierToString)
-import Module
-       (packageIdString, moduleName, modulePackageId)
 import Haddock.Types
-       (Doc(..), Decl(..), ExportItem(..), DeclInfo(..),
+       (ExportItem(..), DeclInfo(..),
         Interface(..))
 import Distribution.Text (display, simpleParse)
 import InstEnv (Instance(..))
