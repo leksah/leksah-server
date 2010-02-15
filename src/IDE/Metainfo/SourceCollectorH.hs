@@ -109,7 +109,6 @@ packageFromSource cabalPath packageConfig = trace ("packageFromSource " ++ cabal
     $ do
     setCurrentDirectory dirPath
     ghcFlags <- figureOutHaddockOpts
-        --NewException.catches (figureOutGhcOpts) [NewException.Handler handler']
     trace ("ghcFlags:  " ++ show ghcFlags)
         NewException.catch (inner ghcFlags) handler
     where

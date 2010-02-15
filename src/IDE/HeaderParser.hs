@@ -26,11 +26,13 @@ import IDE.Utils.GHCUtils
 import Control.Monad.Trans (liftIO)
 import Data.Maybe (mapMaybe)
 import Outputable(pprHsVar,showSDoc)
+import IDE.Utils.FileUtils (figureOutGhcOpts)
 
 parseTheHeader :: FilePath -> IO ServerAnswer
 parseTheHeader filePath = do
     text        <- readFile filePath
-    parseResult <- liftIO $ myParseHeader filePath text
+    opts        <- figureOutGhcOpts
+    parseResult <- liftIO $ myParseHeader filePath text opts
     case parseResult of
         Left str                                      -> return (ServerFailed str)
         Right (pr@HsModule{ hsmodImports = []})       -> do

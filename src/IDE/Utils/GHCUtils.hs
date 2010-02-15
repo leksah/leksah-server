@@ -42,7 +42,7 @@ import Control.Monad.Trans
 import HscTypes (Ghc(..))
 import IDE.Utils.FileUtils (getSysLibDir)
 import DynFlags (dopt_set)
-import System.Log.Logger(warningM)
+import System.Log.Logger(warningM, debugM)
 
 -- this should not be repeated here, why is it necessary?
 instance MonadIO Ghc where
@@ -50,6 +50,7 @@ instance MonadIO Ghc where
 
 inGhcIO :: [String] -> [DynFlag] -> (DynFlags -> Ghc a) -> IO a
 inGhcIO flags udynFlags ghcAct = do
+    debugM "leksah-server" $ "inGhcIO called with: " ++ show flags
     libDir         <-   getSysLibDir
 --    (restFlags, _) <-   parseStaticFlags (map noLoc flags)
     runGhc (Just libDir) $ do
@@ -145,27 +146,17 @@ myParseModule dflags src_filename maybe_src_buf
 	-- ToDo: free the string buffer later.
       }}
 
-myParseHeader :: FilePath -> String -> IO (Either String (HsModule RdrName))
-myParseHeader fp str = inGhcIO [] [] $  \ _ -> do
-    dflags  <- getSessionDynFlags
-    let dflags2 = dflags {
---        topDir    = dir,
-        hscTarget = HscNothing,
-        ghcMode   = OneShot,
-        ghcLink   = NoLink}
-    setSessionDynFlags dflags2
+myParseHeader :: FilePath -> String -> [String] -> IO (Either String (HsModule RdrName))
+myParseHeader fp str opts = inGhcIO opts [Opt_Cpp] $ \ dynFlags -> do
     session   <- getSession
-    dynFlags  <-  getSessionDynFlags
-    (_,fp)    <-  preprocess session (fp,Nothing)
-    dynFlags  <-  getSessionDynFlags
+    (dynFlags',fp')    <-  preprocess session (fp,Nothing)
     liftIO $ do
-        stringBuffer  <-  hGetStringBuffer fp
-        parseResult   <-  myParseModuleHeader dynFlags fp (Just stringBuffer)
+        stringBuffer  <-  hGetStringBuffer fp'
+        parseResult   <-  myParseModuleHeader dynFlags' fp (Just stringBuffer)
         case parseResult of
             Right (L _ mod) -> return (Right mod)
             Left errMsg         -> do
-                let str =  "Failed to parse " ++ fp
---                printBagOfErrors defaultDynFlags (unitBag errMsg)
+                let str =  "Failed to parse " ++ show errMsg
                 return (Left str)
 
  ---------------------------------------------------------------------

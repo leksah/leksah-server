@@ -425,11 +425,12 @@ figureOutGhcOpts :: IO [String]
 figureOutGhcOpts = do
     debugM "leksah-server" "figureOutGhcOpts"
     (!output,_) <- runTool' "runhaskell" ["Setup","build","--with-ghc=leksahecho"] Nothing
-    let opts = concatMap (words . toolline) output
-    debugM "leksah-server" $ "figureOutGhcOpts" ++ show opts
-    return (filterUnwanted opts)
+    case catMaybes $ map (findMake . toolline) output of
+        options:_ -> return (words options)
+        _         -> return []
     where
-        filterUnwanted :: [String] -> [String]
-        filterUnwanted x = x
-
-
+        findMake [] = Nothing
+        findMake line@(x:xs) =
+                case stripPrefix " --make " line of
+                    Nothing -> findMake xs
+                    s -> s

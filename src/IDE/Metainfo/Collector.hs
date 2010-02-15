@@ -49,8 +49,8 @@ import IDE.Metainfo.SourceCollectorH
 import Data.Binary.Shared (encodeFileSer)
 import IDE.Metainfo.SourceDB (buildSourceForPackageDB)
 import Data.Time
-import qualified Control.Exception as NewException
-       (Handler(..), catches, SomeException)
+import Control.Exception
+       (catch, SomeException)
 import MyMissing(trim)
 import System.Log
 import System.Log.Logger(updateGlobalLogger,rootLoggerName,addHandler,debugM,infoM,warningM,errorM,
@@ -118,9 +118,9 @@ ideOpts argv =
 -- | Main function
 --
 
-main =  withSocketsDo $ NewException.catches inner [NewException.Handler handler]
+main =  withSocketsDo $ catch inner handler
     where
-        handler (e :: NewException.SomeException) = do
+        handler (e :: SomeException) = do
             putStrLn $ "leksah-server: " ++ (show e)
             errorM "leksah-server" (show e)
             return ()
@@ -170,19 +170,30 @@ main =  withSocketsDo $ NewException.catches inner [NewException.Handler handler
 doCommands prefs (h,n,p) = do
     line <- hGetLine h
     case read line of
-        SystemCommand rebuild sources extract -> do
-            collectSystem prefs False rebuild sources extract
-            hPutStrLn h (show ServerOK)
-            hFlush h
-        WorkspaceCommand rebuild package path modList -> do
-            collectWorkspace package modList rebuild False path
-            hPutStrLn h (show ServerOK)
-            hFlush h
-        ParseHeaderCommand filePath -> do
-            res <- parseTheHeader filePath
-            hPutStrLn h (show res)
-            hFlush h
-
+        SystemCommand rebuild sources extract ->
+            catch (do
+                collectSystem prefs False rebuild sources extract
+                hPutStrLn h (show ServerOK)
+                hFlush h)
+            (\ (e :: SomeException) -> do
+                hPutStrLn h (show (ServerFailed (show e)))
+                hFlush h)
+        WorkspaceCommand rebuild package path modList ->
+            catch (do
+                collectWorkspace package modList rebuild False path
+                hPutStrLn h (show ServerOK)
+                hFlush h)
+            (\ (e :: SomeException) -> do
+                hPutStrLn h (show (ServerFailed (show e)))
+                hFlush h)
+        ParseHeaderCommand filePath ->
+            catch (do
+                res <- parseTheHeader filePath
+                hPutStrLn h (show res)
+                hFlush h)
+            (\ (e :: SomeException) -> do
+                hPutStrLn h (show (ServerFailed (show e)))
+                hFlush h)
 
 collectSystem :: Prefs -> Bool -> Bool -> Bool -> Bool -> IO()
 collectSystem prefs writeAscii forceRebuild findSources extractTars = do
