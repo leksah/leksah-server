@@ -199,10 +199,12 @@ dscMbTypeStr :: Descr -> Maybe ByteString
 dscMbTypeStr (Reexported d)     = dscMbTypeStr (dsrDescr d)
 dscMbTypeStr (Real d)           = dscMbTypeStr' d
 
+-- | The definition module
 dscMbModu :: Descr -> Maybe PackModule
 dscMbModu (Reexported d)        = dscMbModu (dsrDescr d)
 dscMbModu (Real d)              = dscMbModu' d
 
+-- | The exporting module
 dsMbModu :: Descr -> Maybe PackModule
 dsMbModu (Reexported d)        = dsrMbModu d
 dsMbModu (Real d)              = dscMbModu' d
@@ -222,7 +224,6 @@ dscTypeHint (Real d)            = dscTypeHint' d
 dscExported :: Descr -> Bool
 dscExported (Reexported d)      = True
 dscExported (Real d)            = dscExported' d
-
 
 data TypeDescr   =
         VariableDescr
@@ -304,7 +305,7 @@ instance Show (Present Descr) where
     showsPrec _ (Present descr) =   case dscMbComment descr of
                                         Just comment -> p . showChar '\n' . c comment . t
                                         Nothing      -> p . showChar '\n' . showChar '\n' . t
-        where p         =   case dscMbModu descr of
+        where p         =   case dsMbModu descr of
                                 Just ds -> showString "-- " . shows (Present ds)
                                 Nothing -> id
               c com     =   showString $ unlines

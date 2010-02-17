@@ -67,12 +67,13 @@ import Distribution.Text(display)
 import TcRnMonad hiding (liftIO,MonadIO,LIE)
 import qualified Maybes as M
 import IDE.Metainfo.InterfaceCollector
-import Data.Maybe(fromJust,catMaybes,mapMaybe,isNothing)
+import Data.Maybe
+       (isJust, fromJust, catMaybes, mapMaybe, isNothing)
 import Module (stringToPackageId)
 import PrelNames
 --import FastString (appendFS,nilFS)
 import System.Log.Logger
-import Data.Maybe (isJust)
+--import Data.Maybe (isJust)
 
 type NDecl = LHsDecl RdrName
 type NDoc  = HsDoc RdrName

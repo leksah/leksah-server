@@ -84,6 +84,8 @@ data Flag =    CollectSystem
              | VersionF
              | Help
              | Debug
+             | Verbosity String
+             | LogFile String
        deriving (Show,Eq)
 
 options :: [OptDescr Flag]
@@ -104,6 +106,10 @@ options =   [
                 "Display command line options"
          ,   Option ['d'] ["debug"] (NoArg Debug)
                 "Write ascii pack files"
+         ,   Option ['e'] ["verbosity"] (ReqArg Verbosity "Verbosity")
+                "One of DEBUG, INFO, NOTICE, WARNING, ERROR, CRITICAL, ALERT, EMERGENCY"
+         ,   Option ['l'] ["logfile"] (ReqArg LogFile "LogFile")
+                "File path for logging messages"
     ]
 
 header = "Usage: leksah-collector [OPTION...] files..."
@@ -128,9 +134,24 @@ main =  withSocketsDo $ catch inner handler
             args            <- getArgs
             (o,_)           <- ideOpts args
             fp              <- getConfigFilePathForSave "collectorl.lkslo"
-            handler         <- fileHandler fp DEBUG
-            updateGlobalLogger rootLoggerName (\ l -> setLevel DEBUG (addHandler handler l))
-            debugM "leksah-server" $ "*** server called " ++ show args
+            let verbosity'   =  catMaybes $
+                                    map (\x -> case x of
+                                        Verbosity s -> Just s
+                                        _           -> Nothing) o
+            let verbosity    =  case verbosity' of
+                                    [] -> INFO
+                                    h:_ -> read h
+            let logFile'     =  catMaybes $
+                                    map (\x -> case x of
+                                        LogFile s   -> Just s
+                                        _           -> Nothing) o
+            let logFile     =  case logFile' of
+                                    [] -> fp
+                                    h:_ -> h
+            handler         <- fileHandler logFile verbosity
+            updateGlobalLogger rootLoggerName (\ l -> setLevel verbosity (addHandler handler l))
+            infoM "leksah-server" $ "***server called"
+            debugM "leksah-server" $ "args: " ++ show args
             dataDir         <- getDataDir
             prefsPath       <- getConfigFilePathForLoad strippedPreferencesFilename Nothing dataDir
             prefs           <- readStrippedPrefs prefsPath
