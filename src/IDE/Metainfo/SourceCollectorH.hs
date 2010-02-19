@@ -58,6 +58,7 @@ import Control.Monad (unless)
 import IDE.Utils.FileUtils(figureOutHaddockOpts)
 import Distribution.Package(PackageIdentifier)
 import GHC hiding(Id,Failed,Succeeded,ModuleName)
+import System.Log.Logger (warningM)
 
 #if MIN_VERSION_Cabal(1,8,0)
 getThisPackage    =   IPI.sourcePackageId
@@ -69,20 +70,23 @@ data PackageCollectStats = PackageCollectStats {
     packageString       :: String,
     modulesTotal        :: Maybe Int,
     withSource          :: Bool,
+    retrieved           :: Bool,
     mbError             :: Maybe String}
 
 -- Hell
 
-collectPackageFromSource :: Prefs -> PackageConfig -> IO (Maybe PackageDescr, PackageCollectStats)
+collectPackageFromSource :: Prefs -> PackageConfig -> IO (Maybe PackageDescr, PackageCollectStats, Maybe FilePath)
 collectPackageFromSource prefs packageConfig = trace ("collectPackageFromSource " ++ display (getThisPackage packageConfig))
     $ do
     sourceMap <- liftIO $ getSourcesMap prefs
     case sourceForPackage (getThisPackage packageConfig) sourceMap of
-        Just fp -> packageFromSource fp packageConfig
+        Just fp -> do
+            runTool' "cabal" (["configure","--user"]) Nothing
+            packageFromSource fp packageConfig
         Nothing ->
             case unpackDirectory prefs of
-                Nothing -> return (Nothing, PackageCollectStats packageName Nothing False
-                                (Just ("No source found. Prefs don't allow for retreiving")))
+                Nothing -> return (Nothing, PackageCollectStats packageName Nothing False False
+                                (Just ("No source found. Prefs don't allow for retreiving")), Nothing)
                 Just fp -> do
                     exists <- doesDirectoryExist fp
                     unless exists $ createDirectory fp
@@ -90,21 +94,17 @@ collectPackageFromSource prefs packageConfig = trace ("collectPackageFromSource 
                     (output, pid) <- runTool' "cabal" (["unpack",packageName]) Nothing
                     success <- doesDirectoryExist (fp </> packageName)
                     if not success
-                        then return (Nothing, PackageCollectStats packageName Nothing False
-                                (Just ("Failed to download and unpack source")))
+                        then return (Nothing, PackageCollectStats packageName Nothing False False
+                                (Just ("Failed to download and unpack source")), Nothing)
                         else do
                             setCurrentDirectory (fp </> packageName)
                             output <- runTool' "cabal" (["configure","--user"]) Nothing
-                            -- TODO check for success
-                            if True
-                                then packageFromSource (fp </> packageName </> packageName <.> "cabal")
+                            packageFromSource (fp </> packageName </> packageName <.> "cabal")
                                         packageConfig
-                                else return (Nothing,  PackageCollectStats packageName Nothing False
-                                        (Just ("Failed to configure")))
     where
         packageName = packageIdentifierToString (getThisPackage packageConfig)
 
-packageFromSource :: FilePath -> PackageConfig -> IO (Maybe PackageDescr, PackageCollectStats)
+packageFromSource :: FilePath -> PackageConfig -> IO (Maybe PackageDescr, PackageCollectStats, Maybe FilePath)
 packageFromSource cabalPath packageConfig = trace ("packageFromSource " ++ cabalPath)
     $ do
     setCurrentDirectory dirPath
@@ -115,10 +115,11 @@ packageFromSource cabalPath packageConfig = trace ("packageFromSource " ++ cabal
         handler' (e :: NewException.SomeException) =
             trace "would block" $ return ([])
         handler (e :: NewException.SomeException) = do
-            return (Nothing, PackageCollectStats packageName Nothing False
-                                            (Just ("Ghc failed to process: " ++ show e)))
+            warningM "leksah-server" ("Ghc failed to process: " ++ show e)
+            return (Nothing, PackageCollectStats packageName Nothing False False
+                                            (Just ("Ghc failed to process: " ++ show e)), Just dirPath)
         inner ghcFlags = trace ("before  inGhcIO ") $
-                                inGhcIO ghcFlags [Opt_Haddock] $ \ flags -> do
+                                inGhcIO ghcFlags [Opt_Haddock, Opt_Cpp] $ \ flags -> do
             (interfaces,_) <- createInterfaces verbose (exportedMods ++ hiddenMods) [] []
             liftIO $ print (length interfaces)
             let mods = map (interfaceToModuleDescr dirPath (getThisPackage packageConfig)) interfaces
@@ -128,12 +129,12 @@ packageFromSource cabalPath packageConfig = trace ("packageFromSource " ++ cabal
                 ,   pdModules           =   mods
                 ,   pdBuildDepends      =   depends packageConfig
                 ,   pdMbSourcePath      =   Just sp}
-            let stat = PackageCollectStats packageName (Just (length mods)) True Nothing
-            liftIO $ return (Just pd, stat)
+            let stat = PackageCollectStats packageName (Just (length mods)) True False Nothing
+            liftIO $ return (Just pd, stat, Just dirPath)
         exportedMods = map moduleNameString $ IPI.exposedModules packageConfig
         hiddenMods   = map moduleNameString $ IPI.hiddenModules packageConfig
-        dirPath = dropFileName cabalPath
-        packageName = packageIdentifierToString (getThisPackage packageConfig)
+        dirPath      = dropFileName cabalPath
+        packageName  = packageIdentifierToString (getThisPackage packageConfig)
 
 -- Heaven
 
@@ -141,7 +142,7 @@ interfaceToModuleDescr :: FilePath -> PackageIdentifier -> Interface -> ModuleDe
 interfaceToModuleDescr dirPath pid interface = trace ("interfaceToModuleDescr " ++ show modName ++ " " ++ show filepath)
     ModuleDescr {
         mdModuleId          =   PM pid modName
-    ,   mdMbSourcePath      =   Just (dirPath </> filepath)
+    ,   mdMbSourcePath      =   Just filepath
     ,   mdReferences        =   imports
     ,   mdIdDescriptions    =   descrs}
     where
@@ -160,7 +161,6 @@ extractDescrs pm ifaceDeclMap ifaceExportItems ifaceInstances ifaceLocals =
         transformed                                    = transformToDescrs pm exportedDeclInfo
                                                             ++ map (toDescrInst pm) ifaceInstances
         exportedDeclInfo                               =  mapMaybe toDeclInfo  ifaceExportItems
-
         toDeclInfo (ExportDecl decl mbDoc subDocs _)   = Just(decl,mbDoc,subDocs)
         toDeclInfo (ExportNoDecl _ _)                  = Nothing
         toDeclInfo (ExportGroup _ _ _)                 = Nothing

@@ -30,11 +30,13 @@ import qualified Text.PrettyPrint as  PP (text)
 data Prefs = Prefs {
         sourceDirectories   ::   [FilePath]
     ,   unpackDirectory     ::   Maybe FilePath
+    ,   retreiveURL         ::   Maybe String
 } deriving(Eq,Show)
 
 defaultPrefs = Prefs {
         sourceDirectories   =   []
     ,   unpackDirectory     =   Nothing
+    ,   retreiveURL         =   Just "http://www.leksah.org/packages"
     }
 
 -- ------------------------------------------------------------
@@ -63,4 +65,10 @@ prefsDescription = [
             readParser
             unpackDirectory
             (\b a -> a{unpackDirectory = b})
+    ,   mkFieldS
+            (paraName <<<- ParaName "Maybe an URL to load prebuild metadata " $ emptyParams)
+            (PP.text . show)
+            readParser
+            retreiveURL
+            (\b a -> a{retreiveURL = b})
     ]

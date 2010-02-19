@@ -13,31 +13,7 @@
 --
 -----------------------------------------------------------------------------
 
-module IDE.Utils.Utils (
-
-    leksahSessionFileExtension
-,   standardSessionFilename
-,   packageSessionFilename
-,   leksahWorkspaceFileExtension
-,   leksahPreferencesFileExtension
-,   standardPreferencesFilename
-,   strippedPreferencesFilename
-,   leksahCandyFileExtension
-,   standardCandyFilename
-,   leksahKeymapFileExtension
-,   standardKeymapFilename
-,   leksahSourcesFileExtension
-,   standardSourcesFilename
-,   leksahMetadataSystemFileExtension
-,   leksahMetadataDebugExtension
-,   leksahMetadataWorkspaceFileExtension
-,   leksahTemplateFileExtension
-,   standardModuleTemplateFilename
-,   leksahFlagFileExtension
-
-) where
-
-
+module IDE.Utils.Utils where
 
 leksahSessionFileExtension           = ".lkshs"
 leksahWorkspaceFileExtension         = ".lkshw"
@@ -46,6 +22,7 @@ leksahCandyFileExtension             = ".lkshc"
 leksahKeymapFileExtension            = ".lkshk"
 leksahSourcesFileExtension           = ".lksho"
 leksahMetadataSystemFileExtension    = ".lkshm"
+leksahMetadataPathFileExtension      = ".lkshp"
 leksahMetadataWorkspaceFileExtension = ".lkshe"
 leksahMetadataDebugExtension         = ".lkshd"
 leksahTemplateFileExtension          = ".lksht"

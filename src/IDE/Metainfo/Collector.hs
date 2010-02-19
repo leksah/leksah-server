@@ -37,7 +37,7 @@ import MyMissing(split)
 import Prelude hiding(catch)
 import Debug.Trace
 -- import Control.Monad.Trans (liftIO)
-import System.Directory (removeDirectoryRecursive, doesFileExist, removeFile, doesDirectoryExist)
+import System.Directory (removeDirectoryRecursive, doesFileExist, removeFile, doesDirectoryExist, setCurrentDirectory)
 import qualified Data.Set as Set (member)
 import IDE.Core.CTypes hiding (Extension)
 import qualified Distribution.InstalledPackageInfo as IPI
@@ -61,6 +61,8 @@ import Network.Socket (SocketType(..), iNADDR_ANY, SockAddr(..),PortNumber(..))
 import IDE.Utils.Server
 import System.IO (hPutStrLn, hGetLine, hFlush)
 import IDE.HeaderParser(parseTheHeader)
+import System.Process (system)
+import GHC.IOBase (ExitCode(..))
 
 -- --------------------------------------------------------------------
 -- Command line options
@@ -254,11 +256,13 @@ writeStats stats = do
         summary = "\nSuccess with         = " ++ packs ++
                   "\nPackages total       = " ++ show packagesTotal ++
                   "\nPackages with source = " ++ show packagesWithSource ++
+                  "\nPackages retreived   = " ++ show packagesRetreived ++
                   "\nModules total        = " ++ show modulesTotal' ++
                   "\nModules with source  = " ++ show modulesWithSource ++
                   "\nPercentage source    = " ++ show percentageWithSource
         packagesTotal        = length stats
         packagesWithSource   = length (filter withSource stats)
+        packagesRetreived    = length (filter retrieved stats)
         modulesTotal'        = sum (mapMaybe modulesTotal stats)
         modulesWithSource    = sum (mapMaybe modulesTotal (filter withSource stats))
         percentageWithSource = (fromIntegral modulesWithSource) * 100.0 /
@@ -274,15 +278,46 @@ collectPackage :: Bool -> Prefs -> PackageConfig -> IO PackageCollectStats
 collectPackage writeAscii prefs packageConfig = trace ("collectPackage " ++ display (getThisPackage packageConfig))
     $ do
     packageDescrHI          <- collectPackageFromHI packageConfig
+    let packString = packageIdentifierToString (pdPackage packageDescrHI)
     mbPackageDescrPair      <- collectPackageFromSource prefs packageConfig
     case mbPackageDescrPair of
-        (Nothing,stat) ->  do
-            liftIO $ writeExtractedPackage False packageDescrHI
-            return (stat {modulesTotal = Just (length (pdModules packageDescrHI))})
-        (Just packageDescrS,stat) ->  do
+        (Nothing,stat, Just fp) ->  do
+            -- Try to retreive prebuild package
+            case retreiveURL prefs of
+                Just url -> do
+                    collectorPath   <- liftIO $ getCollectorPath
+                    setCurrentDirectory collectorPath
+                    ghcVersion <- getGhcVersion
+                    let fullUrl = url ++ "/ghc-" ++ ghcVersion ++ "/" ++ packString ++ leksahMetadataSystemFileExtension
+                    debugM "leksah-server" $ "collectPackage: before retreiving = " ++ fullUrl
+                    catch (system $ "wget " ++ fullUrl)
+                        (\(e :: SomeException) -> do
+                            debugM "leksah-server" $ "collectPackage: Error when calling wget " ++ show e
+                            return (ExitFailure 1))
+                    debugM "leksah-server" $ "collectPackage: after retreiving = " ++ packString -- ++ " result = " ++ res
+                    let filePath    =  collectorPath </> packString <.> leksahMetadataSystemFileExtension
+                    exist <- doesFileExist filePath
+                    if exist
+                        then do
+                            debugM "leksah-server" $ "collectPackage: retreived = " ++ packString
+                            liftIO $ writePackagePath fp packageDescrHI
+                            return (stat {modulesTotal = Just (length (pdModules packageDescrHI)),
+                                    withSource=True, retrieved= True, mbError=Nothing})
+                        else do
+                            debugM "leksah-server" $ "collectPackage: Can't retreive = " ++ packString
+                            liftIO $ writeExtractedPackage False packageDescrHI
+                            return (stat {modulesTotal = Just (length (pdModules packageDescrHI))})
+                Nothing -> do
+                    liftIO $ writeExtractedPackage False packageDescrHI
+                    return (stat {modulesTotal = Just (length (pdModules packageDescrHI))})
+        (Just packageDescrS,stat, Just fp) ->  do
             let mergedPackageDescr = mergePackageDescrs packageDescrHI packageDescrS
             liftIO $ writeExtractedPackage writeAscii mergedPackageDescr
+            liftIO $ writePackagePath fp mergedPackageDescr
             return (stat)
+        (Nothing,stat,Nothing) ->  do
+            liftIO $ writeExtractedPackage False packageDescrHI
+            return (stat {modulesTotal = Just (length (pdModules packageDescrHI))})
 
 writeExtractedPackage :: MonadIO m => Bool -> PackageDescr -> m ()
 writeExtractedPackage writeAscii pd = do
@@ -292,6 +327,13 @@ writeExtractedPackage writeAscii pd = do
     if writeAscii
         then liftIO $ writeFile (filePath ++ "dpg") (show pd)
         else liftIO $ encodeFileSer filePath (metadataVersion, pd)
+
+writePackagePath :: MonadIO m => FilePath -> PackageDescr -> m ()
+writePackagePath fp pd = do
+    collectorPath   <- liftIO $ getCollectorPath
+    let filePath    =  collectorPath </> packageIdentifierToString (pdPackage pd) <.>
+                            leksahMetadataPathFileExtension
+    liftIO $ writeFile filePath fp
 
 --------------Merging of .hi and .hs parsing / parsing and typechecking results
 
