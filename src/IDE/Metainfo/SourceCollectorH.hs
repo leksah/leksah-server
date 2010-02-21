@@ -91,14 +91,14 @@ collectPackageFromSource prefs packageConfig = trace ("collectPackageFromSource 
                     exists <- doesDirectoryExist fp
                     unless exists $ createDirectory fp
                     setCurrentDirectory fp
-                    (output, pid) <- runTool' "cabal" (["unpack",packageName]) Nothing
+                    runTool' "cabal" (["unpack",packageName]) Nothing
                     success <- doesDirectoryExist (fp </> packageName)
                     if not success
                         then return (Nothing, PackageCollectStats packageName Nothing False False
                                 (Just ("Failed to download and unpack source")), Nothing)
                         else do
                             setCurrentDirectory (fp </> packageName)
-                            output <- runTool' "cabal" (["configure","--user"]) Nothing
+                            runTool' "cabal" (["configure","--user"]) Nothing
                             packageFromSource (fp </> packageName </> packageName <.> "cabal")
                                         packageConfig
     where

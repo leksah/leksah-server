@@ -148,10 +148,12 @@ main =  withSocketsDo $ catch inner handler
                                         LogFile s   -> Just s
                                         _           -> Nothing) o
             let logFile     =  case logFile' of
-                                    [] -> fp
-                                    h:_ -> h
-            handler         <- fileHandler logFile verbosity
-            updateGlobalLogger rootLoggerName (\ l -> setLevel verbosity (addHandler handler l))
+                                    [] -> Just fp
+                                    h:_ -> Nothing
+            updateGlobalLogger rootLoggerName (\ l -> setLevel verbosity l)
+            when (isJust logFile) $  do
+                handler <- fileHandler (fromJust logFile) verbosity
+                updateGlobalLogger rootLoggerName (\ l -> addHandler handler l)
             infoM "leksah-server" $ "***server called"
             debugM "leksah-server" $ "args: " ++ show args
             dataDir         <- getDataDir
@@ -288,7 +290,7 @@ collectPackage writeAscii prefs packageConfig = trace ("collectPackage " ++ disp
                     collectorPath   <- liftIO $ getCollectorPath
                     setCurrentDirectory collectorPath
                     ghcVersion <- getGhcVersion
-                    let fullUrl = url ++ "/ghc-" ++ ghcVersion ++ "/" ++ packString ++ leksahMetadataSystemFileExtension
+                    let fullUrl = url ++ "/metadata/" ++ packString ++ leksahMetadataSystemFileExtension
                     debugM "leksah-server" $ "collectPackage: before retreiving = " ++ fullUrl
                     catch (system $ "wget " ++ fullUrl)
                         (\(e :: SomeException) -> do

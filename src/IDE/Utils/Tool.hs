@@ -61,7 +61,7 @@ import System.Process
 import System.IO.Unsafe(unsafePerformIO)
 import Control.Exception(finally)
 import Control.DeepSeq
-
+import System.Log.Logger (debugM, criticalM)
 
 data ToolOutput = ToolInput String | ToolError String | ToolOutput String deriving(Eq, Show)
 
@@ -98,12 +98,10 @@ escapeQuotes = foldr (\c s -> if c == '"' then '\\':c:s else c:s) ""
 
 runTool' :: FilePath -> [String] -> Maybe FilePath -> IO ([ToolOutput], ProcessHandle)
 runTool' fp args mbDir = do
-    m <- newEmptyMVar
-    forkOS $ do
-      (out,pid) <- runTool fp args mbDir
-      -- waitForProcess pid
-      deepseq out $ putMVar m (out,pid)
-    (out,pid) <- takeMVar m
+    debugM "leksah-server" $ "Start: " ++ show (fp, args)
+    (out,pid) <- runTool fp args mbDir
+    deepseq out $ waitForProcess pid
+    debugM "leksah-server" $ "End: " ++ show (fp, args)
     return (out,pid)
 
 runTool :: FilePath -> [String] -> Maybe FilePath -> IO ([ToolOutput], ProcessHandle)
@@ -156,7 +154,7 @@ runInteractiveTool tool getOutput executable arguments = do
                 [] -> do
                     putMVar (outputClosed tool) True
                 _ -> do
-                    putStrLn "This should never happen in Tool.hs"
+                    criticalM "leksah-server" $ "This should never happen in Tool.hs"
 
 newInteractiveTool :: (Handle -> Handle -> Handle -> ProcessHandle -> IO [RawToolOutput]) -> FilePath -> [String] -> IO ToolState
 newInteractiveTool getOutput executable arguments = do
@@ -218,6 +216,7 @@ noInputCommandLineReader = CommandLineReader {
 getOutput :: CommandLineReader -> Handle -> Handle -> Handle -> ProcessHandle -> IO [RawToolOutput]
 getOutput clr inp out err pid = do
     chan <- newChan
+    testClosed <- dupChan chan
     -- hSetBuffering out NoBuffering
     -- hSetBuffering err NoBuffering
     foundExpectedError <- newEmptyMVar
@@ -234,7 +233,6 @@ getOutput clr inp out err pid = do
         readOutput chan (filter (/= '\r') output) True foundExpectedError False
         writeChan chan ToolOutClosed
     forkIO $ do
-        testClosed <- dupChan chan
         output <- getChanContents testClosed
         when ((ToolOutClosed `elem` output) && (ToolErrClosed `elem` output)) $ do
             waitForProcess pid

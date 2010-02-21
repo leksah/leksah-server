@@ -81,7 +81,7 @@ import Control.Monad.Trans (MonadIO(..))
 import Distribution.Package (PackageIdentifier)
 import Debug.Trace (trace)
 import System.Process
-    (waitForProcess, runCommand, runInteractiveProcess)
+    (waitForProcess, runCommand)
 import Data.Char (ord)
 import Distribution.Text (simpleParse)
 
@@ -319,9 +319,8 @@ cabalFileName filePath = catch (do
 
 getCabalUserPackageDir :: IO (Maybe FilePath)
 getCabalUserPackageDir = do
-    (_, out, _, pid) <- runInteractiveProcess "cabal" ["help"] Nothing Nothing
-    output <- hGetContents out
-    case stripPrefix "  " (last $ lines output) of
+    (!output,_) <- runTool' "cabal" ["help"] Nothing
+    case stripPrefix "  " (toolline $ last output) of
         Just s | "config" `isSuffixOf` s -> return $ Just $ take (length s - 6) s ++ "packages"
         _ -> return Nothing
 
@@ -363,10 +362,9 @@ autoExtractTarFiles' filePath =
 
 getCollectorPath :: MonadIO m => m FilePath
 getCollectorPath = liftIO $ do
-    ghcVersion <- getGhcVersion
-    configDir  <- getConfigDir
-    let filePath = configDir </> "ghc-" ++ ghcVersion
-    exists     <- doesDirectoryExist filePath
+    configDir <- getConfigDir
+    let filePath = configDir </> "metadata"
+    exists    <- doesDirectoryExist filePath
     if exists
         then return filePath
         else do
@@ -375,19 +373,20 @@ getCollectorPath = liftIO $ do
 
 getGhcVersion :: IO FilePath
 getGhcVersion = catch (do
-    (_, out, _, pid) <- runInteractiveProcess "ghc" ["--numeric-version"] Nothing Nothing
-    vers <- hGetLine out
-    let vers2 = if ord (last vers) == 13
+    (!output,_) <- runTool' "ghc" ["--numeric-version"] Nothing
+    let vers = toolline $ head output
+        vers2 = if ord (last vers) == 13
                     then List.init vers
                     else vers
+    debugM "leksah-server" $ "Got GHC Version " ++ vers2
     return vers2
     ) $ \ _ -> error ("FileUtils>>getGhcVersion failed")
 
 getHaddockVersion :: IO String
 getHaddockVersion = catch (do
-    (_, out, _, pid) <- runInteractiveProcess "haddock" ["--version"] Nothing Nothing
-    vers <- hGetLine out
-    let vers2 = if ord (last vers) == 13
+    (!output,_) <- runTool' "haddock" ["--version"] Nothing
+    let vers = toolline $ head output
+        vers2 = if ord (last vers) == 13
                     then List.init vers
                     else vers
     return vers2
@@ -395,9 +394,9 @@ getHaddockVersion = catch (do
 
 getSysLibDir :: IO FilePath
 getSysLibDir = catch (do
-    (_, out, _, pid) <- runInteractiveProcess "ghc" ["--print-libdir"] Nothing Nothing
-    libDir <- hGetLine out
-    let libDir2 = if ord (last libDir) == 13
+    (!output,_) <- runTool' "ghc" ["--print-libdir"] Nothing
+    let libDir = toolline $ head output
+        libDir2 = if ord (last libDir) == 13
                     then List.init libDir
                     else libDir
     return (normalise libDir2)
@@ -405,8 +404,8 @@ getSysLibDir = catch (do
 
 getInstalledPackageIds :: IO [PackageIdentifier]
 getInstalledPackageIds = catch (do
-    (_, out, _, pid) <- runInteractiveProcess "ghc-pkg" ["list", "--simple-output"] Nothing Nothing
-    names <- hGetLine out
+    (!output, _) <- runTool' "ghc-pkg" ["list", "--simple-output"] Nothing
+    let names = toolline $ head output
     return (catMaybes (map T.simpleParse (words names)))
     ) $ \ _ -> error ("FileUtils>>getInstalledPackageIds failed")
 
