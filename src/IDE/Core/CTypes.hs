@@ -50,6 +50,7 @@ module IDE.Core.CTypes (
 ,   ServerCommand(..)
 ,   ServerAnswer(..)
 
+,   leksahVersion
 ,   configDirName
 ,   metadataVersion
 ,   standardPort
@@ -79,7 +80,8 @@ import Data.Char (isAlpha)
 --  | Information about the system, extraced from .hi and source files
 --
 
-configDirName = ".leksah-0.7"
+leksahVersion = "0.7"
+configDirName = ".leksah-" ++ leksahVersion
 
 metadataVersion :: Integer
 metadataVersion = 7

@@ -80,7 +80,6 @@ data Flag =    CollectSystem
              --modifiers
              | Rebuild
              | Sources
-             | ExtractTars
              | Directory FilePath
              --others
              | VersionF
@@ -170,13 +169,12 @@ main =  withSocketsDo $ catch inner handler
                                                 map (\x -> case x of
                                                                 ServerCommand s -> Just s
                                                                 _        -> Nothing) o
-                        let extract     =   elem ExtractTars o
                         let sources     =   elem Sources o
                         let rebuild     =   elem Rebuild o
                         let debug       =   elem Debug o
                         when (elem CollectSystem o) $ do
                             debugM "leksah-server" "collectSystem"
-                            collectSystem prefs debug rebuild sources extract
+                            collectSystem prefs debug rebuild sources
 
                         case servers of
                             (Nothing:_)  -> do
@@ -195,9 +193,9 @@ main =  withSocketsDo $ catch inner handler
 doCommands prefs (h,n,p) = do
     line <- hGetLine h
     case read line of
-        SystemCommand rebuild sources extract ->
+        SystemCommand rebuild sources extract -> --the extract arg is not used
             catch (do
-                collectSystem prefs False rebuild sources extract
+                collectSystem prefs False rebuild sources
                 hPutStrLn h (show ServerOK)
                 hFlush h)
             (\ (e :: SomeException) -> do
@@ -220,14 +218,14 @@ doCommands prefs (h,n,p) = do
                 hPutStrLn h (show (ServerFailed (show e)))
                 hFlush h)
 
-collectSystem :: Prefs -> Bool -> Bool -> Bool -> Bool -> IO()
-collectSystem prefs writeAscii forceRebuild findSources extractTars = do
+collectSystem :: Prefs -> Bool -> Bool -> Bool -> IO()
+collectSystem prefs writeAscii forceRebuild findSources = do
     collectorPath       <- getCollectorPath
     when forceRebuild $ do
-        exists <- doesDirectoryExist collectorPath
+        exists           <- doesDirectoryExist collectorPath
         when exists $ removeDirectoryRecursive collectorPath
         reportPath       <-  getConfigFilePathForSave "collectSystem.report"
-        exists <- doesFileExist reportPath
+        exists           <- doesFileExist reportPath
         when exists (removeFile reportPath)
         return ()
     knownPackages       <-  findKnownPackages collectorPath
@@ -241,7 +239,7 @@ collectSystem prefs writeAscii forceRebuild findSources extractTars = do
         then do
             infoM "leksah-server" "Metadata collector has nothing to do"
         else do
-            liftIO $ buildSourceForPackageDB prefs
+            when findSources $ liftIO $ buildSourceForPackageDB prefs
             stats <- mapM (collectPackage writeAscii prefs) newPackages
             writeStats stats
     infoM "leksah-server" "Metadata collection has finished"
@@ -290,7 +288,7 @@ collectPackage writeAscii prefs packageConfig = trace ("collectPackage " ++ disp
                     collectorPath   <- liftIO $ getCollectorPath
                     setCurrentDirectory collectorPath
                     ghcVersion <- getGhcVersion
-                    let fullUrl = url ++ "/metadata/" ++ packString ++ leksahMetadataSystemFileExtension
+                    let fullUrl = url ++ "/metadata-" ++ leksahVersion ++ "/" ++ packString ++ leksahMetadataSystemFileExtension
                     debugM "leksah-server" $ "collectPackage: before retreiving = " ++ fullUrl
                     catch (system $ "wget " ++ fullUrl)
                         (\(e :: SomeException) -> do

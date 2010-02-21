@@ -42,7 +42,7 @@ data Prefs = Prefs {
 defaultPrefs = Prefs {
         sourceDirectories   =   []
     ,   unpackDirectory     =   Nothing
-    ,   retreiveURL         =   Just "http://www.leksah.org/packages"
+    ,   retreiveURL         =   Just "http://www.leksah.org/"
     }
 
 -- ------------------------------------------------------------

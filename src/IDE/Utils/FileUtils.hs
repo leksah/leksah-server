@@ -76,7 +76,6 @@ import Data.Set (Set(..))
 import Data.List
     (isPrefixOf, isSuffixOf, stripPrefix)
 import qualified Data.Set as  Set (empty, fromList)
-import System.IO (hGetLine, hGetContents)
 import Control.Monad.Trans (MonadIO(..))
 import Distribution.Package (PackageIdentifier)
 import Debug.Trace (trace)
