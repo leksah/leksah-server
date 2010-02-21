@@ -17,12 +17,18 @@ module IDE.StrippedPrefs (
     Prefs(..)
 ,   readStrippedPrefs
 ,   writeStrippedPrefs
+,   getSourceDirectories
+,   getUnpackDirectory
 ) where
 
 import Text.PrinterParser
 import Graphics.UI.Editor.Parameters
     (emptyParams, Parameter(..), (<<<-), paraName)
 import qualified Text.PrettyPrint as  PP (text)
+import System.FilePath
+       (joinPath, (</>), dropTrailingPathSeparator, splitPath)
+import System.Directory (getHomeDirectory)
+import Control.Monad (liftM)
 
 --
 -- | Preferences is a data structure to hold configuration data
@@ -72,3 +78,21 @@ prefsDescription = [
             retreiveURL
             (\b a -> a{retreiveURL = b})
     ]
+
+-- ------------------------------------------------------------
+-- * Cross platform support for "~" at the start of paths
+-- ------------------------------------------------------------
+
+-- | Expand the users home folder into paths such as "~/x"
+expandHomePath :: FilePath -> IO FilePath
+expandHomePath p = case splitPath p of
+    h : rest | dropTrailingPathSeparator h == "~" ->  do
+        home <- getHomeDirectory
+        return $ home </> joinPath rest
+    _ -> return p
+
+getSourceDirectories :: Prefs -> IO [FilePath]
+getSourceDirectories = (mapM expandHomePath) . sourceDirectories
+
+getUnpackDirectory :: Prefs -> IO (Maybe FilePath)
+getUnpackDirectory = maybe (return Nothing) (liftM Just . expandHomePath) . unpackDirectory

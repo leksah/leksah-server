@@ -44,7 +44,7 @@ import Haddock.Interface (createInterfaces)
 import Distribution.Verbosity (verbose)
 import qualified Distribution.InstalledPackageInfo as IPI
 import Distribution.InstalledPackageInfo (depends)
-import IDE.StrippedPrefs (Prefs(..))
+import IDE.StrippedPrefs (getUnpackDirectory, Prefs(..))
 import IDE.Metainfo.SourceDB (sourceForPackage, getSourcesMap)
 import MonadUtils (liftIO)
 import Debug.Trace (trace)
@@ -83,8 +83,9 @@ collectPackageFromSource prefs packageConfig = trace ("collectPackageFromSource 
         Just fp -> do
             runTool' "cabal" (["configure","--user"]) Nothing
             packageFromSource fp packageConfig
-        Nothing ->
-            case unpackDirectory prefs of
+        Nothing -> do
+            unpackDir <- getUnpackDirectory prefs
+            case unpackDir of
                 Nothing -> return (Nothing, PackageCollectStats packageName Nothing False False
                                 (Just ("No source found. Prefs don't allow for retreiving")), Nothing)
                 Just fp -> do

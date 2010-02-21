@@ -22,7 +22,8 @@ module IDE.Metainfo.SourceDB (
 
 ) where
 
-import IDE.StrippedPrefs (Prefs(..))
+import IDE.StrippedPrefs
+       (getUnpackDirectory, getSourceDirectories, Prefs(..))
 import Data.Map (Map(..))
 import Distribution.Package (PackageIdentifier(..))
 import IDE.Utils.Utils (standardSourcesFilename)
@@ -73,8 +74,9 @@ sourceForPackage id map =
 
 buildSourceForPackageDB :: Prefs -> IO ()
 buildSourceForPackageDB prefs = do
-    let sourceDirs  =   sourceDirectories prefs
-    let dirs        =   case unpackDirectory prefs of
+    sourceDirs <- getSourceDirectories prefs
+    unpackDir  <- getUnpackDirectory prefs
+    let dirs        =   case unpackDir of
                             Just dir -> dir : sourceDirs
                             Nothing ->  sourceDirs
     cabalFiles      <-  mapM allCabalFiles dirs

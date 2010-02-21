@@ -41,7 +41,7 @@ library
     other-modules:
         IDE.Metainfo.WorkspaceCollector IDE.Metainfo.InterfaceCollector
         IDE.Metainfo.SourceCollectorH
-        IDE.Metainfo.SourceDB
+        IDE.Metainfo.SourceDB Paths_leksah_server
     ghc-options: -fwarn-unused-imports -fwarn-missing-fields -fwarn-incomplete-patterns -ferror-spans -O2
 
 executable leksah-server
