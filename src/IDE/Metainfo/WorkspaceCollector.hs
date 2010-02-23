@@ -71,7 +71,6 @@ import Data.Maybe
        (isJust, fromJust, catMaybes, mapMaybe, isNothing)
 import Module (stringToPackageId)
 import PrelNames
---import FastString (appendFS,nilFS)
 import System.Log.Logger
 --import Data.Maybe (isJust)
 

@@ -43,6 +43,7 @@ library
         IDE.Metainfo.SourceCollectorH
         IDE.Metainfo.SourceDB Paths_leksah_server
     ghc-options: -fwarn-unused-imports -fwarn-missing-fields -fwarn-incomplete-patterns -ferror-spans -O2
+    ghc-prof-options: -auto-all -prof
 
 executable leksah-server
     build-depends: Cabal >=1.6.0.1, base >= 4.0.0.0, binary >=0.5.0.0,
@@ -66,7 +67,8 @@ executable leksah-server
         IDE.Metainfo.WorkspaceCollector IDE.Metainfo.InterfaceCollector
         IDE.Metainfo.SourceCollectorH IDE.Metainfo.SourceDB IDE.Utils.Tool
         IDE.HeaderParser
-    ghc-options:-threaded
+    ghc-options:-threaded -O2
+    ghc-prof-options: -auto-all -prof
 
 executable leksahecho
     main-is: LeksahEcho.hs

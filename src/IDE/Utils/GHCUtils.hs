@@ -62,9 +62,11 @@ inGhcIO flags udynFlags ghcAct = do
             ghcLink   = NoLink
             }
         dynflags''' <- parseGhcFlags dynflags'' (map noLoc flags) flags
-        defaultCleanupHandler dynflags''' $ do
+        res <- defaultCleanupHandler dynflags''' $ do
             setSessionDynFlags dynflags'''
             ghcAct dynflags'''
+        unload
+        return res
     where
         parseGhcFlags :: DynFlags -> [Located String]
                   -> [String] -> Ghc DynFlags
@@ -76,6 +78,12 @@ inGhcIO flags udynFlags ghcAct = do
                 return dynflags'
             else return dynflags'
 
+-- | Unload whatever is currently loaded.
+unload :: Ghc ()
+unload = do
+   setTargets []
+   load LoadAllTargets
+   return ()
 
 getInstalledPackageInfos :: Ghc [PackageConfig]
 getInstalledPackageInfos = do

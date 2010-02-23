@@ -66,8 +66,9 @@ import Data.Map (Map(..))
 import Data.Set (Set(..))
 import Default (Default(..))
 import MyMissing (nonEmptyLines)
-import Distribution.Package (PackageIdentifier(..))
-import Distribution.ModuleName (ModuleName(..))
+import Distribution.Package
+       (PackageName(..), PackageIdentifier(..))
+import Distribution.ModuleName (components, ModuleName(..))
 import Data.ByteString.Char8 (ByteString(..))
 import Distribution.Text (simpleParse, display)
 import qualified Data.ByteString.Char8 as  BS (unpack, empty)
@@ -75,6 +76,9 @@ import qualified Data.Map as Map (lookup,keysSet,splitLookup, insertWith,empty,e
 import Text.PrettyPrint as PP
 import Text.PrinterParser
 import Data.Char (isAlpha)
+import Control.DeepSeq (NFData(..))
+import qualified Data.ByteString.Char8 as BS (ByteString)
+import Data.Version (Version(..))
 
 -- ---------------------------------------------------------------------
 --  | Information about the system, extraced from .hi and source files
@@ -446,3 +450,81 @@ isOperator (':':c:_) =  not (isAlpha c)    -- Don't treat :T as an operator
 isOperator ('_':_)   =  False              -- Not an operator
 isOperator (c:_)     =  not (isAlpha c)    -- Starts with non-alpha
 isOperator _         =  False		
+
+-- ---------------------------------------------------------------------
+-- NFData instances for forcing evaluation
+--
+instance NFData Location where
+
+    rnf pd =  rnf (locationSLine pd)
+                    `seq`    rnf (locationSCol pd)
+                    `seq`    rnf (locationELine pd)
+                    `seq`    rnf (locationECol pd)
+
+instance NFData PackageDescr where
+    rnf pd =  rnf (pdPackage pd)
+                    `seq`    rnf (pdMbSourcePath pd)
+                    `seq`    rnf (pdModules pd)
+                    `seq`    rnf (pdBuildDepends pd)
+
+instance NFData ModuleDescr where
+    rnf pd =  rnf (mdModuleId pd)
+                    `seq`    rnf (mdMbSourcePath pd)
+                    `seq`    rnf (mdReferences pd)
+                    `seq`    rnf (mdIdDescriptions pd)
+
+instance NFData Descr where
+    rnf (Real (RealDescr dscName' dscMbTypeStr' dscMbModu'
+        dscMbLocation' dscMbComment' dscTypeHint' dscExported'))  =  rnf dscName'
+                    `seq`    rnf dscMbTypeStr'
+                    `seq`    rnf dscMbModu'
+                    `seq`    rnf dscMbLocation'
+                    `seq`    rnf dscMbComment'
+                    `seq`    rnf dscTypeHint'
+                    `seq`    rnf dscExported'
+
+    rnf (Reexported (ReexportedDescr reexpModu' impDescr')) = rnf reexpModu'
+                    `seq`    rnf impDescr'
+
+instance NFData TypeDescr where
+    rnf (FieldDescr typeDescrF')              =   rnf typeDescrF'
+    rnf (ConstructorDescr typeDescrC')        =   rnf typeDescrC'
+    rnf (DataDescr constructors' fields')     =   constructors'
+                    `seq` rnf fields'
+    rnf (NewtypeDescr constructor' mbField')  =   rnf constructor'
+                    `seq`    rnf mbField'
+    rnf (ClassDescr super' methods')          =   rnf super'
+                    `seq`    rnf methods'
+    rnf (MethodDescr classDescrM')            =   rnf classDescrM'
+    rnf (InstanceDescr binds')                =   rnf binds'
+    rnf a                                     =   seq a ()
+
+instance NFData SimpleDescr where
+    rnf pd =  rnf (sdName pd)
+                    `seq`    rnf (sdType pd)
+                    `seq`    rnf (sdLocation pd)
+                    `seq`    rnf (sdComment pd)
+                    `seq`    rnf (sdExported pd)
+
+instance NFData PackageIdentifier where
+    rnf pd =  rnf (pkgName pd)
+                    `seq`    rnf (pkgVersion pd)
+
+instance NFData DescrType where  rnf a = seq a ()
+
+instance NFData BS.ByteString where  rnf b = seq b ()
+
+instance NFData Version where  rnf v = seq v ()
+
+instance NFData PackModule where
+    rnf pd =  rnf (pack pd)
+                    `seq`   rnf (modu pd)
+
+instance NFData ModuleName where
+    rnf =  rnf . components
+
+instance NFData PackageName where
+    rnf (PackageName s) =  rnf s
+
+
+

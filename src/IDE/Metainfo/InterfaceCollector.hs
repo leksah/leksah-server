@@ -60,6 +60,7 @@ import Data.ByteString.Char8 (ByteString(..))
 import TcRnMonad (initTcRnIf)
 import Debug.Trace (trace)
 import IDE.Utils.GHCUtils
+import Control.DeepSeq(deepseq)
 
 #if MIN_VERSION_Cabal(1,8,0)
 getThisPackage    =   IPI.sourcePackageId
@@ -75,13 +76,13 @@ collectPackageFromHI  packageConfig = trace ("collectPackageFromHI " ++ display 
                                             (IPI.exposedModules packageConfig) session
     hiddenIfaceInfos    <-  getIFaceInfos (getThisPackage packageConfig)
                                             (IPI.hiddenModules packageConfig) session
-    return (extractInfo exportedIfaceInfos hiddenIfaceInfos
-                                            (getThisPackage packageConfig)
+    let pd = extractInfo exportedIfaceInfos hiddenIfaceInfos (getThisPackage packageConfig)
 #if MIN_VERSION_Cabal(1,8,0)
-                                            []) -- TODO 6.12 (IPI.depends $ packageConfigToInstalledPackageInfo packageConfig))
+                                            [] -- TODO 6.12 (IPI.depends $ packageConfigToInstalledPackageInfo packageConfig))
 #else
-				            (depends packageConfig))
+				            (depends packageConfig)
 #endif
+    deepseq pd (return pd)
 
 
 getIFaceInfos :: PackageIdentifier -> [Module.ModuleName] -> HscEnv -> Ghc [(ModIface, FilePath)]

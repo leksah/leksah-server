@@ -59,6 +59,7 @@ import IDE.Utils.FileUtils(figureOutHaddockOpts)
 import Distribution.Package(PackageIdentifier)
 import GHC hiding(Id,Failed,Succeeded,ModuleName)
 import System.Log.Logger (warningM)
+import Control.DeepSeq (deepseq)
 
 #if MIN_VERSION_Cabal(1,8,0)
 getThisPackage    =   IPI.sourcePackageId
@@ -131,7 +132,7 @@ packageFromSource cabalPath packageConfig = trace ("packageFromSource " ++ cabal
                 ,   pdBuildDepends      =   depends packageConfig
                 ,   pdMbSourcePath      =   Just sp}
             let stat = PackageCollectStats packageName (Just (length mods)) True False Nothing
-            liftIO $ return (Just pd, stat, Just dirPath)
+            liftIO $ deepseq pd $ return (Just pd, stat, Just dirPath)
         exportedMods = map moduleNameString $ IPI.exposedModules packageConfig
         hiddenMods   = map moduleNameString $ IPI.hiddenModules packageConfig
         dirPath      = dropFileName cabalPath
