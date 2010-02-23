@@ -15,7 +15,6 @@
 
 module IDE.Metainfo.SourceCollectorH (
     collectPackageFromSource
-,   packageFromSource
 ,   interfaceToModuleDescr
 ,   PackageCollectStats(..)
 ) where
@@ -82,6 +81,8 @@ collectPackageFromSource prefs packageConfig = trace ("collectPackageFromSource 
     sourceMap <- liftIO $ getSourcesMap prefs
     case sourceForPackage (getThisPackage packageConfig) sourceMap of
         Just fp -> do
+            let dirPath      = dropFileName fp
+            setCurrentDirectory dirPath
             runTool' "cabal" (["configure","--user"]) Nothing
             packageFromSource fp packageConfig
         Nothing -> do
@@ -121,7 +122,7 @@ packageFromSource cabalPath packageConfig = trace ("packageFromSource " ++ cabal
             return (Nothing, PackageCollectStats packageName Nothing False False
                                             (Just ("Ghc failed to process: " ++ show e)), Just dirPath)
         inner ghcFlags = trace ("before  inGhcIO ") $
-                                inGhcIO ghcFlags [Opt_Haddock, Opt_Cpp] $ \ flags -> do
+                                inGhcIO ghcFlags [Opt_Haddock] $ \ flags -> do
             (interfaces,_) <- createInterfaces verbose (exportedMods ++ hiddenMods) [] []
             liftIO $ print (length interfaces)
             let mods = map (interfaceToModuleDescr dirPath (getThisPackage packageConfig)) interfaces
