@@ -89,6 +89,7 @@ import IDE.Core.CTypes(configDirName)
 import qualified Distribution.Text as  T (simpleParse)
 import System.Log.Logger(errorM,warningM,debugM)
 import IDE.Utils.Tool
+import Debug.Trace
 
 haskellSrcExts = ["hs","lhs","chs","hs.pp","lhs.pp","chs.pp","hsc"]
 
@@ -154,7 +155,7 @@ hasConfigDir :: IO Bool
 hasConfigDir = do
     d <- getHomeDirectory
     let filePath = d </> configDirName
-    doesDirectoryExist filePath
+    trace ("config dir " ++ filePath) $ doesDirectoryExist filePath
 
 
 getConfigFilePathForLoad :: String -> Maybe FilePath -> FilePath -> IO FilePath

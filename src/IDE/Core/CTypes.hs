@@ -53,7 +53,6 @@ module IDE.Core.CTypes (
 ,   leksahVersion
 ,   configDirName
 ,   metadataVersion
-,   standardPort
 
 ,   ImportDecl(..)
 ,   ImportSpecList(..)
@@ -89,8 +88,6 @@ configDirName = ".leksah-" ++ leksahVersion
 
 metadataVersion :: Integer
 metadataVersion = 7
-
-standardPort = 80
 
 data ServerCommand =
         SystemCommand {

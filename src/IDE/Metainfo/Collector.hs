@@ -36,7 +36,7 @@ import Distribution.Text (display, simpleParse)
 import MyMissing(split)
 import Prelude hiding(catch)
 import Debug.Trace
--- import Control.Monad.Trans (liftIO)
+import Control.Monad (liftM)
 import System.Directory (removeDirectoryRecursive, doesFileExist, removeFile, doesDirectoryExist, setCurrentDirectory)
 import qualified Data.Set as Set (member)
 import IDE.Core.CTypes hiding (Extension)
@@ -59,7 +59,7 @@ import System.Log.Handler.Simple(fileHandler)
 import Network(withSocketsDo)
 import Network.Socket (SocketType(..), iNADDR_ANY, SockAddr(..),PortNumber(..))
 import IDE.Utils.Server
-import System.IO (hPutStrLn, hGetLine, hFlush)
+import System.IO (hPutStrLn, hGetLine, hFlush,hClose)
 import IDE.HeaderParser(parseTheHeader)
 import System.Process (system)
 import GHC.IOBase (ExitCode(..))
@@ -147,13 +147,13 @@ main =  withSocketsDo $ catch inner handler
                                         LogFile s   -> Just s
                                         _           -> Nothing) o
             let logFile     =  case logFile' of
-                                    [] -> Just fp
-                                    h:_ -> Nothing
+                                    [] -> Nothing
+                                    h:_ -> Just h
             updateGlobalLogger rootLoggerName (\ l -> setLevel verbosity l)
             when (isJust logFile) $  do
                 handler <- fileHandler (fromJust logFile) verbosity
                 updateGlobalLogger rootLoggerName (\ l -> addHandler handler l)
-            infoM "leksah-server" $ "***server called"
+            infoM "leksah-server" $ "***server start"
             debugM "leksah-server" $ "args: " ++ show args
             dataDir         <- getDataDir
             prefsPath       <- getConfigFilePathForLoad strippedPreferencesFilename Nothing dataDir
@@ -172,51 +172,61 @@ main =  withSocketsDo $ catch inner handler
                         let sources     =   elem Sources o
                         let rebuild     =   elem Rebuild o
                         let debug       =   elem Debug o
-                        when (elem CollectSystem o) $ do
-                            debugM "leksah-server" "collectSystem"
-                            collectSystem prefs debug rebuild sources
-
-                        case servers of
-                            (Nothing:_)  -> do
-                                running <- serveOne Nothing (server (PortNum (fromIntegral standardPort)) prefs)
-                                waitFor running
-                                return ()
-                            (Just ps:_)  -> do
-                                let port = read ps
-                                running <- serveOne Nothing (server (PortNum (fromIntegral port)) prefs)
-                                waitFor running
-                                return ()
-                            _ -> return ()
+                        if elem CollectSystem o
+                            then do
+                                debugM "leksah-server" "collectSystem"
+                                collectSystem prefs debug rebuild sources
+                            else
+                                case servers of
+                                    (Nothing:_)  -> do
+                                        running <- serveOne Nothing (server (PortNum (fromIntegral (serverPort prefs))) prefs)
+                                        waitFor running
+                                        return ()
+                                    (Just ps:_)  -> do
+                                        let port = read ps
+                                        running <- serveOne Nothing (server (PortNum (fromIntegral port)) prefs)
+                                        waitFor running
+                                        return ()
+                                    _ -> return ()
 
         server port prefs = Server (SockAddrInet port iNADDR_ANY) Stream (doCommands prefs)
 
 doCommands prefs (h,n,p) = do
-    line <- hGetLine h
-    case read line of
-        SystemCommand rebuild sources extract -> --the extract arg is not used
-            catch (do
-                collectSystem prefs False rebuild sources
-                hPutStrLn h (show ServerOK)
-                hFlush h)
-            (\ (e :: SomeException) -> do
-                hPutStrLn h (show (ServerFailed (show e)))
-                hFlush h)
-        WorkspaceCommand rebuild package path modList ->
-            catch (do
-                collectWorkspace package modList rebuild False path
-                hPutStrLn h (show ServerOK)
-                hFlush h)
-            (\ (e :: SomeException) -> do
-                hPutStrLn h (show (ServerFailed (show e)))
-                hFlush h)
-        ParseHeaderCommand filePath ->
-            catch (do
-                res <- parseTheHeader filePath
-                hPutStrLn h (show res)
-                hFlush h)
-            (\ (e :: SomeException) -> do
-                hPutStrLn h (show (ServerFailed (show e)))
-                hFlush h)
+    debugM "leksah-server" $ "***wait"
+    mbLine <- catch (liftM Just (hGetLine h))
+                (\ (e :: SomeException) -> do
+                    infoM "leksah-server" $ "***lost connection"
+                    hClose h
+                    return Nothing)
+    case mbLine of
+        Nothing -> return ()
+        Just line -> do
+            case read line of
+                    SystemCommand rebuild sources extract -> --the extract arg is not used
+                        catch (do
+                            collectSystem prefs False rebuild sources
+                            hPutStrLn h (show ServerOK)
+                            hFlush h)
+                        (\ (e :: SomeException) -> do
+                            hPutStrLn h (show (ServerFailed (show e)))
+                            hFlush h)
+                    WorkspaceCommand rebuild package path modList ->
+                        catch (do
+                            collectWorkspace package modList rebuild False path
+                            hPutStrLn h (show ServerOK)
+                            hFlush h)
+                        (\ (e :: SomeException) -> do
+                            hPutStrLn h (show (ServerFailed (show e)))
+                            hFlush h)
+                    ParseHeaderCommand filePath ->
+                        catch (do
+                            res <- parseTheHeader filePath
+                            hPutStrLn h (show res)
+                            hFlush h)
+                        (\ (e :: SomeException) -> do
+                            hPutStrLn h (show (ServerFailed (show e)))
+                            hFlush h)
+            doCommands prefs (h,n,p)
 
 collectSystem :: Prefs -> Bool -> Bool -> Bool -> IO()
 collectSystem prefs writeAscii forceRebuild findSources = do

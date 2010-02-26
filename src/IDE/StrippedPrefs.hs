@@ -37,12 +37,14 @@ data Prefs = Prefs {
         sourceDirectories   ::   [FilePath]
     ,   unpackDirectory     ::   Maybe FilePath
     ,   retreiveURL         ::   Maybe String
+    ,   serverPort          ::   Int
 } deriving(Eq,Show)
 
 defaultPrefs = Prefs {
         sourceDirectories   =   []
     ,   unpackDirectory     =   Nothing
     ,   retreiveURL         =   Just "http://www.leksah.org/"
+    ,   serverPort          =   11111
     }
 
 -- ------------------------------------------------------------
@@ -77,6 +79,12 @@ prefsDescription = [
             readParser
             retreiveURL
             (\b a -> a{retreiveURL = b})
+    ,   mkFieldS
+            (paraName <<<- ParaName "Port number for server connection" $ emptyParams)
+            (PP.text . show)
+            intParser
+            serverPort
+            (\b a -> a{serverPort = b})
     ]
 
 -- ------------------------------------------------------------

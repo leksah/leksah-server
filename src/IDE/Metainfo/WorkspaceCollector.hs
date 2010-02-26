@@ -72,6 +72,7 @@ import Data.Maybe
 import Module (stringToPackageId)
 import PrelNames
 import System.Log.Logger
+import Control.DeepSeq (deepseq)
 --import Data.Maybe (isJust)
 
 type NDecl = LHsDecl RdrName
@@ -153,7 +154,7 @@ collectModule' sourcePath destPath writeAscii packId opts moduleName =
                         ,   dscMbComment'   =   Just (BS.pack $ show errMsg)
                         ,   dscTypeHint'    =   ErrorDescr
                         ,   dscExported'    =   False}]}
-                    catch (writeExtractedModule destPath writeAscii moduleDescr)
+                    catch (deepseq moduleDescr $ writeExtractedModule destPath writeAscii moduleDescr)
                         (\ _ -> errorM "leksah-server" ("Can't write extracted module " ++ destPath))
     ) (\ (e :: SomeException) -> errorM "leksah-server" ("Can't extract module " ++ destPath ++ " " ++ show e))
 
