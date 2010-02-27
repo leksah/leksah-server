@@ -1,7 +1,8 @@
 {-# OPTIONS_GHC
     -XScopedTypeVariables
     -XStandaloneDeriving
-    -XDeriveDataTypeable #-}
+    -XDeriveDataTypeable
+    -fno-warn-orphans #-}
 
 -----------------------------------------------------------------------------
 --
@@ -29,7 +30,7 @@ import Data.Binary.Shared (BinaryShared(..))
 import Data.Typeable (Typeable(..))
 import Distribution.Package (PackageName(..),PackageIdentifier(..))
 import Data.Version (Version(..))
-import Distribution.ModuleName (ModuleName(..))
+import Distribution.ModuleName (ModuleName)
 
 import IDE.Core.CTypes
 

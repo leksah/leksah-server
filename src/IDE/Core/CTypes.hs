@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -XFlexibleInstances -XDeriveDataTypeable -XExistentialQuantification
-    -XMultiParamTypeClasses -XFlexibleContexts #-}
+    -XMultiParamTypeClasses -XFlexibleContexts -fno-warn-orphans #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.Core.CTypes
@@ -61,14 +61,14 @@ module IDE.Core.CTypes (
 ) where
 
 import Data.Typeable (Typeable(..))
-import Data.Map (Map(..))
-import Data.Set (Set(..))
+import Data.Map (Map)
+import Data.Set (Set)
 import Default (Default(..))
 import MyMissing (nonEmptyLines)
 import Distribution.Package
        (PackageName(..), PackageIdentifier(..))
-import Distribution.ModuleName (components, ModuleName(..))
-import Data.ByteString.Char8 (ByteString(..))
+import Distribution.ModuleName (components, ModuleName)
+import Data.ByteString.Char8 (ByteString)
 import Distribution.Text (simpleParse, display)
 import qualified Data.ByteString.Char8 as  BS (unpack, empty)
 import qualified Data.Map as Map (lookup,keysSet,splitLookup, insertWith,empty,elems,union)
@@ -83,6 +83,7 @@ import Data.Version (Version(..))
 --  | Information about the system, extraced from .hi and source files
 --
 
+leksahVersion, configDirName :: String
 leksahVersion = "0.7"
 configDirName = ".leksah-" ++ leksahVersion
 
@@ -125,15 +126,15 @@ class SymbolTable alpha  where
     symUnion        :: alpha -> alpha -> alpha
 
 instance SymbolTable (Map String [Descr]) where
-    symLookup str map  = case str `Map.lookup` map of
+    symLookup str smap  = case str `Map.lookup` smap of
                                 Just dl -> dl
                                 Nothing -> []
-    symbols            = Map.keysSet
-    symSplitLookup     = Map.splitLookup
-    symInsert          = Map.insertWith (++)
-    symEmpty           = Map.empty
-    symElems           = Map.elems
-    symUnion           = Map.union
+    symbols             = Map.keysSet
+    symSplitLookup      = Map.splitLookup
+    symInsert           = Map.insertWith (++)
+    symEmpty            = Map.empty
+    symElems            = Map.elems
+    symUnion            = Map.union
 
 data PackageDescr       =   PackageDescr {
         pdPackage           ::   PackageIdentifier
@@ -225,7 +226,7 @@ dscTypeHint (Reexported d)      = dscTypeHint (dsrDescr d)
 dscTypeHint (Real d)            = dscTypeHint' d
 
 dscExported :: Descr -> Bool
-dscExported (Reexported d)      = True
+dscExported (Reexported _)      = True
 dscExported (Real d)            = dscExported' d
 
 data TypeDescr   =
@@ -313,8 +314,8 @@ instance Show (Present Descr) where
                                 Nothing -> id
               c com     =   showString $ unlines
                                 $ map (\(i,l) -> if i == 0 then "-- | " ++ l else "--  " ++ l)
-                                    $ zip [0 .. length lines - 1] lines
-                                where lines = nonEmptyLines (BS.unpack com)
+                                    $ zip [0 .. length nelines - 1] nelines
+                                where nelines = nonEmptyLines (BS.unpack com)
               t         =   case dscMbTypeStr descr of
                                 Just ti -> showString $ BS.unpack ti
                                 Nothing -> id
@@ -386,10 +387,10 @@ data ImportDecl = ImportDecl
   deriving (Eq,Ord,Read,Show)
 
 instance Pretty ImportDecl where
-	pretty (ImportDecl loc mod qual _ _ mbName mbSpecs) =
+	pretty (ImportDecl _ mod' qual _ _ mbName mbSpecs) =
 		mySep [text "import",
 		       if qual then text "qualified" else empty,
-		       pretty mod,
+		       pretty mod',
 		       maybePP (\m' -> text "as" <+> pretty m') mbName,
 		       maybePP exports mbSpecs]
 	    where
@@ -471,14 +472,14 @@ instance NFData ModuleDescr where
                     `seq`    rnf (mdIdDescriptions pd)
 
 instance NFData Descr where
-    rnf (Real (RealDescr dscName' dscMbTypeStr' dscMbModu'
-        dscMbLocation' dscMbComment' dscTypeHint' dscExported'))  =  rnf dscName'
-                    `seq`    rnf dscMbTypeStr'
-                    `seq`    rnf dscMbModu'
-                    `seq`    rnf dscMbLocation'
-                    `seq`    rnf dscMbComment'
-                    `seq`    rnf dscTypeHint'
-                    `seq`    rnf dscExported'
+    rnf (Real (RealDescr dscName'' dscMbTypeStr'' dscMbModu''
+        dscMbLocation'' dscMbComment'' dscTypeHint'' dscExported''))  =  rnf dscName''
+                    `seq`    rnf dscMbTypeStr''
+                    `seq`    rnf dscMbModu''
+                    `seq`    rnf dscMbLocation''
+                    `seq`    rnf dscMbComment''
+                    `seq`    rnf dscTypeHint''
+                    `seq`    rnf dscExported''
 
     rnf (Reexported (ReexportedDescr reexpModu' impDescr')) = rnf reexpModu'
                     `seq`    rnf impDescr'

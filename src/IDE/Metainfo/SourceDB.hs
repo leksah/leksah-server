@@ -24,7 +24,7 @@ module IDE.Metainfo.SourceDB (
 
 import IDE.StrippedPrefs
        (getUnpackDirectory, getSourceDirectories, Prefs(..))
-import Data.Map (Map(..))
+import Data.Map (Map)
 import Distribution.Package (PackageIdentifier(..))
 import IDE.Utils.Utils (standardSourcesFilename)
 import qualified Data.Map as Map
@@ -34,14 +34,14 @@ import IDE.Utils.FileUtils
 import System.Directory (doesFileExist, canonicalizePath)
 import Data.List (foldl')
 import qualified Text.PrettyPrint as PP
-       (colon, (<>), text, ($$), vcat, Doc(..), render, char)
+       (colon, (<>), text, ($$), vcat, Doc, render, char)
 import Text.ParserCombinators.Parsec
-       (try, char, unexpected, noneOf, eof, many, CharParser(..),
+       (try, char, unexpected, noneOf, eof, many, CharParser,
         parseFromFile, (<?>), (<|>))
 import Text.ParserCombinators.Parsec.Language (emptyDef)
 import qualified Text.ParserCombinators.Parsec.Token as P
-       (symbol, whiteSpace, makeTokenParser, commentLine, commentEnd,
-        commentStart,LanguageDef)
+       (TokenParser(..), makeTokenParser, commentLine,
+        commentEnd, commentStart, LanguageDef)
 import Data.Maybe (catMaybes)
 import IDE.Core.CTypes (packageIdentifierFromString)
 import Paths_leksah_server
@@ -55,20 +55,20 @@ getSourcesMap :: Prefs -> IO (Map PackageIdentifier [FilePath])
 getSourcesMap prefs = do
         mbSources <- parseSourceForPackageDB
         case mbSources of
-            Just map -> return map
+            Just map' -> return map'
             Nothing -> do
                 buildSourceForPackageDB prefs
-                mbSources <- parseSourceForPackageDB
-                case mbSources of
-                    Just map -> do
-                        return map
+                mbSources' <- parseSourceForPackageDB
+                case mbSources' of
+                    Just map'' -> do
+                        return map''
                     Nothing ->  error "can't build/open source for package file"
 
 sourceForPackage :: PackageIdentifier
     -> (Map PackageIdentifier [FilePath])
     -> Maybe FilePath
-sourceForPackage id map =
-    case id `Map.lookup` map of
+sourceForPackage pid pmap =
+    case pid `Map.lookup` pmap of
         Just (h:_)  ->  Just h
         _           ->  Nothing
 
@@ -128,9 +128,14 @@ packageStyle  = emptyDef
                 , P.commentEnd     = "-}"
                 }
 
-lexer       =   P.makeTokenParser packageStyle
-whiteSpace  =   P.whiteSpace lexer
-symbol      =   P.symbol lexer
+lexer :: P.TokenParser st
+lexer = P.makeTokenParser packageStyle
+
+whiteSpace :: CharParser st ()
+whiteSpace = P.whiteSpace lexer
+
+symbol :: String -> CharParser st String
+symbol = P.symbol lexer
 
 sourceForPackageParser :: CharParser () (Map PackageIdentifier [FilePath])
 sourceForPackageParser = do
@@ -204,10 +209,10 @@ cabalMinimalP =
     <|> do
             try $(symbol "version:" <|> symbol "Version:")
             whiteSpace
-            version    <-  (many $noneOf " \n")
+            versionString    <-  (many $noneOf " \n")
             (many $noneOf "\n")
             char '\n'
-            return (Left version)
+            return (Left versionString)
     <|> do
             many $noneOf "\n"
             char '\n'

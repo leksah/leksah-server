@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -XCPP #-}
+{-# OPTIONS_GHC -XCPP -fno-warn-orphans #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.Utils.GHCUtils
@@ -34,7 +34,7 @@ import FastString (mkFastString)
 import Lexer (mkPState,ParseResult(..),getMessages,unP)
 import Outputable (ppr)
 import ErrUtils (dumpIfSet_dyn,printErrorsAndWarnings,mkPlainErrMsg,showPass,ErrMsg(..))
-import PackageConfig (PackageConfig(..))
+import PackageConfig (PackageConfig)
 import Data.Foldable (maximumBy)
 import qualified Parser as P (parseModule,parseHeader)
 import HscStats (ppSourceStats)
@@ -49,19 +49,19 @@ instance MonadIO Ghc where
   liftIO ioA = Ghc $ \_ -> ioA
 
 inGhcIO :: [String] -> [DynFlag] -> (DynFlags -> Ghc a) -> IO a
-inGhcIO flags udynFlags ghcAct = do
-    debugM "leksah-server" $ "inGhcIO called with: " ++ show flags
+inGhcIO flags' udynFlags ghcAct = do
+    debugM "leksah-server" $ "inGhcIO called with: " ++ show flags'
     libDir         <-   getSysLibDir
---    (restFlags, _) <-   parseStaticFlags (map noLoc flags)
+--    (restFlags, _) <-   parseStaticFlags (map noLoc flags')
     runGhc (Just libDir) $ do
         dynflags  <- getSessionDynFlags
-        let dynflags' = foldl (\ flags' flag' -> dopt_set flags' flag') dynflags udynFlags
+        let dynflags' = foldl (\ flags'' flag' -> dopt_set flags'' flag') dynflags udynFlags
         let dynflags'' = dynflags' {
             hscTarget = HscNothing,
             ghcMode   = CompManager,
             ghcLink   = NoLink
             }
-        dynflags''' <- parseGhcFlags dynflags'' (map noLoc flags) flags
+        dynflags''' <- parseGhcFlags dynflags'' (map noLoc flags') flags'
         res <- defaultCleanupHandler dynflags''' $ do
             setSessionDynFlags dynflags'''
             ghcAct dynflags'''
@@ -70,7 +70,7 @@ inGhcIO flags udynFlags ghcAct = do
     where
         parseGhcFlags :: DynFlags -> [Located String]
                   -> [String] -> Ghc DynFlags
-        parseGhcFlags dynflags flags_ origFlags = do
+        parseGhcFlags dynflags flags_ _origFlags = do
         (dynflags', rest, _) <- parseDynamicFlags dynflags flags_
         if not (null rest)
             then do
@@ -129,15 +129,15 @@ myParseModule dflags src_filename maybe_src_buf
 	-- sometimes we already have the buffer in memory, perhaps
 	-- because we needed to parse the imports out of it, or get the
 	-- module name.
-      buf <- case maybe_src_buf of
+      buf' <- case maybe_src_buf of
 		Just b  -> return b
 		Nothing -> hGetStringBuffer src_filename
 
       let loc  = mkSrcLoc (mkFastString src_filename) 1 0
 
-      case unP P.parseModule (mkPState buf loc dflags) of {
+      case unP P.parseModule (mkPState buf' loc dflags) of {
 
-	PFailed span err -> return (Left (mkPlainErrMsg span err));
+	PFailed span' err -> return (Left (mkPlainErrMsg span' err));
 
 	POk pst rdr_module -> do {
 
@@ -155,14 +155,14 @@ myParseModule dflags src_filename maybe_src_buf
       }}
 
 myParseHeader :: FilePath -> String -> [String] -> IO (Either String (HsModule RdrName))
-myParseHeader fp str opts = inGhcIO opts [Opt_Cpp] $ \ dynFlags -> do
+myParseHeader fp _str opts = inGhcIO opts [Opt_Cpp] $ \ _dynFlags -> do
     session   <- getSession
     (dynFlags',fp')    <-  preprocess session (fp,Nothing)
     liftIO $ do
         stringBuffer  <-  hGetStringBuffer fp'
         parseResult   <-  myParseModuleHeader dynFlags' fp (Just stringBuffer)
         case parseResult of
-            Right (L _ mod) -> return (Right mod)
+            Right (L _ mod') -> return (Right mod')
             Left errMsg         -> do
                 let str =  "Failed to parse " ++ show errMsg
                 return (Left str)
@@ -180,15 +180,15 @@ myParseModuleHeader dflags src_filename maybe_src_buf
 	-- sometimes we already have the buffer in memory, perhaps
 	-- because we needed to parse the imports out of it, or get the
 	-- module name.
-      buf <- case maybe_src_buf of
+      buf' <- case maybe_src_buf of
 		Just b  -> return b
 		Nothing -> hGetStringBuffer src_filename
 
       let loc  = mkSrcLoc (mkFastString src_filename) 1 0
 
-      case unP P.parseHeader (mkPState buf loc dflags) of {
+      case unP P.parseHeader (mkPState buf' loc dflags) of {
 
-	PFailed span err -> return (Left (mkPlainErrMsg span err));
+	PFailed span' err -> return (Left (mkPlainErrMsg span' err));
 
 	POk pst rdr_module -> do {
 

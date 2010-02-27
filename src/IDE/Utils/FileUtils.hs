@@ -45,7 +45,7 @@ module IDE.Utils.FileUtils (
 import System.FilePath
        (splitFileName, dropExtension, takeExtension,
         combine, addExtension, (</>), normalise, splitPath)
-import Distribution.ModuleName (toFilePath, ModuleName(..))
+import Distribution.ModuleName (toFilePath, ModuleName)
 import Control.Monad (foldM, filterM)
 import Data.Maybe (catMaybes)
 import qualified Data.List as  List (init, elem)
@@ -60,19 +60,11 @@ import System.Directory
      getHomeDirectory)
 import Text.ParserCombinators.Parsec.Language (haskellDef, haskell)
 import qualified Text.ParserCombinators.Parsec.Token as P
-       (symbol, whiteSpace, identStart, lexeme)
+       (TokenParser(..), identStart)
 import Text.ParserCombinators.Parsec
-    (parse,
-     oneOf,
-     (<|>),
-     alphaNum,
-     noneOf,
-     char,
-     try,
-     (<?>),
-     many,
-     CharParser(..))
-import Data.Set (Set(..))
+       (GenParser, parse, oneOf, (<|>), alphaNum, noneOf, char, try,
+        (<?>), many, CharParser)
+import Data.Set (Set)
 import Data.List
     (isPrefixOf, isSuffixOf, stripPrefix)
 import qualified Data.Set as  Set (empty, fromList)
@@ -89,8 +81,8 @@ import IDE.Core.CTypes(configDirName)
 import qualified Distribution.Text as  T (simpleParse)
 import System.Log.Logger(errorM,warningM,debugM)
 import IDE.Utils.Tool
-import Debug.Trace
 
+haskellSrcExts :: [String]
 haskellSrcExts = ["hs","lhs","chs","hs.pp","lhs.pp","chs.pp","hsc"]
 
 -- | Returns True if the second path is a location which starts with the first path
@@ -257,13 +249,20 @@ moduleNameFromFilePath' fp str = do
         Left str' -> do
             let parseRes = parse moduleNameParser fp str'
             case parseRes of
-                Left err -> do
+                Left _ -> do
                     return Nothing
-                Right str -> return (Just str)
+                Right str'' -> return (Just str'')
 
+lexer :: P.TokenParser st
 lexer = haskell
+
+lexeme :: CharParser st a -> CharParser st a
 lexeme = P.lexeme lexer
+
+whiteSpace :: CharParser st ()
 whiteSpace = P.whiteSpace lexer
+
+symbol :: String -> CharParser st String
 symbol = P.symbol lexer
 
 moduleNameParser :: CharParser () String
@@ -285,6 +284,7 @@ skipPreproc = do
         return ())
     <?> "preproc"
 
+mident :: GenParser Char st String
 mident
         = do{ c <- P.identStart haskellDef
             ; cs <- many (alphaNum <|> oneOf "_'.")
@@ -324,11 +324,13 @@ getCabalUserPackageDir = do
         Just s | "config" `isSuffixOf` s -> return $ Just $ take (length s - 6) s ++ "packages"
         _ -> return Nothing
 
+autoExtractCabalTarFiles :: FilePath -> IO ()
 autoExtractCabalTarFiles filePath = do
     dir <- getCurrentDirectory
     autoExtractTarFiles' filePath
     setCurrentDirectory dir
 
+autoExtractTarFiles :: FilePath -> IO ()
 autoExtractTarFiles filePath = do
     dir <- getCurrentDirectory
     autoExtractTarFiles' filePath
@@ -418,7 +420,7 @@ figureOutHaddockOpts = do
         filterOptGhc []    = []
         filterOptGhc (s:r) = case stripPrefix "--optghc=" s of
                                     Nothing -> filterOptGhc r
-                                    Just s  -> s : filterOptGhc r
+                                    Just s'  -> s' : filterOptGhc r
 
 figureOutGhcOpts :: IO [String]
 figureOutGhcOpts = do
@@ -429,7 +431,7 @@ figureOutGhcOpts = do
         _         -> return []
     where
         findMake [] = Nothing
-        findMake line@(x:xs) =
+        findMake line@(_:xs) =
                 case stripPrefix " --make " line of
                     Nothing -> findMake xs
                     s -> s

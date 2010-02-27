@@ -42,7 +42,7 @@ library
         IDE.Metainfo.WorkspaceCollector IDE.Metainfo.InterfaceCollector
         IDE.Metainfo.SourceCollectorH
         IDE.Metainfo.SourceDB Paths_leksah_server
-    ghc-options: -fwarn-unused-imports -fwarn-missing-fields -fwarn-incomplete-patterns -ferror-spans -O2
+    ghc-options: -Wall -ferror-spans -O2
     ghc-prof-options: -auto-all -prof
 
 executable leksah-server
@@ -67,7 +67,7 @@ executable leksah-server
         IDE.Metainfo.WorkspaceCollector IDE.Metainfo.InterfaceCollector
         IDE.Metainfo.SourceCollectorH IDE.Metainfo.SourceDB IDE.Utils.Tool
         IDE.HeaderParser
-    ghc-options:-threaded -O2
+    ghc-options: -Wall -ferror-spans -threaded -O2
     ghc-prof-options: -auto-all -prof
 
 executable leksahecho
@@ -77,6 +77,6 @@ executable leksahecho
     hs-source-dirs: src
     ghc-prof-options: -auto-all -prof
     ghc-shared-options: -auto-all -prof
-    ghc-options: -fwarn-unused-imports -fwarn-missing-fields -fwarn-incomplete-patterns -ferror-spans
+    ghc-options: -Wall -ferror-spans
 
 

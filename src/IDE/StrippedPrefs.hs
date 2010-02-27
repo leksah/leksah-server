@@ -40,6 +40,7 @@ data Prefs = Prefs {
     ,   serverPort          ::   Int
 } deriving(Eq,Show)
 
+defaultPrefs :: Prefs
 defaultPrefs = Prefs {
         sourceDirectories   =   []
     ,   unpackDirectory     =   Nothing

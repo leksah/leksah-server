@@ -37,14 +37,14 @@ parseTheHeader filePath = do
         Left str                                      -> return (ServerFailed str)
         Right (pr@HsModule{ hsmodImports = []})       -> do
             let i = case hsmodDecls pr of
-                        decls@(hd:tl) -> (foldl (\ a b -> min a (srcSpanStartLine (getLoc b))) 0 decls) - 1
+                        decls@(_hd:_tl) -> (foldl (\ a b -> min a (srcSpanStartLine (getLoc b))) 0 decls) - 1
                         [] -> case hsmodExports pr of
                             Just list ->  (foldl (\ a b -> max a (srcSpanEndLine (getLoc b))) 0 list) + 1
                             Nothing -> case hsmodName pr of
                                         Nothing -> 0
                                         Just mn -> srcSpanEndLine (getLoc mn) + 2
             return (ServerHeader (Right i))
-        Right (pr@HsModule{ hsmodImports = imports }) -> return (ServerHeader (Left (transformImports imports)))
+        Right (_pr@HsModule{ hsmodImports = imports }) -> return (ServerHeader (Left (transformImports imports)))
 
 transformImports :: [LImportDecl RdrName] -> [ImportDecl]
 transformImports = map transformImport
@@ -80,8 +80,8 @@ transformEntity (L _ (IEThingWith name list))   = Just (IThingWith (showRdrName 
 transformEntity  _                              = Nothing
 
 srcSpanToLocation :: SrcSpan -> Location
-srcSpanToLocation span | not (isGoodSrcSpan span)
+srcSpanToLocation span' | not (isGoodSrcSpan span')
     =   error "srcSpanToLocation: unhelpful span"
-srcSpanToLocation span
-    =   Location (srcSpanStartLine span) (srcSpanStartCol span)
-                 (srcSpanEndLine span) (srcSpanEndCol span)
+srcSpanToLocation span'
+    =   Location (srcSpanStartLine span') (srcSpanStartCol span')
+                 (srcSpanEndLine span') (srcSpanEndCol span')

@@ -19,6 +19,7 @@ main
 import System.Environment (getArgs)
 import IDE.Utils.FileUtils (getHaddockVersion, getGhcVersion)
 
+main :: IO ()
 main = do
     args <- getArgs
     if elem  "--version" args

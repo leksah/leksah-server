@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -XDeriveDataTypeable #-}
+{-# OPTIONS_GHC -XDeriveDataTypeable -fno-warn-missing-signatures #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.Utils.Utils

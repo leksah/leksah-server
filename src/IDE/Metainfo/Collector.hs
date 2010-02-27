@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -XScopedTypeVariables #-}
+{-# OPTIONS_GHC -XScopedTypeVariables -fno-warn-type-defaults #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  Main
@@ -32,8 +32,7 @@ import IDE.Utils.GHCUtils
 import IDE.StrippedPrefs
 import IDE.Metainfo.WorkspaceCollector
 import Data.Maybe(catMaybes, fromJust, mapMaybe, isJust)
-import Distribution.Text (display, simpleParse)
-import MyMissing(split)
+import Distribution.Text (display)
 import Prelude hiding(catch)
 import Debug.Trace
 import Control.Monad (liftM)
@@ -41,7 +40,7 @@ import System.Directory (removeDirectoryRecursive, doesFileExist, removeFile, do
 import qualified Data.Set as Set (member)
 import IDE.Core.CTypes hiding (Extension)
 import qualified Distribution.InstalledPackageInfo as IPI
-import PackageConfig (PackageConfig(..))
+import PackageConfig (PackageConfig)
 import TcRnMonad (MonadIO(..))
 import System.FilePath ((<.>), (</>))
 import IDE.Metainfo.SourceCollectorH
@@ -53,21 +52,23 @@ import Control.Exception
        (catch, SomeException)
 import MyMissing(trim)
 import System.Log
-import System.Log.Logger(updateGlobalLogger,rootLoggerName,addHandler,debugM,infoM,warningM,errorM,
-    getRootLogger, saveGlobalLogger, setLevel)
+import System.Log.Logger(updateGlobalLogger,rootLoggerName,addHandler,debugM,infoM,errorM,
+    setLevel)
 import System.Log.Handler.Simple(fileHandler)
 import Network(withSocketsDo)
 import Network.Socket (SocketType(..), iNADDR_ANY, SockAddr(..),PortNumber(..))
 import IDE.Utils.Server
-import System.IO (hPutStrLn, hGetLine, hFlush,hClose)
+import System.IO (Handle, hPutStrLn, hGetLine, hFlush, hClose)
 import IDE.HeaderParser(parseTheHeader)
 import System.Process (system)
-import GHC.IOBase (ExitCode(..))
+import System.Exit (ExitCode(..))
+import Distribution.Package (PackageIdentifier(..))
 
 -- --------------------------------------------------------------------
 -- Command line options
 --
 
+getThisPackage :: PackageConfig -> PackageIdentifier
 #if MIN_VERSION_Cabal(1,8,0)
 getThisPackage    =   IPI.sourcePackageId
 #else
@@ -80,7 +81,7 @@ data Flag =    CollectSystem
              --modifiers
              | Rebuild
              | Sources
-             | Directory FilePath
+             -- | Directory FilePath
              --others
              | VersionF
              | Help
@@ -113,6 +114,7 @@ options =   [
                 "File path for logging messages"
     ]
 
+header :: String
 header = "Usage: leksah-collector [OPTION...] files..."
 
 ideOpts :: [String] -> IO ([Flag], [String])
@@ -125,6 +127,7 @@ ideOpts argv =
 -- | Main function
 --
 
+main :: IO ()
 main =  withSocketsDo $ catch inner handler
     where
         handler (e :: SomeException) = do
@@ -134,7 +137,7 @@ main =  withSocketsDo $ catch inner handler
         inner = do
             args            <- getArgs
             (o,_)           <- ideOpts args
-            fp              <- getConfigFilePathForSave "collectorl.lkslo"
+            _fp             <- getConfigFilePathForSave "collectorl.lkslo"
             let verbosity'   =  catMaybes $
                                     map (\x -> case x of
                                         Verbosity s -> Just s
@@ -151,8 +154,8 @@ main =  withSocketsDo $ catch inner handler
                                     h:_ -> Just h
             updateGlobalLogger rootLoggerName (\ l -> setLevel verbosity l)
             when (isJust logFile) $  do
-                handler <- fileHandler (fromJust logFile) verbosity
-                updateGlobalLogger rootLoggerName (\ l -> addHandler handler l)
+                handler' <- fileHandler (fromJust logFile) verbosity
+                updateGlobalLogger rootLoggerName (\ l -> addHandler handler' l)
             infoM "leksah-server" $ "***server start"
             debugM "leksah-server" $ "args: " ++ show args
             dataDir         <- getDataDir
@@ -191,10 +194,11 @@ main =  withSocketsDo $ catch inner handler
 
         server port prefs = Server (SockAddrInet port iNADDR_ANY) Stream (doCommands prefs)
 
+doCommands :: Prefs -> (Handle, t1, t2) -> IO ()
 doCommands prefs (h,n,p) = do
     debugM "leksah-server" $ "***wait"
     mbLine <- catch (liftM Just (hGetLine h))
-                (\ (e :: SomeException) -> do
+                (\ (_e :: SomeException) -> do
                     infoM "leksah-server" $ "***lost connection"
                     hClose h
                     return Nothing)
@@ -202,7 +206,7 @@ doCommands prefs (h,n,p) = do
         Nothing -> return ()
         Just line -> do
             case read line of
-                    SystemCommand rebuild sources extract -> --the extract arg is not used
+                    SystemCommand rebuild sources _extract -> --the extract arg is not used
                         catch (do
                             collectSystem prefs False rebuild sources
                             hPutStrLn h (show ServerOK)
@@ -235,15 +239,15 @@ collectSystem prefs writeAscii forceRebuild findSources = do
         exists           <- doesDirectoryExist collectorPath
         when exists $ removeDirectoryRecursive collectorPath
         reportPath       <-  getConfigFilePathForSave "collectSystem.report"
-        exists           <- doesFileExist reportPath
-        when exists (removeFile reportPath)
+        exists'          <- doesFileExist reportPath
+        when exists' (removeFile reportPath)
         return ()
     knownPackages       <-  findKnownPackages collectorPath
     debugM "leksah-server" $ "collectSystem knownPackages= " ++ show knownPackages
     packageInfos        <-  inGhcIO [] [] $  \ _ -> getInstalledPackageInfos
     debugM "leksah-server" $ "collectSystem packageInfos= " ++ show (map IPI.package packageInfos)
-    let newPackages     =   filter (\pi -> not $Set.member (packageIdentifierToString $ getThisPackage pi)
-                                                        knownPackages)
+    let newPackages     =   filter (\pid -> not $Set.member (packageIdentifierToString $ getThisPackage pid)
+                                                         knownPackages)
                                     packageInfos
     if null newPackages
         then do
@@ -261,8 +265,8 @@ writeStats stats = do
     appendFile reportPath (report time)
     where
         report time = "\n++++++++++++++++++++++++++++++\n" ++ show time ++ "\n++++++++++++++++++++++++++++++\n"
-                        ++ header time ++ summary ++ details
-        header time = "\nLeksah system metadata collection "
+                        ++ header' time ++ summary ++ details
+        header' _time = "\nLeksah system metadata collection "
         summary = "\nSuccess with         = " ++ packs ++
                   "\nPackages total       = " ++ show packagesTotal ++
                   "\nPackages with source = " ++ show packagesWithSource ++
@@ -297,7 +301,6 @@ collectPackage writeAscii prefs packageConfig = trace ("collectPackage " ++ disp
                 Just url -> do
                     collectorPath   <- liftIO $ getCollectorPath
                     setCurrentDirectory collectorPath
-                    ghcVersion <- getGhcVersion
                     let fullUrl = url ++ "/metadata-" ++ leksahVersion ++ "/" ++ packString ++ leksahMetadataSystemFileExtension
                     debugM "leksah-server" $ "collectPackage: before retreiving = " ++ fullUrl
                     catch (system $ "wget " ++ fullUrl)
@@ -328,6 +331,7 @@ collectPackage writeAscii prefs packageConfig = trace ("collectPackage " ++ disp
         (Nothing,stat,Nothing) ->  do
             liftIO $ writeExtractedPackage False packageDescrHI
             return (stat {modulesTotal = Just (length (pdModules packageDescrHI))})
+        _ -> fail "Unexpected error in collectPackage"
 
 writeExtractedPackage :: MonadIO m => Bool -> PackageDescr -> m ()
 writeExtractedPackage writeAscii pd = do
@@ -395,10 +399,10 @@ makePairs (hd:tl) srcList = (Just hd, theMatching)
                                                 Nothing -> srcList)
     where
         theMatching          = findMatching hd srcList
-        findMatching ele (hd:tail)
-            | matches ele hd = Just hd
-            | otherwise      = findMatching ele tail
-        findMatching ele []  = Nothing
+        findMatching ele (hd':tail')
+            | matches ele hd' = Just hd'
+            | otherwise       = findMatching ele tail'
+        findMatching _ele []  = Nothing
         matches :: Descr -> Descr -> Bool
         matches d1 d2 = (descrType . dscTypeHint) d1 == (descrType . dscTypeHint) d2
 makePairs [] rest = map (\ a -> (Nothing, Just a)) rest
@@ -434,9 +438,9 @@ mergeTypeDescr (DataDescr constrListHi fieldListHi) (DataDescr constrListSrc fie
     DataDescr (mergeSimpleDescrs constrListHi constrListSrc) (mergeSimpleDescrs fieldListHi fieldListSrc)
 mergeTypeDescr (NewtypeDescr constrHi mbFieldHi) (NewtypeDescr constrSrc mbFieldSrc)       =
     NewtypeDescr (mergeSimpleDescr constrHi constrSrc) (mergeMbDescr mbFieldHi mbFieldSrc)
-mergeTypeDescr (ClassDescr superHi methodsHi) (ClassDescr superSrc methodsSrc)             =
+mergeTypeDescr (ClassDescr superHi methodsHi) (ClassDescr _superSrc methodsSrc)            =
     ClassDescr superHi (mergeSimpleDescrs methodsHi methodsSrc)
-mergeTypeDescr (InstanceDescr bindsHi) (InstanceDescr bindsSrc)                            =
+mergeTypeDescr (InstanceDescr _bindsHi) (InstanceDescr bindsSrc)                           =
     InstanceDescr bindsSrc
 mergeTypeDescr descrHi _                                                                   =
     descrHi

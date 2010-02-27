@@ -49,6 +49,7 @@ type ServerRoutine = (Handle, HostName, PortNumber) -> IO ()
 
 serverSocket' :: Server -> IO Socket
 serverSocket' (Server (SockAddrInet _ _) t _) = socket AF_INET t defaultProtocol
+serverSocket' _ = fail "Unexpected Socket Address Type"
 
 serverSocket :: Server -> IO (Socket, Server)
 serverSocket server = do

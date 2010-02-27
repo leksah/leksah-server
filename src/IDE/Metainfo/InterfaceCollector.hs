@@ -33,10 +33,10 @@ import Name
 import PrelNames
 #if MIN_VERSION_ghc(6,12,1)
 import PackageConfig
-       (PackageConfig(..), mkPackageId, packageConfigToInstalledPackageInfo)
+       (PackageConfig, mkPackageId, packageConfigToInstalledPackageInfo)
 #else
 import PackageConfig
-       (PackageConfig(..), mkPackageId)
+       (PackageConfig, mkPackageId)
 #endif
 import qualified PackageConfig as DP
 import TcRnTypes
@@ -56,12 +56,13 @@ import System.FilePath
 import qualified Data.ByteString.Char8 as BS
 import IDE.Core.Serializable ()
 import IDE.Core.CTypes
-import Data.ByteString.Char8 (ByteString(..))
+import Data.ByteString.Char8 (ByteString)
 import TcRnMonad (initTcRnIf)
 import Debug.Trace (trace)
 import IDE.Utils.GHCUtils
 import Control.DeepSeq(deepseq)
 
+getThisPackage :: PackageConfig -> PackageIdentifier
 #if MIN_VERSION_Cabal(1,8,0)
 getThisPackage    =   IPI.sourcePackageId
 #else
@@ -86,7 +87,7 @@ collectPackageFromHI  packageConfig = trace ("collectPackageFromHI " ++ display 
 
 
 getIFaceInfos :: PackageIdentifier -> [Module.ModuleName] -> HscEnv -> Ghc [(ModIface, FilePath)]
-getIFaceInfos pid modules session = do
+getIFaceInfos pid modules _session = do
     let isBase          =   pkgName pid == (PackageName "base")
     let ifaces          =   mapM (\ mn -> findAndReadIface empty
                                           (if isBase
@@ -100,20 +101,20 @@ getIFaceInfos pid modules session = do
     return res
     where
         handleErr (M.Succeeded val)   =   Just val
-        handleErr (M.Failed mess)     =   Nothing
+        handleErr (M.Failed _mess)    =   Nothing
 
 -------------------------------------------------------------------------
 
 extractInfo :: [(ModIface, FilePath)] -> [(ModIface, FilePath)] -> PackageIdentifier ->
                     [PackageIdentifier] -> PackageDescr
-extractInfo  ifacesExp ifacesHid pi depends =
-    let allDescrs           =   concatMap (extractExportedDescrH pi)
+extractInfo  ifacesExp ifacesHid pid buildDepends =
+    let allDescrs           =   concatMap (extractExportedDescrH pid)
                                     (map fst (ifacesHid ++ ifacesExp))
-        mods                =   map (extractExportedDescrR pi allDescrs) (map fst ifacesExp)
+        mods                =   map (extractExportedDescrR pid allDescrs) (map fst ifacesExp)
     in PackageDescr {
-        pdPackage           =   pi
+        pdPackage           =   pid
     ,   pdModules           =   mods
-    ,   pdBuildDepends      =   depends
+    ,   pdBuildDepends      =   buildDepends
     ,   pdMbSourcePath      =   Nothing}
 
 extractExportedDescrH :: PackageIdentifier -> ModIface -> [Descr]
@@ -177,17 +178,17 @@ extractIdentifierDescr package modules decl
             (IfaceId _ _ _)
 #endif
                 -> map Real [descr]
-            (IfaceData name _ _ ifCons _ _ _ _)
-                -> let d = case ifCons of
-                            IfDataTyCon decls
+            (IfaceData name _ _ ifCons' _ _ _ _)
+                -> let d = case ifCons' of
+                            IfDataTyCon _decls
                                 ->  let
-                                        fieldNames          =   concatMap extractFields (visibleIfConDecls ifCons)
-                                        constructors'       =   extractConstructors name (visibleIfConDecls ifCons)
+                                        fieldNames          =   concatMap extractFields (visibleIfConDecls ifCons')
+                                        constructors'       =   extractConstructors name (visibleIfConDecls ifCons')
                                     in DataDescr constructors' fieldNames
                             IfNewTyCon _
                                 ->  let
-                                        fieldNames          =   concatMap extractFields (visibleIfConDecls ifCons)
-                                        constructors'       =   extractConstructors name (visibleIfConDecls ifCons)
+                                        fieldNames          =   concatMap extractFields (visibleIfConDecls ifCons')
+                                        constructors'       =   extractConstructors name (visibleIfConDecls ifCons')
                                         mbField             =   case fieldNames of
                                                                     [] -> Nothing
                                                                     [fn] -> Just fn
@@ -201,9 +202,9 @@ extractIdentifierDescr package modules decl
                             IfAbstractTyCon ->  DataDescr [] []
                             IfOpenDataTyCon ->  DataDescr [] []
                     in [Real (descr{dscTypeHint' = d})]
-            (IfaceClass context _ _ _ _ ifSigs _ )
+            (IfaceClass context _ _ _ _ ifSigs' _ )
                         ->  let
-                                classOpsID          =   map extractClassOp ifSigs
+                                classOpsID          =   map extractClassOp ifSigs'
                                 superclasses        =   extractSuperClassNames context
                             in [Real $ descr{dscTypeHint' = ClassDescr superclasses classOpsID}]
             (IfaceSyn _ _ _ _ _ )
@@ -238,7 +239,7 @@ extractFieldNames :: OccName -> String
 extractFieldNames occName = unpackFS $occNameFS occName
 
 extractClassOp :: IfaceClassOp -> SimpleDescr
-extractClassOp (IfaceClassOp occName dm ty) = SimpleDescr (unpackFS $occNameFS occName)
+extractClassOp (IfaceClassOp occName _dm ty) = SimpleDescr (unpackFS $occNameFS occName)
                                                 (Just (BS.pack $ showSDocUnqual (ppr ty)))
                                                 Nothing Nothing True
 
@@ -266,12 +267,12 @@ extractInstances pm ifaceInst  =
 
 
 extractUsages :: Usage -> (ModuleName, Set String)
-extractUsages (UsagePackageModule usg_mod _ ) =
-    let name    =   (fromJust . simpleParse . moduleNameString) (moduleName usg_mod)
+extractUsages (UsagePackageModule usg_mod' _ ) =
+    let name    =   (fromJust . simpleParse . moduleNameString) (moduleName usg_mod')
     in (name, Set.fromList [])
-extractUsages (UsageHomeModule usg_mod_name _ usg_entities _) =
-    let name    =   (fromJust . simpleParse . moduleNameString) usg_mod_name
-        ids     =   map (showSDocUnqual . ppr . fst) usg_entities
+extractUsages (UsageHomeModule usg_mod_name' _ usg_entities' _) =
+    let name    =   (fromJust . simpleParse . moduleNameString) usg_mod_name'
+        ids     =   map (showSDocUnqual . ppr . fst) usg_entities'
     in (name, Set.fromList ids)
 
 filterExtras, filterExtras' :: String -> String

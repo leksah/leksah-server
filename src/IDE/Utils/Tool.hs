@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -XRecordWildCards -XCPP -XBangPatterns #-}
+{-# OPTIONS_GHC -XRecordWildCards -XCPP -XBangPatterns -fno-warn-orphans #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.Utils.Tool
@@ -34,21 +34,17 @@ module IDE.Utils.Tool (
 
 ) where
 
-import System.IO
 import Control.Concurrent
     (takeMVar,
      putMVar,
      newEmptyMVar,
-     newMVar,
      forkIO,
-     forkOS,
      newChan,
-     MVar(..),
-     Chan(..),
+     MVar,
+     Chan,
      writeChan,
      getChanContents,
-     dupChan,
-     ThreadId)
+     dupChan)
 import Control.Monad (when)
 import Data.List (stripPrefix)
 import Data.Maybe (isJust, catMaybes)
@@ -57,18 +53,23 @@ import System.Posix (sigQUIT, sigINT, installHandler)
 import System.Posix.Signals (Handler(..))
 #endif
 import System.Process
-    (waitForProcess, ProcessHandle(..), runInteractiveProcess)
-import System.IO.Unsafe(unsafePerformIO)
-import Control.Exception(finally)
+    (waitForProcess, ProcessHandle, runInteractiveProcess)
 import Control.DeepSeq
 import System.Log.Logger (debugM, criticalM)
+import System.Exit (ExitCode(..))
+import System.IO (hGetContents, hFlush, hPutStrLn, Handle)
 
-data ToolOutput = ToolInput String | ToolError String | ToolOutput String deriving(Eq, Show)
+data ToolOutput = ToolInput String | ToolError String | ToolOutput String | ToolExit ExitCode deriving(Eq, Show)
+
+instance NFData ExitCode where
+    rnf ExitSuccess = rnf ()
+    rnf (ExitFailure failureCode) = rnf failureCode
 
 instance  NFData ToolOutput where
     rnf (ToolInput s) = rnf s
     rnf (ToolError s) = rnf s
     rnf (ToolOutput s) = rnf s
+    rnf (ToolExit code) = rnf code
 
 
 data ToolCommand = ToolCommand String ([ToolOutput] -> IO ())
@@ -82,18 +83,19 @@ data ToolState = ToolState {
 data RawToolOutput = RawToolOutput ToolOutput
                    | ToolPrompt
                    | ToolOutClosed
-                   | ToolErrClosed
-                   | ToolClosed deriving(Eq, Show)
+                   | ToolErrClosed deriving(Eq, Show)
 
 toolline :: ToolOutput -> String
 toolline (ToolInput l)  = l
 toolline (ToolOutput l) = l
 toolline (ToolError l)  = l
+toolline (ToolExit _code) = []
 
 quoteArg :: String -> String
 quoteArg s | ' ' `elem` s = "\"" ++ (escapeQuotes s) ++ "\""
 quoteArg s                = s
 
+escapeQuotes :: String -> String
 escapeQuotes = foldr (\c s -> if c == '"' then '\\':c:s else c:s) ""
 
 runTool' :: FilePath -> [String] -> Maybe FilePath -> IO ([ToolOutput], ProcessHandle)
@@ -124,7 +126,7 @@ newToolState = do
     return ToolState{..}
 
 runInteractiveTool :: ToolState -> (Handle -> Handle -> Handle -> ProcessHandle -> IO [RawToolOutput]) -> FilePath -> [String] -> IO ()
-runInteractiveTool tool getOutput executable arguments = do
+runInteractiveTool tool getOutput' executable arguments = do
 #if !defined(mingw32_HOST_OS) && !defined(__MINGW32__)
     installHandler sigINT Ignore Nothing
     installHandler sigQUIT Ignore Nothing
@@ -132,7 +134,7 @@ runInteractiveTool tool getOutput executable arguments = do
 
     (inp,out,err,pid) <- runInteractiveProcess executable arguments Nothing Nothing
     putMVar (toolProcess tool) pid
-    output <- getOutput inp out err pid
+    output <- getOutput' inp out err pid
     -- This is handy to show the processed output
     -- forkIO $ forM_ output (putStrLn.show)
     forkIO $ do
@@ -156,11 +158,13 @@ runInteractiveTool tool getOutput executable arguments = do
                 _ -> do
                     criticalM "leksah-server" $ "This should never happen in Tool.hs"
 
+{-
 newInteractiveTool :: (Handle -> Handle -> Handle -> ProcessHandle -> IO [RawToolOutput]) -> FilePath -> [String] -> IO ToolState
-newInteractiveTool getOutput executable arguments = do
+newInteractiveTool getOutput' executable arguments = do
     tool <- newToolState
-    runInteractiveTool tool getOutput executable arguments
+    runInteractiveTool tool getOutput' executable arguments
     return tool
+-}
 
 ghciPrompt :: String
 ghciPrompt = "3KM2KWR7LZZbHdXfHUOA5YBBsJVYoCQnKX"
@@ -191,6 +195,7 @@ ghciStripExpectedError output = case stripPrefix "\n<interactive>:1:0" output of
                                             (maybe rest id (stripPrefix "-28" rest))
                                     Nothing -> Nothing
 
+ghciCommandLineReader :: CommandLineReader
 ghciCommandLineReader    = CommandLineReader {
     stripInitialPrompt   = ghciStripInitialPrompt,
     stripFollowingPrompt = ghciStripFollowingPrompt,
@@ -198,6 +203,7 @@ ghciCommandLineReader    = CommandLineReader {
     stripExpectedError   = ghciStripExpectedError
     }
 
+noInputCommandLineReader :: CommandLineReader
 noInputCommandLineReader = CommandLineReader {
     stripInitialPrompt = const Nothing,
     stripFollowingPrompt = const Nothing,
@@ -235,9 +241,9 @@ getOutput clr inp out err pid = do
     forkIO $ do
         output <- getChanContents testClosed
         when ((ToolOutClosed `elem` output) && (ToolErrClosed `elem` output)) $ do
-            waitForProcess pid
-            writeChan chan ToolClosed
-    fmap (takeWhile ((/=) ToolClosed)) $ getChanContents chan
+            exitCode <- waitForProcess pid
+            writeChan chan (RawToolOutput (ToolExit exitCode))
+    getChanContents chan
     where
         readError chan errors foundExpectedError = do
             case stripExpectedError clr errors of
@@ -254,7 +260,7 @@ getOutput clr inp out err pid = do
 
         readOutput chan output initial foundExpectedError synced = do
             let stripPrompt = (if initial then (stripInitialPrompt clr) else (stripFollowingPrompt clr))
-            let line = getLine stripPrompt output
+            let line = getOutputLine stripPrompt output
             let remaining = drop (length line) output
             case remaining of
                 [] -> do
@@ -281,16 +287,16 @@ getOutput clr inp out err pid = do
                                     writeChan chan ToolPrompt
                                     readOutput chan afterPrompt False foundExpectedError False
                         _ -> return () -- Should never happen
-        getLine _ [] = []
-        getLine _ ('\n':xs) = []
-        getLine stripPrompt output@(x:xs)
+        getOutputLine _ [] = []
+        getOutputLine _ ('\n':_) = []
+        getOutputLine stripPrompt output@(x:xs)
             | isJust (stripPrompt output) = []
-            | otherwise                   = x : (getLine stripPrompt xs)
+            | otherwise                   = x : (getOutputLine stripPrompt xs)
 
 fromRawOutput :: [RawToolOutput] -> [ToolOutput]
 fromRawOutput [] = []
+fromRawOutput (RawToolOutput (ToolExit code):_) = [ToolExit code]
 fromRawOutput (RawToolOutput output:xs) = output : (fromRawOutput xs)
-fromRawOutput (ToolClosed:xs) = []
 fromRawOutput (_:xs) = fromRawOutput xs
 
 getGhciOutput :: Handle -> Handle -> Handle -> ProcessHandle -> IO [RawToolOutput]
@@ -306,7 +312,7 @@ newGhci buildFlags interactiveFlags startupOutputHandler = do
             ToolCommand (":set prompt " ++ ghciPrompt) startupOutputHandler
         putStrLn "Working out GHCi options"
         forkIO $ do
-            (output, pid) <- runTool "runhaskell" (["Setup","build","--with-ghc=leksahecho"] ++ buildFlags) Nothing
+            (output, _) <- runTool "runhaskell" (["Setup","build","--with-ghc=leksahecho"] ++ buildFlags) Nothing
             case catMaybes $ map (findMake . toolline) output of
                 options:_ -> do
                         let newOptions = filterUnwanted options
@@ -321,7 +327,7 @@ newGhci buildFlags interactiveFlags startupOutputHandler = do
         return tool
     where
         findMake [] = Nothing
-        findMake line@(x:xs) =
+        findMake line@(_:xs) =
                 case stripPrefix " --make " line of
                     Nothing -> findMake xs
                     s -> s
@@ -353,7 +359,7 @@ executeGhciCommand tool command handler = do
         fixOutput (x:xs) = x:(fixOutput xs)
         fixOutput [] = []
         fixInput = filter (\x -> (x /= ToolInput ":{") && (x /= ToolInput ":}"))
-        removePrompts fullLine line 0 = line
+        removePrompts _fullLine line 0 = line
         removePrompts fullLine line n = case dropWhile ((/=) '|') line of
             '|':' ':xs -> removePrompts fullLine xs (n-1)
             _ -> fullLine
