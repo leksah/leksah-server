@@ -83,7 +83,8 @@ data ToolState = ToolState {
 data RawToolOutput = RawToolOutput ToolOutput
                    | ToolPrompt
                    | ToolOutClosed
-                   | ToolErrClosed deriving(Eq, Show)
+                   | ToolErrClosed
+                   | ToolClosed deriving(Eq, Show)
 
 toolline :: ToolOutput -> String
 toolline (ToolInput l)  = l
@@ -148,12 +149,16 @@ runInteractiveTool tool getOutput' executable arguments = do
             hPutStrLn inp commandString
             hFlush inp
             let (output, remainingOutputWithPrompt) = span (/= ToolPrompt) allOutput
+            debugM "leksah-server" $ "Start Processing Tool Output for " ++ commandString
             handler $ (map ToolInput (lines commandString)) ++ fromRawOutput output
+            debugM "leksah-server" $ "Done Processing Tool Output for " ++ commandString
             takeMVar (currentToolCommand tool)
             case remainingOutputWithPrompt of
                 (ToolPrompt:remainingOutput) -> do
+                    debugM "leksah-server" $ "Prompt"
                     processCommand remainingCommands inp remainingOutput
                 [] -> do
+                    debugM "leksah-server" $ "Tool Output Closed"
                     putMVar (outputClosed tool) True
                 _ -> do
                     criticalM "leksah-server" $ "This should never happen in Tool.hs"
@@ -243,7 +248,9 @@ getOutput clr inp out err pid = do
         when ((ToolOutClosed `elem` output) && (ToolErrClosed `elem` output)) $ do
             exitCode <- waitForProcess pid
             writeChan chan (RawToolOutput (ToolExit exitCode))
-    getChanContents chan
+            writeChan chan ToolClosed
+            debugM "leksah-server" $ "Tool Exited " ++ show exitCode
+    fmap (takeWhile ((/=) ToolClosed)) $ getChanContents chan
     where
         readError chan errors foundExpectedError = do
             case stripExpectedError clr errors of
@@ -310,15 +317,15 @@ newGhci buildFlags interactiveFlags startupOutputHandler = do
         tool <- newToolState
         writeChan (toolCommands tool) $
             ToolCommand (":set prompt " ++ ghciPrompt) startupOutputHandler
-        putStrLn "Working out GHCi options"
+        debugM "leksah-server" $ "Working out GHCi options"
         forkIO $ do
             (output, _) <- runTool "runhaskell" (["Setup","build","--with-ghc=leksahecho"] ++ buildFlags) Nothing
             case catMaybes $ map (findMake . toolline) output of
                 options:_ -> do
                         let newOptions = filterUnwanted options
-                        putStrLn newOptions
-                        putStrLn "Starting GHCi"
-                        putStrLn $ unwords (words newOptions ++ ["-fforce-recomp"] ++ interactiveFlags)
+                        debugM "leksah-server" $ newOptions
+                        debugM "leksah-server" $ "Starting GHCi"
+                        debugM "leksah-server" $ unwords (words newOptions ++ ["-fforce-recomp"] ++ interactiveFlags)
                         runInteractiveTool tool getGhciOutput "ghci"
                             (words newOptions ++ ["-fforce-recomp"] ++ interactiveFlags)
                 _ -> do
