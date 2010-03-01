@@ -32,15 +32,12 @@ import FastString
 import Name
 import PrelNames
 #if MIN_VERSION_ghc(6,12,1)
-import PackageConfig
-       (PackageConfig, mkPackageId, packageConfigToInstalledPackageInfo)
+import PackageConfig (PackageConfig, mkPackageId)
 #else
 import PackageConfig
        (PackageConfig, mkPackageId)
 #endif
-import qualified PackageConfig as DP
 import TcRnTypes
-import qualified FastString as FS
 import Data.Char (isSpace)
 import qualified Data.Map as Map
 import Data.Maybe
@@ -50,9 +47,6 @@ import qualified Distribution.InstalledPackageInfo as IPI
 import Distribution.Package hiding (PackageId)
 import Distribution.ModuleName
 import Distribution.Text (display, simpleParse)
-import Control.Monad.Reader
-import Data.Maybe
-import System.FilePath
 import qualified Data.ByteString.Char8 as BS
 import IDE.Core.Serializable ()
 import IDE.Core.CTypes

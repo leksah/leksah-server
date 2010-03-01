@@ -109,9 +109,6 @@ data ServerAnswer = ServerOK
     | ServerHeader (Either [ImportDecl] Int)
     deriving (Eq,Ord,Show,Read)
 
-data ImportDecls = ImportDecls
-    deriving (Eq,Ord,Show,Read)
-
 
 data PackScope  alpha       =   SymbolTable alpha => PackScope (Map PackageIdentifier PackageDescr) alpha
 data GenScope           =   forall alpha. SymbolTable alpha  => GenScopeC (PackScope alpha)

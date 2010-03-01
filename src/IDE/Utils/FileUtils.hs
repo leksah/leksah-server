@@ -59,8 +59,13 @@ import System.Directory
      createDirectory,
      getHomeDirectory)
 import Text.ParserCombinators.Parsec.Language (haskellDef, haskell)
+#if MIN_VERSION_parsec(3,0,0)
+import qualified Text.ParserCombinators.Parsec.Token as P
+       (GenTokenParser(..), TokenParser, identStart)
+#else
 import qualified Text.ParserCombinators.Parsec.Token as P
        (TokenParser(..), identStart)
+#endif
 import Text.ParserCombinators.Parsec
        (GenParser, parse, oneOf, (<|>), alphaNum, noneOf, char, try,
         (<?>), many, CharParser)

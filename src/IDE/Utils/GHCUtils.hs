@@ -20,7 +20,10 @@ module IDE.Utils.GHCUtils (
 ,   myParseHeader
 ) where
 
+#if MIN_VERSION_Cabal(1,8,0)
+#else
 import UniqFM (eltsUFM)
+#endif
 import Distribution.Simple (withinRange,PackageIdentifier(..),Dependency(..))
 #if MIN_VERSION_Cabal(1,8,0)
 import qualified Distribution.InstalledPackageInfo as IPI  (sourcePackageId)

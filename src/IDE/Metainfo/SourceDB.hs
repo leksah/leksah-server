@@ -39,9 +39,15 @@ import Text.ParserCombinators.Parsec
        (try, char, unexpected, noneOf, eof, many, CharParser,
         parseFromFile, (<?>), (<|>))
 import Text.ParserCombinators.Parsec.Language (emptyDef)
+#if MIN_VERSION_parsec(3,0,0)
+import qualified Text.ParserCombinators.Parsec.Token as P
+       (GenTokenParser(..), TokenParser, makeTokenParser, commentLine,
+        commentEnd, commentStart, LanguageDef)
+#else
 import qualified Text.ParserCombinators.Parsec.Token as P
        (TokenParser(..), makeTokenParser, commentLine,
         commentEnd, commentStart, LanguageDef)
+#endif
 import Data.Maybe (catMaybes)
 import IDE.Core.CTypes (packageIdentifierFromString)
 import Paths_leksah_server

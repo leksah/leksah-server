@@ -21,10 +21,13 @@ library
     build-depends: Cabal >=1.6.0.1, base >= 4.0.0.0, binary >=0.5.0.0,
                binary-shared >=0.0.1, bytestring >=0.9.0.1, containers >=0.2.0.0,
                directory >=1.0.0.2, filepath >=1.1.0.1, ghc >=6.10.1,
-               haddock-leksah -any, ltk ==0.7, mtl >=1.1.0.2, parsec >=2.1.0.1,
+               ltk ==0.7, mtl >=1.1.0.2, parsec >=2.1.0.1,
                pretty >=1.0.1.0, process >=1.0.1.0, time >= 1.1, deepseq >= 1.1,
                hslogger >= 1.0.7, network >= 2.2 && <= 3.0
-
+    if (impl(ghc >= 6.12))
+       build-depends: haddock-leksah == 2.6.0
+    else 
+       build-depends: haddock-leksah == 2.5.0
     if os(windows)
         build-depends: Win32 >=2.2.0.0
         extra-libraries: kernel32
@@ -42,15 +45,22 @@ library
         IDE.Metainfo.WorkspaceCollector IDE.Metainfo.InterfaceCollector
         IDE.Metainfo.SourceCollectorH
         IDE.Metainfo.SourceDB Paths_leksah_server
-    ghc-options: -Wall -ferror-spans -O2
+    if (impl(ghc >= 6.12))
+       ghc-options: -Wall -fno-warn-unused-do-bind -ferror-spans -threaded -O2
+    else 
+       ghc-options: -Wall -ferror-spans -threaded -O2
     ghc-prof-options: -auto-all -prof
 
 executable leksah-server
     build-depends: Cabal >=1.6.0.1, base >= 4.0.0.0, binary >=0.5.0.0,
                binary-shared >=0.0.1, bytestring >=0.9.0.1, containers >=0.2.0.0,
                directory >=1.0.0.2, filepath >=1.1.0.1, ghc >=6.10.1,
-               haddock-leksah -any, ltk ==0.7, mtl >=1.1.0.2, parsec >=2.1.0.1,
+               ltk ==0.7, mtl >=1.1.0.2, parsec >=2.1.0.1,
                pretty >=1.0.1.0, process >=1.0.1.0, deepseq >= 1.1, network >= 2.2 && <= 3.0
+    if (impl(ghc >= 6.12))
+       build-depends: haddock-leksah == 2.6.0
+    else 
+       build-depends: haddock-leksah == 2.5.0
 
     if os(windows)
         build-depends: Win32 >=2.2.0.0
@@ -67,7 +77,10 @@ executable leksah-server
         IDE.Metainfo.WorkspaceCollector IDE.Metainfo.InterfaceCollector
         IDE.Metainfo.SourceCollectorH IDE.Metainfo.SourceDB IDE.Utils.Tool
         IDE.HeaderParser
-    ghc-options: -Wall -ferror-spans -threaded -O2
+    if (impl(ghc >= 6.12))
+       ghc-options: -Wall -fno-warn-unused-do-bind -ferror-spans -threaded -O2
+    else 
+       ghc-options: -Wall -ferror-spans -threaded -O2
     ghc-prof-options: -auto-all -prof
 
 executable leksahecho
@@ -77,6 +90,9 @@ executable leksahecho
     hs-source-dirs: src
     ghc-prof-options: -auto-all -prof
     ghc-shared-options: -auto-all -prof
-    ghc-options: -Wall -ferror-spans
+    if (impl(ghc >= 6.12))
+       ghc-options: -Wall -fno-warn-unused-do-bind -ferror-spans -threaded -O2
+    else 
+       ghc-options: -Wall -ferror-spans -threaded -O2
 
 

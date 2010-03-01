@@ -22,27 +22,37 @@ module IDE.Metainfo.SourceCollectorH (
 import IDE.Core.CTypes
        (PackageDescr(..), TypeDescr(..), RealDescr(..), Descr(..),
         ModuleDescr(..), PackModule(..), SimpleDescr(..), packageIdentifierToString)
+
+#if MIN_VERSION_haddock_leksah(2,6,0)
+import Haddock.Types
+       (ExportItem(..), DeclInfo,
+        Interface(..),HsDoc(..))
+#else
 import Haddock.Types
        (ExportItem(..), DeclInfo,
         Interface(..))
+#endif
 import Distribution.Text (display, simpleParse)
 import InstEnv (Instance(..))
 import MyMissing
 import Data.Map (Map)
 import qualified Data.Map as Map (empty)
 
-import Outputable (ppr, showSDocUnqual, OutputableBndr)
 import Data.List (nub)
 import qualified Data.ByteString.Char8 as BS (pack)
+#if MIN_VERSION_ghc(6,12,1)
 import IDE.Metainfo.WorkspaceCollector
-       (uncommentData, toComment, srcSpanToLocation, printHsDoc,
-       attachComments, uncommentDecl)
+       (srcSpanToLocation, uncommentDecl, uncommentData, printHsDoc, sortByLoc)
+#else
+import IDE.Metainfo.WorkspaceCollector
+       (srcSpanToLocation, uncommentDecl, uncommentData, sortByLoc)
+#endif
+
 import Name (getOccString,getSrcSpan)
 import PackageConfig (PackageConfig)
 import Haddock.Interface (createInterfaces)
 import Distribution.Verbosity (verbose)
 import qualified Distribution.InstalledPackageInfo as IPI
-import Distribution.InstalledPackageInfo (depends)
 import IDE.StrippedPrefs (getUnpackDirectory, Prefs(..))
 import IDE.Metainfo.SourceDB (sourceForPackage, getSourcesMap)
 import MonadUtils (liftIO)
@@ -59,12 +69,30 @@ import Distribution.Package(PackageIdentifier)
 import GHC hiding(Id,Failed,Succeeded,ModuleName)
 import System.Log.Logger (warningM)
 import Control.DeepSeq (deepseq)
+import Data.ByteString.Char8 (ByteString)
+import Outputable hiding (trace)
+import GHC.Show(showSpace)
 
 getThisPackage :: PackageConfig -> PackageIdentifier
 #if MIN_VERSION_Cabal(1,8,0)
 getThisPackage    =   IPI.sourcePackageId
 #else
 getThisPackage    =   IPI.package
+#endif
+
+type NDoc  = HsDoc Name
+
+isEmptyDoc :: NDoc -> Bool
+isEmptyDoc DocEmpty  = True
+isEmptyDoc _         = False
+
+show' :: Outputable alpha => alpha  -> String
+#if MIN_VERSION_ghc(6,12,1)
+type MyLDocDecl = LDocDecl
+show' = showSDoc . ppr
+#else
+type MyLDocDecl = LDocDecl Name
+show' =  showSDoc . ppr
 #endif
 
 data PackageCollectStats = PackageCollectStats {
@@ -131,7 +159,7 @@ packageFromSource cabalPath packageConfig = trace ("packageFromSource " ++ cabal
             let pd = PackageDescr {
                     pdPackage           =   getThisPackage packageConfig
                 ,   pdModules           =   mods
-                ,   pdBuildDepends      =   depends packageConfig
+                ,   pdBuildDepends      =   [] -- TODO depends packageConfig
                 ,   pdMbSourcePath      =   Just sp}
             let stat = PackageCollectStats packageName (Just (length mods)) True False Nothing
             liftIO $ deepseq pd $ return (Just pd, stat, Just dirPath)
@@ -158,25 +186,34 @@ interfaceToModuleDescr _dirPath pid interface = trace ("interfaceToModuleDescr "
                         (ifaceInstances interface) (ifaceLocals interface)
         imports    = Map.empty --TODO
 
+#if MIN_VERSION_ghc(6,12,1)
 extractDescrs :: PackModule -> Map Name DeclInfo -> [ExportItem Name] -> [Instance] -> [Name] -> [Descr]
 extractDescrs pm _ifaceDeclMap ifaceExportItems' ifaceInstances' _ifaceLocals =
 	transformToDescrs pm exportedDeclInfo ++ map (toDescrInst pm) ifaceInstances'
     where
-        _transformed                                    = transformToDescrs pm exportedDeclInfo
-                                                            ++ map (toDescrInst pm) ifaceInstances'
+        exportedDeclInfo                               =  mapMaybe toDeclInfo  ifaceExportItems'
+        toDeclInfo (ExportDecl decl mbDoc subDocs _)   =
+                                        Just(decl,fst mbDoc,map (\ (a,b) -> (a,fst b)) subDocs)
+        toDeclInfo (ExportNoDecl _ _)                  = Nothing
+        toDeclInfo (ExportGroup _ _ _)                 = Nothing
+        toDeclInfo (ExportDoc _)                       = Nothing
+        toDeclInfo (ExportModule _)                    = Nothing
+#else
+extractDescrs :: PackModule -> Map Name DeclInfo -> [ExportItem Name] -> [Instance] -> [Name] -> [Descr]
+extractDescrs pm _ifaceDeclMap ifaceExportItems' ifaceInstances' _ifaceLocals =
+	transformToDescrs pm exportedDeclInfo ++ map (toDescrInst pm) ifaceInstances'
+    where
         exportedDeclInfo                               =  mapMaybe toDeclInfo  ifaceExportItems'
         toDeclInfo (ExportDecl decl mbDoc subDocs _)   = Just(decl,mbDoc,subDocs)
         toDeclInfo (ExportNoDecl _ _)                  = Nothing
         toDeclInfo (ExportGroup _ _ _)                 = Nothing
         toDeclInfo (ExportDoc _)                       = Nothing
         toDeclInfo (ExportModule _)                    = Nothing
+#endif
 
-
--- transformToDescrs :: PackModule -> [(Decl, Maybe Doc, [(Name, Maybe Doc)])] -> [Descr]
-transformToDescrs :: (OutputableBndr alpha, NamedThing alpha) => PackModule -> [(LHsDecl alpha, Maybe (HsDoc alpha), [(Name, Maybe (HsDoc alpha))])] -> [Descr]
+transformToDescrs :: PackModule -> [(LHsDecl Name, Maybe NDoc, [(Name, Maybe NDoc)])] -> [Descr]
 transformToDescrs pm = concatMap transformToDescr
     where
---    transformToDescr :: (Decl, Maybe Doc, [(Name, Maybe Doc)]) -> [Descr]
     transformToDescr ((L loc (SigD (TypeSig name typ))), mbComment,_subCommentList) =
         [Real $ RealDescr {
         dscName'        =   getOccString (unLoc name)
@@ -261,55 +298,12 @@ toDescrInst pm inst@(Instance is_cls' _is_tcs _is_tvs is_tys' _is_dfun _is_flag)
     ,   dscTypeHint'    =   InstanceDescr (map (showSDocUnqual . ppr) is_tys')
     ,   dscExported'    =   True}
 
-#if MIN_VERSION_Cabal(1,8,0)
-type MaybeDocStrings = [HsDocString]
-
-
-extractMethods :: (OutputableBndr alpha, NamedThing alpha) => [LSig alpha] -> [LDocDecl ] -> [SimpleDescr]
+extractMethods :: [LSig Name] -> [MyLDocDecl] -> [SimpleDescr]
 extractMethods sigs docs =
-    let pairs = attachComments sigs docs
+    let pairs = attachComments' sigs docs
     in mapMaybe extractMethod pairs
 
-extractMethod :: (OutputableBndr alpha, NamedThing alpha) => (LHsDecl alpha, MaybeDocStrings) -> Maybe SimpleDescr
-extractMethod ((L loc (SigD ts@(TypeSig name typ))), mbDoc) =
-    Just $ SimpleDescr
-        (getOccString (unLoc name))
-        (Just (BS.pack (showSDocUnqual $ ppr ts)))
-        (Just (srcSpanToLocation loc))
-        (toComment mbDoc [])
-extractMethod (_, mbDoc) = Nothing
-
-extractConstructor decl@(L loc (ConDecl name _ _ _ _ _ doc _)) =
-    SimpleDescr
-        (getOccString (unLoc name))
-        (Just (BS.pack (showSDocUnqual $ppr (uncommentDecl decl))))
-        (Just (srcSpanToLocation loc))
-        (case doc of
-            Nothing -> Nothing
-            Just (L _ d) -> Just (BS.pack (printHsDoc d)))
-
-
-extractRecordFields (L _ decl@(ConDecl _ _ _ _ (RecCon flds) _ _ _)) =
-    map extractRecordFields' flds
-    where
-    extractRecordFields' field@(ConDeclField (L loc name) typ doc) =
-        SimpleDescr
-            (getOccString name)
-            (Just (BS.pack (showSDocUnqual $ ppr typ)))
-            (Just (srcSpanToLocation loc))
-            (case doc of
-                Nothing -> Nothing
-                Just (L _ d) -> Just (BS.pack (printHsDoc d)))
-            True
-extractRecordFields _ = []
-
-#else
-extractMethods :: (OutputableBndr alpha, NamedThing alpha) => [LSig alpha] -> [LDocDecl alpha] -> [SimpleDescr]
-extractMethods sigs docs =
-    let pairs = attachComments sigs docs
-    in mapMaybe extractMethod pairs
-
-extractMethod :: (OutputableBndr alpha, NamedThing alpha) => (LHsDecl alpha, Maybe (HsDoc alpha)) -> Maybe SimpleDescr
+extractMethod :: (LHsDecl Name, Maybe NDoc) -> Maybe SimpleDescr
 extractMethod ((L loc (SigD ts@(TypeSig name _typ))), mbDoc) =
     Just $ SimpleDescr
         (getOccString (unLoc name))
@@ -319,19 +313,19 @@ extractMethod ((L loc (SigD ts@(TypeSig name _typ))), mbDoc) =
         True
 extractMethod (_, _mbDoc) = Nothing
 
-extractConstructor :: (OutputableBndr alpha, NamedThing alpha) => LConDecl alpha -> SimpleDescr
-extractConstructor decl@(L loc (ConDecl name _ _ _ _ _ doc)) =
+extractConstructor :: LConDecl Name -> SimpleDescr
+extractConstructor decl@(L loc (ConDecl {con_name = name, con_doc = doc})) =
     SimpleDescr
         (getOccString (unLoc name))
         (Just (BS.pack (showSDocUnqual $ppr (uncommentDecl decl))))
         (Just (srcSpanToLocation loc))
         (case doc of
             Nothing -> Nothing
-            Just (L _ d) -> Just (BS.pack (printHsDoc d)))
+            Just (L _ d) -> Just (BS.pack (printHsDoc'' d)))
         True
 
-extractRecordFields :: (OutputableBndr alpha, NamedThing alpha) => LConDecl alpha -> [SimpleDescr]
-extractRecordFields (L _ _decl@(ConDecl _ _ _ _ (RecCon flds) _ _)) =
+extractRecordFields :: LConDecl Name -> [SimpleDescr]
+extractRecordFields (L _ _decl@(ConDecl {con_details=(RecCon flds)})) =
     map extractRecordFields' flds
     where
     extractRecordFields' _field@(ConDeclField (L loc name) typ doc) =
@@ -341,9 +335,90 @@ extractRecordFields (L _ _decl@(ConDecl _ _ _ _ (RecCon flds) _ _)) =
             (Just (srcSpanToLocation loc))
             (case doc of
                 Nothing -> Nothing
-                Just (L _ d) -> Just (BS.pack (printHsDoc d)))
+                Just (L _ d) -> Just (BS.pack (printHsDoc'' d)))
             True
 extractRecordFields _ = []
+
+toComment :: Maybe NDoc -> [NDoc] -> Maybe ByteString
+toComment (Just c) _    =  Just (BS.pack (printHsDoc' c))
+toComment Nothing (c:_) =  Just (BS.pack (printHsDoc' c))
+toComment Nothing []    =  Nothing
+
+
+{--
+    =   addLocationAndComment (l,st) (unLoc lid) loc mbComment' [Data] []
+collectParseInfoForDecl (l,st) ((Just (L loc (TyClD (TyFamily _ lid _ _)))), mbComment')
+    =   addLocationAndComment (l,st) (unLoc lid) loc mbComment' [] []
+collectParseInfoForDecl (l,st) ((Just (L loc (TyClD (ClassDecl _ lid _ _ _ _ _ _ )))), mbComment')
+    =   addLocationAndComment (l,st) (unLoc lid) loc mbComment' [Class] []
+--}
+
+printHsDoc' :: HsDoc Name  -> String
+printHsDoc' d = show (PPDoc d)
+
+#if MIN_VERSION_ghc(6,12,1)
+printHsDoc'' :: HsDocString  -> String
+printHsDoc''  = printHsDoc
+#else
+printHsDoc'' :: HsDoc Name  -> String
+printHsDoc''  = printHsDoc'
 #endif
 
+newtype PPDoc alpha = PPDoc (HsDoc alpha)
 
+instance Outputable alpha => Show (PPDoc alpha)  where
+    showsPrec _ (PPDoc DocEmpty)                 =   id
+    showsPrec _ (PPDoc (DocAppend l r))          =   shows (PPDoc l)  . shows (PPDoc r)
+    showsPrec _ (PPDoc (DocString str))          =   showString str
+    showsPrec _ (PPDoc (DocParagraph d))         =   shows (PPDoc d) . showChar '\n'
+    showsPrec _ (PPDoc (DocIdentifier l))        =   foldr (\i _f -> showChar '\'' .
+                                                     ((showString . showSDoc .  ppr) i) . showChar '\'') id l
+    showsPrec _ (PPDoc (DocModule str))          =   showChar '"' . showString str . showChar '"'
+    showsPrec _ (PPDoc (DocEmphasis doc))        =   showChar '/' . shows (PPDoc doc)  . showChar '/'
+    showsPrec _ (PPDoc (DocMonospaced doc))      =   showChar '@' . shows (PPDoc doc) . showChar '@'
+    showsPrec _ (PPDoc (DocUnorderedList l))     =
+        foldr (\s r -> showString "* " . shows (PPDoc s) . showChar '\n' . r) id l
+    showsPrec _ (PPDoc (DocOrderedList l))       =
+        foldr (\(i,n) _f -> shows n . showSpace .  shows (PPDoc i)) id (zip l [1 .. length l])
+    showsPrec _ (PPDoc (DocDefList li))          =
+        foldr (\(l,r) f -> showString "[@" . shows (PPDoc l) . showString "[@ " . shows (PPDoc r) . f) id li
+    showsPrec _ (PPDoc (DocCodeBlock doc))      =   showChar '@' . shows (PPDoc doc) . showChar '@'
+    showsPrec _ (PPDoc (DocURL str))            =   showChar '<' . showString str . showChar '>'
+    showsPrec _ (PPDoc (DocAName str))          =   showChar '#' . showString str . showChar '#'
+    showsPrec _ (PPDoc _)                       =   id
+
+attachComments' :: [LSig Name] -> [MyLDocDecl] -> [(LHsDecl Name, Maybe (HsDoc Name))]
+attachComments' sigs docs = collectDocs' $ sortByLoc $
+        ((map (\ (L l i) -> L l (SigD i)) sigs) ++ (map (\ (L l i) -> L l (DocD i)) docs))
+
+-- | Collect the docs and attach them to the right declaration.
+collectDocs' :: [LHsDecl Name] -> [(LHsDecl Name, (Maybe (HsDoc Name)))]
+collectDocs' = collect' Nothing DocEmpty
+
+collect' :: Maybe (LHsDecl Name) -> HsDoc Name -> [LHsDecl Name] -> [(LHsDecl Name, (Maybe (HsDoc Name)))]
+collect' d doc_so_far [] =
+   case d of
+        Nothing -> []
+        Just d0  -> finishedDoc' d0 doc_so_far []
+
+collect' d doc_so_far (e:es) =
+  case e of
+    L _ (DocD (DocCommentNext str)) ->
+      case d of
+        Nothing -> collect' d (DocAppend doc_so_far (DocString (show' str))) es
+        Just d0 -> finishedDoc' d0 doc_so_far (collect' Nothing (DocString (show' str)) es)
+
+    L _ (DocD (DocCommentPrev str)) -> collect' d (DocAppend doc_so_far (DocString (show' str))) es
+
+    _ -> case d of
+      Nothing -> collect' (Just e) doc_so_far es
+      Just d0 -> finishedDoc' d0 doc_so_far (collect' (Just e) DocEmpty es)
+
+finishedDoc' :: LHsDecl alpha -> NDoc -> [(LHsDecl alpha, (Maybe ((HsDoc Name))))]
+                    -> [(LHsDecl alpha, (Maybe ((HsDoc Name))))]
+finishedDoc' d doc rest | isEmptyDoc doc = (d, Nothing) : rest
+finishedDoc' d doc rest | notDocDecl d   = (d, Just doc) : rest
+  where
+    notDocDecl (L _ (DocD _)) = False
+    notDocDecl _              = True
+finishedDoc' _ _ rest = rest

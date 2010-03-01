@@ -245,7 +245,7 @@ collectSystem prefs writeAscii forceRebuild findSources = do
     knownPackages       <-  findKnownPackages collectorPath
     debugM "leksah-server" $ "collectSystem knownPackages= " ++ show knownPackages
     packageInfos        <-  inGhcIO [] [] $  \ _ -> getInstalledPackageInfos
-    debugM "leksah-server" $ "collectSystem packageInfos= " ++ show (map IPI.package packageInfos)
+    debugM "leksah-server" $ "collectSystem packageInfos= " ++ show (map getThisPackage packageInfos)
     let newPackages     =   filter (\pid -> not $Set.member (packageIdentifierToString $ getThisPackage pid)
                                                          knownPackages)
                                     packageInfos
@@ -427,11 +427,11 @@ mergeDescr (Just (Reexported rdhi)) (Just rdsrc) =
     }
 mergeDescr _ _ =  error "Collector>>mergeDescr: impossible"
 
-mergeTypeHint :: Maybe TypeDescr -> Maybe TypeDescr -> Maybe TypeDescr
-mergeTypeHint Nothing Nothing         = Nothing
-mergeTypeHint Nothing jtd             = jtd
-mergeTypeHint jtd Nothing             = jtd
-mergeTypeHint (Just tdhi) (Just tdhs) = Just (mergeTypeDescr tdhi tdhs)
+--mergeTypeHint :: Maybe TypeDescr -> Maybe TypeDescr -> Maybe TypeDescr
+--mergeTypeHint Nothing Nothing         = Nothing
+--mergeTypeHint Nothing jtd             = jtd
+--mergeTypeHint jtd Nothing             = jtd
+--mergeTypeHint (Just tdhi) (Just tdhs) = Just (mergeTypeDescr tdhi tdhs)
 
 mergeTypeDescr :: TypeDescr -> TypeDescr -> TypeDescr
 mergeTypeDescr (DataDescr constrListHi fieldListHi) (DataDescr constrListSrc fieldListSrc) =

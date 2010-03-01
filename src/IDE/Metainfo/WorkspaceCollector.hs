@@ -17,14 +17,14 @@ module IDE.Metainfo.WorkspaceCollector (
 
     collectWorkspace
 
-,   uncommentData
-,   toComment
+,   sortByLoc
 ,   attachComments
+,   uncommentData
 ,   uncommentDecl
 ,   printHsDoc
+,   toComment
 ,   srcSpanToLocation
 ,   sigToByteString
-
 
 ) where
 
@@ -43,23 +43,18 @@ import Distribution.Package hiding (PackageId)
 import Distribution.ModuleName
 import Distribution.Text (simpleParse)
 import Control.Monad.Reader
-import System.IO
 import System.FilePath
-import System.Directory
 import qualified Data.ByteString.Char8 as BS
 import Data.Binary.Shared
 import IDE.Utils.FileUtils
 import IDE.Core.Serializable ()
-import IDE.Utils.Utils
 import IDE.Core.CTypes hiding (SrcSpan(..))
 import Data.ByteString.Char8 (ByteString)
 import DriverPipeline (preprocess)
-import System.Directory
 import StringBuffer(hGetStringBuffer)
 import Data.List(partition,sortBy,nub,find)
 import Data.Ord(comparing)
 import RdrName (showRdrName)
-import GHC.Show(showSpace)
 import GHC.Exception
 import MyMissing(forceHead)
 import LoadIface(findAndReadIface)
@@ -73,10 +68,35 @@ import Module (stringToPackageId)
 import PrelNames
 import System.Log.Logger
 import Control.DeepSeq (deepseq)
---import Data.Maybe (isJust)
+#if MIN_VERSION_ghc(6,12,1)
+import FastString(mkFastString,appendFS,nullFS)
+#else
+import GHC.Show(showSpace)
+#endif
 
 type NDecl = LHsDecl RdrName
-type NDoc  = HsDoc RdrName
+myDocEmpty :: NDoc
+myDocAppend :: NDoc -> NDoc -> NDoc
+isEmptyDoc :: NDoc -> Bool
+
+
+#if MIN_VERSION_ghc(6,12,1)
+type NDoc  = HsDocString
+type MyLDocDecl = LDocDecl
+
+myDocEmpty=HsDocString(mkFastString "")
+myDocAppend (HsDocString l) (HsDocString r) = HsDocString (appendFS l r)
+isEmptyDoc (HsDocString fs) = nullFS fs
+#else
+type NDoc       = HsDoc RdrName
+type MyLDocDecl = LDocDecl RdrName
+
+myDocEmpty           = DocEmpty
+myDocAppend          = docAppend
+isEmptyDoc DocEmpty  = True
+isEmptyDoc _         = False
+
+#endif
 type NSig  = Located (Sig RdrName)
 
 collectWorkspace :: PackageIdentifier ->  [(String,FilePath)] -> Bool -> Bool -> FilePath -> IO()
@@ -131,7 +151,7 @@ collectModule' sourcePath destPath writeAscii packId opts moduleName' =
             stringBuffer    <-  hGetStringBuffer fp'
             parseResult     <-  myParseModule dynFlags3 sourcePath (Just stringBuffer)
             case parseResult of
-                Right (L _ hsMod@(HsModule _ _ _ _decls _ _ _ )) -> do
+                Right (L _ hsMod@(HsModule{})) -> do
                     let moduleDescr = extractModDescr packId moduleName' sourcePath hsMod
                     let moduleDescr' = case mbInterfaceDescr of
                                             Nothing -> moduleDescr
@@ -267,18 +287,18 @@ partitionSignatures = partition filterSignature
     filterSignature ((L _srcDecl (SigD _)),_) = False
     filterSignature _ = True
 
-partitionInstances :: [(NDecl,Maybe NDoc)] -> ([(NDecl,Maybe NDoc)],[(NDecl,Maybe NDoc)])
-partitionInstances i = (i,[])
+--partitionInstances :: [(NDecl,Maybe NDoc)] -> ([(NDecl,Maybe NDoc)],[(NDecl,Maybe NDoc)])
+--partitionInstances i = (i,[])
 --partition filterInstances
 --    where
 --    filterInstances ((L srcDecl (InstD _)),_) = False
 --    filterInstances _ = True
 
 -- | Collect the docs and attach them to the right declaration.
-collectDocs :: [LHsDecl alpha] -> [(LHsDecl alpha, (Maybe (HsDoc alpha)))]
-collectDocs = collect Nothing DocEmpty
+collectDocs :: [LHsDecl RdrName] -> [(LHsDecl RdrName, (Maybe NDoc))]
+collectDocs = collect Nothing myDocEmpty
 
-collect :: Maybe (LHsDecl alpha) -> HsDoc alpha -> [LHsDecl alpha] -> [(LHsDecl alpha, (Maybe (HsDoc alpha)))]
+collect :: Maybe (LHsDecl RdrName) -> NDoc -> [LHsDecl RdrName] -> [(LHsDecl RdrName, (Maybe (NDoc)))]
 collect d doc_so_far [] =
    case d of
         Nothing -> []
@@ -288,17 +308,17 @@ collect d doc_so_far (e:es) =
   case e of
     L _ (DocD (DocCommentNext str)) ->
       case d of
-        Nothing -> collect d (docAppend doc_so_far str) es
+        Nothing -> collect d (myDocAppend doc_so_far str) es
         Just d0 -> finishedDoc d0 doc_so_far (collect Nothing str es)
 
-    L _ (DocD (DocCommentPrev str)) -> collect d (docAppend doc_so_far str) es
+    L _ (DocD (DocCommentPrev str)) -> collect d (myDocAppend doc_so_far str) es
 
     _ -> case d of
       Nothing -> collect (Just e) doc_so_far es
-      Just d0 -> finishedDoc d0 doc_so_far (collect (Just e) DocEmpty es)
+      Just d0 -> finishedDoc d0 doc_so_far (collect (Just e) myDocEmpty es)
 
-finishedDoc :: LHsDecl alpha -> HsDoc alpha -> [(LHsDecl alpha, (Maybe (HsDoc alpha)))] -> [(LHsDecl alpha, (Maybe (HsDoc alpha)))]
-finishedDoc d DocEmpty rest = (d, Nothing) : rest
+finishedDoc :: LHsDecl RdrName -> NDoc -> [(LHsDecl RdrName, (Maybe NDoc))] -> [(LHsDecl RdrName, (Maybe NDoc))]
+finishedDoc d doc rest | isEmptyDoc doc = (d, Nothing) : rest
 finishedDoc d doc rest | notDocDecl d = (d, Just doc) : rest
   where
     notDocDecl (L _ (DocD _)) = False
@@ -417,13 +437,12 @@ transformToDescrs pm = trace ("transformToDescrs " ++ show pm) $ concatMap trans
 
 
 uncommentData :: TyClDecl a -> TyClDecl a
-uncommentData (TyData a1 a2 a3 a4 a5 a6 conDecls _a8) =
-    TyData a1 a2 a3 a4 a5 a6 (map uncommentDecl conDecls) Nothing
-uncommentData other                                  = other
+uncommentData td@(TyData {tcdCons = conDecls}) = td{tcdCons = map uncommentDecl conDecls}
+uncommentData other                            = other
 
 uncommentDecl :: LConDecl a -> LConDecl a
-uncommentDecl (L l (ConDecl a1 a2 a3 a4 fields a6 _)) =
-    L l (ConDecl a1 a2 a3 a4 (uncommentDetails fields) a6 Nothing)
+uncommentDecl (L l cd) =
+    L l cd{con_details= uncommentDetails (con_details cd)}
 
 uncommentDetails :: HsConDeclDetails a -> HsConDeclDetails a
 uncommentDetails (RecCon flds) = RecCon (map uncommentField flds)
@@ -462,12 +481,12 @@ extractDeriving pm name (L loc typ) =
         where
         className       =   showSDocUnqual $ ppr typ
 
-extractMethods :: OutputableBndr alpha => [LSig alpha] -> [LDocDecl alpha] -> [SimpleDescr]
+extractMethods :: [LSig RdrName] -> [MyLDocDecl] -> [SimpleDescr]
 extractMethods sigs docs =
     let pairs = attachComments sigs docs
     in mapMaybe extractMethod pairs
 
-extractMethod :: OutputableBndr alpha => (LHsDecl alpha, Maybe (HsDoc alpha)) -> Maybe SimpleDescr
+extractMethod :: OutputableBndr alpha => (LHsDecl alpha, Maybe (NDoc)) -> Maybe SimpleDescr
 extractMethod ((L loc (SigD ts@(TypeSig name _typ))), mbDoc) =
     Just $ SimpleDescr
         ((showSDoc . ppr) (unLoc name))
@@ -477,8 +496,8 @@ extractMethod ((L loc (SigD ts@(TypeSig name _typ))), mbDoc) =
         True
 extractMethod (_, _mbDoc) = Nothing
 
-extractConstructor :: OutputableBndr alpha => Located (ConDecl alpha) -> SimpleDescr
-extractConstructor decl@(L loc (ConDecl name _ _ _ _ _ doc)) =
+extractConstructor :: Located (ConDecl RdrName) -> SimpleDescr
+extractConstructor decl@(L loc (ConDecl {con_name = name, con_doc = doc})) =
     SimpleDescr
         ((showSDoc . ppr) (unLoc name))
         (Just (BS.pack (showSDocUnqual $ppr (uncommentDecl decl))))
@@ -489,8 +508,8 @@ extractConstructor decl@(L loc (ConDecl name _ _ _ _ _ doc)) =
         True
 
 
-extractRecordFields :: OutputableBndr alpha => Located (ConDecl alpha) -> [SimpleDescr]
-extractRecordFields (L _ _decl@(ConDecl _ _ _ _ (RecCon flds) _ _)) =
+extractRecordFields :: Located (ConDecl RdrName) -> [SimpleDescr]
+extractRecordFields (L _ _decl@(ConDecl {con_details = RecCon flds})) =
     map extractRecordFields' flds
     where
     extractRecordFields' _field@(ConDeclField (L loc name) typ doc) =
@@ -504,7 +523,7 @@ extractRecordFields (L _ _decl@(ConDecl _ _ _ _ (RecCon flds) _ _)) =
             True
 extractRecordFields _ = []
 
-attachComments :: [LSig alpha] -> [LDocDecl alpha] -> [(LHsDecl alpha, Maybe (HsDoc alpha))]
+attachComments :: [LSig RdrName] -> [MyLDocDecl] -> [(LHsDecl RdrName, Maybe (NDoc))]
 attachComments sigs docs = collectDocs $ sortByLoc $
         ((map (\ (L l i) -> L l (SigD i)) sigs) ++ (map (\ (L l i) -> L l (DocD i)) docs))
 
@@ -520,7 +539,7 @@ srcSpanToLocation span'
     =   Location (srcSpanStartLine span') (srcSpanStartCol span')
                  (srcSpanEndLine span') (srcSpanEndCol span')
 
-toComment :: Outputable alpha => Maybe (HsDoc alpha) -> [HsDoc alpha] -> Maybe ByteString
+toComment :: Maybe (NDoc) -> [NDoc] -> Maybe ByteString
 toComment (Just c) _    =  Just (BS.pack (printHsDoc c))
 toComment Nothing (c:_) =  Just (BS.pack (printHsDoc c))
 toComment Nothing []    =  Nothing
@@ -533,8 +552,12 @@ collectParseInfoForDecl (l,st) ((Just (L loc (TyClD (TyFamily _ lid _ _)))), mbC
 collectParseInfoForDecl (l,st) ((Just (L loc (TyClD (ClassDecl _ lid _ _ _ _ _ _ )))), mbComment')
     =   addLocationAndComment (l,st) (unLoc lid) loc mbComment' [Class] []
 --}
+#if MIN_VERSION_ghc(6,12,1)
+printHsDoc :: NDoc  -> String
+printHsDoc d = showSDoc $ ppr_mbDoc (Just (noLoc d))
 
-printHsDoc :: Outputable alpha => HsDoc alpha  -> String
+#else
+printHsDoc :: NDoc  -> String
 printHsDoc d = show (PPDoc d)
 
 -- Okay, I need to reconstruct the document comments, but for now:
@@ -564,7 +587,7 @@ instance Outputable alpha => Show (PPDoc alpha)  where
     showsPrec _ (PPDoc (DocURL str))            =   showChar '<' . showString str . showChar '>'
     showsPrec _ (PPDoc (DocAName str))          =   showChar '#' . showString str . showChar '#'
     showsPrec _ (PPDoc _)                       =   id
-
+#endif
 ---------------------------------------------------------------------------------
 -- Now the interface file stuff
 
