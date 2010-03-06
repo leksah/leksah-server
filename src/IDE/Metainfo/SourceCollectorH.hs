@@ -32,7 +32,7 @@ import Haddock.Types
        (ExportItem(..), DeclInfo,
         Interface(..))
 #endif
-import Distribution.Text (display, simpleParse)
+import Distribution.Text (simpleParse)
 import InstEnv (Instance(..))
 import MyMissing
 import Data.Map (Map)
@@ -67,7 +67,7 @@ import Control.Monad (unless)
 import IDE.Utils.FileUtils(figureOutHaddockOpts)
 import Distribution.Package(PackageIdentifier)
 import GHC hiding(Id,Failed,Succeeded,ModuleName)
-import System.Log.Logger (warningM)
+import System.Log.Logger (warningM, debugM)
 import Control.DeepSeq (deepseq)
 import Data.ByteString.Char8 (ByteString)
 import Outputable hiding (trace)
@@ -105,8 +105,7 @@ data PackageCollectStats = PackageCollectStats {
 -- Hell
 
 collectPackageFromSource :: Prefs -> PackageConfig -> IO (Maybe PackageDescr, PackageCollectStats, Maybe FilePath)
-collectPackageFromSource prefs packageConfig = trace ("collectPackageFromSource " ++ display (getThisPackage packageConfig))
-    $ do
+collectPackageFromSource prefs packageConfig = do
     sourceMap <- liftIO $ getSourcesMap prefs
     case sourceForPackage (getThisPackage packageConfig) sourceMap of
         Just fp -> do
@@ -137,12 +136,11 @@ collectPackageFromSource prefs packageConfig = trace ("collectPackageFromSource 
         packageName = packageIdentifierToString (getThisPackage packageConfig)
 
 packageFromSource :: FilePath -> PackageConfig -> IO (Maybe PackageDescr, PackageCollectStats, Maybe FilePath)
-packageFromSource cabalPath packageConfig = trace ("packageFromSource " ++ cabalPath)
-    $ do
+packageFromSource cabalPath packageConfig = do
     setCurrentDirectory dirPath
     ghcFlags <- figureOutHaddockOpts
-    trace ("ghcFlags:  " ++ show ghcFlags)
-        NewException.catch (inner ghcFlags) handler
+    debugM "leksah-server" ("ghcFlags:  " ++ show ghcFlags)
+    NewException.catch (inner ghcFlags) handler
     where
         _handler' (_e :: NewException.SomeException) =
             trace "would block" $ return ([])
@@ -150,8 +148,7 @@ packageFromSource cabalPath packageConfig = trace ("packageFromSource " ++ cabal
             warningM "leksah-server" ("Ghc failed to process: " ++ show e)
             return (Nothing, PackageCollectStats packageName Nothing False False
                                             (Just ("Ghc failed to process: " ++ show e)), Just dirPath)
-        inner ghcFlags = trace ("before  inGhcIO ") $
-                                inGhcIO ghcFlags [Opt_Haddock] $ \ _flags -> do
+        inner ghcFlags = inGhcIO ghcFlags [Opt_Haddock] $ \ _flags -> do
             (interfaces,_) <- createInterfaces verbose (exportedMods ++ hiddenMods) [] []
             liftIO $ print (length interfaces)
             let mods = map (interfaceToModuleDescr dirPath (getThisPackage packageConfig)) interfaces
@@ -171,7 +168,7 @@ packageFromSource cabalPath packageConfig = trace ("packageFromSource " ++ cabal
 -- Heaven
 
 interfaceToModuleDescr :: FilePath -> PackageIdentifier -> Interface -> ModuleDescr
-interfaceToModuleDescr _dirPath pid interface = trace ("interfaceToModuleDescr " ++ show modName ++ " " ++ show filepath)
+interfaceToModuleDescr _dirPath pid interface =
     ModuleDescr {
         mdModuleId          =   PM pid modName
     ,   mdMbSourcePath      =   Just filepath

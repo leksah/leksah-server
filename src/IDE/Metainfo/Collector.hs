@@ -289,8 +289,7 @@ writeStats stats = do
 
 
 collectPackage :: Bool -> Prefs -> PackageConfig -> IO PackageCollectStats
-collectPackage writeAscii prefs packageConfig = trace ("collectPackage " ++ display (getThisPackage packageConfig))
-    $ do
+collectPackage writeAscii prefs packageConfig = do
     packageDescrHI          <- collectPackageFromHI packageConfig
     let packString = packageIdentifierToString (pdPackage packageDescrHI)
     mbPackageDescrPair      <- collectPackageFromSource prefs packageConfig
@@ -359,8 +358,7 @@ mergePackageDescrs packageDescrHI packageDescrS = PackageDescr {
     ,   pdBuildDepends      =   pdBuildDepends packageDescrHI}
 
 mergeModuleDescrs :: [ModuleDescr] -> [ModuleDescr] -> [ModuleDescr]
-mergeModuleDescrs hiList srcList =  trace ("mergeModuleDescrs allNames" ++ show allNames)
-                                        $ map mergeIt allNames
+mergeModuleDescrs hiList srcList =  map mergeIt allNames
     where
         mergeIt :: String -> ModuleDescr
         mergeIt str = case (Map.lookup str hiDict, Map.lookup str srcDict) of

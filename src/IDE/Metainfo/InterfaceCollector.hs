@@ -46,13 +46,12 @@ import Data.Set (Set)
 import qualified Distribution.InstalledPackageInfo as IPI
 import Distribution.Package hiding (PackageId)
 import Distribution.ModuleName
-import Distribution.Text (display, simpleParse)
+import Distribution.Text (simpleParse)
 import qualified Data.ByteString.Char8 as BS
 import IDE.Core.Serializable ()
 import IDE.Core.CTypes
 import Data.ByteString.Char8 (ByteString)
 import TcRnMonad (initTcRnIf)
-import Debug.Trace (trace)
 import IDE.Utils.GHCUtils
 import Control.DeepSeq(deepseq)
 
@@ -64,8 +63,7 @@ getThisPackage    =   IPI.package
 #endif
 
 collectPackageFromHI :: PackageConfig -> IO PackageDescr
-collectPackageFromHI  packageConfig = trace ("collectPackageFromHI " ++ display (getThisPackage packageConfig))
-    $ inGhcIO [] [] $ \ _ -> do
+collectPackageFromHI  packageConfig = inGhcIO [] [] $ \ _ -> do
     session             <-  getSession
     exportedIfaceInfos  <-  getIFaceInfos (getThisPackage packageConfig)
                                             (IPI.exposedModules packageConfig) session

@@ -75,7 +75,6 @@ import Data.List
 import qualified Data.Set as  Set (empty, fromList)
 import Control.Monad.Trans (MonadIO(..))
 import Distribution.Package (PackageIdentifier)
-import Debug.Trace (trace)
 import System.Process
     (waitForProcess, runCommand)
 import Data.Char (ord)
@@ -152,7 +151,7 @@ hasConfigDir :: IO Bool
 hasConfigDir = do
     d <- getHomeDirectory
     let filePath = d </> configDirName
-    trace ("config dir " ++ filePath) $ doesDirectoryExist filePath
+    doesDirectoryExist filePath
 
 
 getConfigFilePathForLoad :: String -> Maybe FilePath -> FilePath -> IO FilePath
@@ -359,12 +358,12 @@ autoExtractTarFiles' filePath =
                                     setCurrentDirectory dir
                                     handle   <- runCommand command
                                     waitForProcess handle
-                                    trace ("extracted " ++ fn) $ return ())
+                                    return ())
                         decompressionTargets
                 mapM_ autoExtractTarFiles' dirs
                 return ()
             else return ()
-    ) $ \ _ -> trace ("error extractTarFiles" ++ filePath) $ return ()
+    ) $ \ _ -> return ()
 
 
 getCollectorPath :: MonadIO m => m FilePath
