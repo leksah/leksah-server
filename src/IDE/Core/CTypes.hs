@@ -3,7 +3,7 @@
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.Core.CTypes
--- Copyright   :  2007-2009 Juergen Nicklisch-Franken, Hamish Mackenzie
+-- Copyright   :  2007-2010 Juergen Nicklisch-Franken, Hamish Mackenzie
 -- License     :  GPL
 --
 -- Maintainer  :  maintainer@leksah.org
@@ -84,7 +84,7 @@ import Data.Version (Version(..))
 --
 
 leksahVersion, configDirName :: String
-leksahVersion = "0.7"
+leksahVersion = "0.8"
 configDirName = ".leksah-" ++ leksahVersion
 
 metadataVersion :: Integer

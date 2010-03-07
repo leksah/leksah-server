@@ -2,7 +2,7 @@
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.Metainfo.SourceCollectorH
--- Copyright   :  2007-2009 Juergen Nicklisch-Franken, Hamish Mackenzie
+-- Copyright   :  2007-2010 Juergen Nicklisch-Franken, Hamish Mackenzie
 -- License     :  GPL
 --
 -- Maintainer  :  maintainer@leksah.org
@@ -216,7 +216,7 @@ transformToDescrs pm = concatMap transformToDescr
         dscName'        =   getOccString (unLoc name)
     ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual $ppr typ))
     ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   Just (srcSpanToLocation loc)
+    ,   dscMbLocation'  =   srcSpanToLocation loc
     ,   dscMbComment'   =   toComment mbComment []
     ,   dscTypeHint'    =   VariableDescr
     ,   dscExported'    =   True}]
@@ -227,7 +227,7 @@ transformToDescrs pm = concatMap transformToDescr
         dscName'        =   getOccString (unLoc lid)
     ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual $ppr typ))
     ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   Just (srcSpanToLocation loc)
+    ,   dscMbLocation'  =   srcSpanToLocation loc
     ,   dscMbComment'   =   toComment mbComment []
     ,   dscTypeHint'    =   TypeDescr
     ,   dscExported'    =   True}]
@@ -237,7 +237,7 @@ transformToDescrs pm = concatMap transformToDescr
         dscName'        =   name
     ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual $ppr (uncommentData typ)))
     ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   Just (srcSpanToLocation loc)
+    ,   dscMbLocation'  =   srcSpanToLocation loc
     ,   dscMbComment'   =   toComment mbComment []
     ,   dscTypeHint'    =   DataDescr constructors fields
     ,   dscExported'    =   True}]
@@ -254,7 +254,7 @@ transformToDescrs pm = concatMap transformToDescr
         dscName'        =   name
     ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual $ppr (uncommentData typ)))
     ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   Just (srcSpanToLocation loc)
+    ,   dscMbLocation'  =   srcSpanToLocation loc
     ,   dscMbComment'   =   toComment mbComment []
     ,   dscTypeHint'    =   NewtypeDescr constructor mbField
     ,   dscExported'    =   True}]
@@ -274,7 +274,7 @@ transformToDescrs pm = concatMap transformToDescr
         dscName'        =   getOccString (unLoc tcdLName')
     ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual $ppr cl{tcdMeths = emptyLHsBinds}))
     ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   Just (srcSpanToLocation loc)
+    ,   dscMbLocation'  =   srcSpanToLocation loc
     ,   dscMbComment'   =   toComment mbComment []
     ,   dscTypeHint'    =   ClassDescr super methods
     ,   dscExported'    =   True    }]
@@ -290,7 +290,7 @@ toDescrInst pm inst@(Instance is_cls' _is_tcs _is_tvs is_tys' _is_dfun _is_flag)
         dscName'        =   getOccString is_cls'
     ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual $ppr inst))
     ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   Just (srcSpanToLocation (getSrcSpan inst))
+    ,   dscMbLocation'  =   srcSpanToLocation (getSrcSpan inst)
     ,   dscMbComment'   =   Nothing
     ,   dscTypeHint'    =   InstanceDescr (map (showSDocUnqual . ppr) is_tys')
     ,   dscExported'    =   True}
@@ -305,7 +305,7 @@ extractMethod ((L loc (SigD ts@(TypeSig name _typ))), mbDoc) =
     Just $ SimpleDescr
         (getOccString (unLoc name))
         (Just (BS.pack (showSDocUnqual $ ppr ts)))
-        (Just (srcSpanToLocation loc))
+        (srcSpanToLocation loc)
         (toComment mbDoc [])
         True
 extractMethod (_, _mbDoc) = Nothing
@@ -315,7 +315,7 @@ extractConstructor decl@(L loc (ConDecl {con_name = name, con_doc = doc})) =
     SimpleDescr
         (getOccString (unLoc name))
         (Just (BS.pack (showSDocUnqual $ppr (uncommentDecl decl))))
-        (Just (srcSpanToLocation loc))
+        (srcSpanToLocation loc)
         (case doc of
             Nothing -> Nothing
             Just (L _ d) -> Just (BS.pack (printHsDoc'' d)))
@@ -329,7 +329,7 @@ extractRecordFields (L _ _decl@(ConDecl {con_details=(RecCon flds)})) =
         SimpleDescr
             (getOccString name)
             (Just (BS.pack (showSDocUnqual $ ppr typ)))
-            (Just (srcSpanToLocation loc))
+            (srcSpanToLocation loc)
             (case doc of
                 Nothing -> Nothing
                 Just (L _ d) -> Just (BS.pack (printHsDoc'' d)))

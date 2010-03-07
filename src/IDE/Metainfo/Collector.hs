@@ -2,7 +2,7 @@
 -----------------------------------------------------------------------------
 --
 -- Module      :  Main
--- Copyright   :  2007-2009 Juergen Nicklisch-Franken, Hamish Mackenzie
+-- Copyright   :  2007-2010 Juergen Nicklisch-Franken, Hamish Mackenzie
 -- License     :  GPL
 --
 -- Maintainer  :  maintainer@leksah.org
@@ -34,7 +34,6 @@ import IDE.Metainfo.WorkspaceCollector
 import Data.Maybe(catMaybes, fromJust, mapMaybe, isJust)
 import Distribution.Text (display)
 import Prelude hiding(catch)
-import Debug.Trace
 import Control.Monad (liftM)
 import System.Directory (removeDirectoryRecursive, doesFileExist, removeFile, doesDirectoryExist, setCurrentDirectory)
 import qualified Data.Set as Set (member)

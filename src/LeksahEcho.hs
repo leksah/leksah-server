@@ -1,7 +1,7 @@
 -----------------------------------------------------------------------------
 --
 -- Module      :  Main
--- Copyright   :  2007-2009 Jürgen Nicklisch-Franken, Hamish Mackenzie
+-- Copyright   :  2007-2010 Juergen Nicklisch-Franken, Hamish Mackenzie
 -- License     :  GPL
 --
 -- Maintainer  :  maintainer@leksah.org

@@ -2,7 +2,7 @@
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.Utils.GHCUtils
--- Copyright   :  2007-2009 Jürgen Nicklisch-Franken
+-- Copyright   :  2007-2010 Juergen Nicklisch-Franken, Hamish Mackenzie
 -- License     :  GPL
 --
 -- Maintainer  :  Jutaro <jutaro@leksah.org>

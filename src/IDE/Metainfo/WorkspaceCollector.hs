@@ -2,7 +2,7 @@
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.Metainfo.WorkspaceCollector
--- Copyright   :  2007-2009 Juergen Nicklisch-Franken, Hamish Mackenzie
+-- Copyright   :  2007-2010 Juergen Nicklisch-Franken, Hamish Mackenzie
 -- License     :  GPL
 --
 -- Maintainer  :  maintainer@leksah.org
@@ -167,7 +167,7 @@ collectModule' sourcePath destPath writeAscii packId opts moduleName' = gcatch (
                         ,   dscMbTypeStr'   =   Nothing
                         ,   dscMbModu'      =   Just (PM packId moduleName')
                         ,   dscMbLocation'  =   case errMsgSpans errMsg of
-                                                    (sp:_) -> Just (srcSpanToLocation sp)
+                                                    (sp:_) -> srcSpanToLocation sp
                                                     [] -> Nothing
                         ,   dscMbComment'   =   Just (BS.pack $ show errMsg)
                         ,   dscTypeHint'    =   ErrorDescr
@@ -352,7 +352,7 @@ transformToDescrs pm = concatMap transformToDescr
         dscName'        =   showRdrName (unLoc lid)
     ,   dscMbTypeStr'   =   sigToByteString sigList
     ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   Just (srcSpanToLocation loc)
+    ,   dscMbLocation'  =   srcSpanToLocation loc
     ,   dscMbComment'   =   toComment mbComment (catMaybes (map snd sigList))
     ,   dscTypeHint'    =   VariableDescr
     ,   dscExported'    =   True}]
@@ -362,7 +362,7 @@ transformToDescrs pm = concatMap transformToDescr
         dscName'        =   showRdrName (unLoc lid)
     ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual $ppr typ))
     ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   Just (srcSpanToLocation loc)
+    ,   dscMbLocation'  =   srcSpanToLocation loc
     ,   dscMbComment'   =   toComment mbComment []
     ,   dscTypeHint'    =   TypeDescr
     ,   dscExported'    =   True}]
@@ -372,7 +372,7 @@ transformToDescrs pm = concatMap transformToDescr
         dscName'        =   name
     ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual $ppr (uncommentData typ)))
     ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   Just (srcSpanToLocation loc)
+    ,   dscMbLocation'  =   srcSpanToLocation loc
     ,   dscMbComment'   =   toComment mbComment []
     ,   dscTypeHint'    =   DataDescr constructors fields
     ,   dscExported'    =   True}]
@@ -389,7 +389,7 @@ transformToDescrs pm = concatMap transformToDescr
         dscName'        =   name
     ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual $ppr (uncommentData typ)))
     ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   Just (srcSpanToLocation loc)
+    ,   dscMbLocation'  =   srcSpanToLocation loc
     ,   dscMbComment'   =   toComment mbComment []
     ,   dscTypeHint'    =   NewtypeDescr constructor mbField
     ,   dscExported'    =   True}]
@@ -409,7 +409,7 @@ transformToDescrs pm = concatMap transformToDescr
         dscName'        =   showRdrName (unLoc tcdLName')
     ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual $ppr cl{tcdMeths = emptyLHsBinds}))
     ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   Just (srcSpanToLocation loc)
+    ,   dscMbLocation'  =   srcSpanToLocation loc
     ,   dscMbComment'   =   toComment mbComment []
     ,   dscTypeHint'    =   ClassDescr super methods
     ,   dscExported'    =   True    }]
@@ -422,7 +422,7 @@ transformToDescrs pm = concatMap transformToDescr
         dscName'        =   name
     ,   dscMbTypeStr'   =   Just (BS.pack ("instance " ++ (showSDocUnqual $ppr typ)))
     ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   Just (srcSpanToLocation loc)
+    ,   dscMbLocation'  =   srcSpanToLocation loc
     ,   dscMbComment'   =   toComment mbComment []
     ,   dscTypeHint'    =   InstanceDescr other
     ,   dscExported'    =   True}]
@@ -472,7 +472,7 @@ extractDeriving pm name (L loc typ) =
         dscName'        =   className
     ,   dscMbTypeStr'   =   Just (BS.pack ("instance " ++ (className ++ " " ++ name)))
     ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   Just (srcSpanToLocation loc)
+    ,   dscMbLocation'  =   srcSpanToLocation loc
     ,   dscMbComment'   =   toComment (Nothing :: Maybe NDoc) []
     ,   dscTypeHint'    =   InstanceDescr (words name)
     ,   dscExported'    =   True}
@@ -489,7 +489,7 @@ extractMethod ((L loc (SigD ts@(TypeSig name _typ))), mbDoc) =
     Just $ SimpleDescr
         ((showSDoc . ppr) (unLoc name))
         (Just (BS.pack (showSDocUnqual $ ppr ts)))
-        (Just (srcSpanToLocation loc))
+        (srcSpanToLocation loc)
         (toComment mbDoc [])
         True
 extractMethod (_, _mbDoc) = Nothing
@@ -499,7 +499,7 @@ extractConstructor decl@(L loc (ConDecl {con_name = name, con_doc = doc})) =
     SimpleDescr
         ((showSDoc . ppr) (unLoc name))
         (Just (BS.pack (showSDocUnqual $ppr (uncommentDecl decl))))
-        (Just (srcSpanToLocation loc))
+        (srcSpanToLocation loc)
         (case doc of
             Nothing -> Nothing
             Just (L _ d) -> Just (BS.pack (printHsDoc d)))
@@ -514,7 +514,7 @@ extractRecordFields (L _ _decl@(ConDecl {con_details = RecCon flds})) =
         SimpleDescr
             ((showSDoc . ppr) name)
             (Just (BS.pack (showSDocUnqual $ ppr typ)))
-            (Just (srcSpanToLocation loc))
+            (srcSpanToLocation loc)
             (case doc of
                 Nothing -> Nothing
                 Just (L _ d) -> Just (BS.pack (printHsDoc d)))
@@ -530,12 +530,12 @@ sigToByteString [] = Nothing
 sigToByteString [(sig,_)] = Just (BS.pack (showSDocUnqual $ppr sig))
 sigToByteString ((sig,_):_) = Just (BS.pack (showSDocUnqual $ppr sig))
 
-srcSpanToLocation :: SrcSpan -> Location
+srcSpanToLocation :: SrcSpan -> Maybe Location
 srcSpanToLocation span' | not (isGoodSrcSpan span')
-    =   error "srcSpanToLocation: unhelpful span"
+    =   Nothing
 srcSpanToLocation span'
-    =   Location (srcSpanStartLine span') (srcSpanStartCol span')
-                 (srcSpanEndLine span') (srcSpanEndCol span')
+    =   Just (Location (srcSpanStartLine span') (srcSpanStartCol span')
+                 (srcSpanEndLine span') (srcSpanEndCol span'))
 
 toComment :: Maybe (NDoc) -> [NDoc] -> Maybe ByteString
 toComment (Just c) _    =  Just (BS.pack (printHsDoc c))
