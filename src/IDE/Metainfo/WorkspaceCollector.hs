@@ -69,7 +69,7 @@ import PrelNames
 import System.Log.Logger
 import Control.DeepSeq (deepseq)
 #if MIN_VERSION_ghc(6,12,1)
-import FastString(mkFastString,appendFS,nullFS)
+import FastString(mkFastString,appendFS,nullFS,unpackFS)
 #else
 import GHC.Show(showSpace)
 #endif
@@ -99,6 +99,7 @@ isEmptyDoc _         = False
 #endif
 type NSig  = Located (Sig RdrName)
 
+-- | Test
 collectWorkspace :: PackageIdentifier ->  [(String,FilePath)] -> Bool -> Bool -> FilePath -> IO()
 collectWorkspace packId moduleList forceRebuild writeAscii dir = do
     debugM "leksah-server" $ "collectWorkspace called with " ++ show moduleList
@@ -110,7 +111,7 @@ collectWorkspace packId moduleList forceRebuild writeAscii dir = do
     -- Construct directory
     liftIO $ createDirectoryIfMissing True packageCollectorPath
     setCurrentDirectory dir
-    opts <- figureOutGhcOpts
+    opts <- figureOutHaddockOpts --TODO use opts <- figureOutGhcOpts
     debugM "leksah-server" $ "before collect modules"
     mapM_ (collectModule packageCollectorPath writeAscii packId opts) moduleList
     debugM "leksah-server" $ "after collect modules"
@@ -552,7 +553,7 @@ collectParseInfoForDecl (l,st) ((Just (L loc (TyClD (ClassDecl _ lid _ _ _ _ _ _
 --}
 #if MIN_VERSION_ghc(6,12,1)
 printHsDoc :: NDoc  -> String
-printHsDoc d = showSDoc $ ppr_mbDoc (Just (noLoc d))
+printHsDoc (HsDocString fs) = unpackFS fs
 
 #else
 printHsDoc :: NDoc  -> String

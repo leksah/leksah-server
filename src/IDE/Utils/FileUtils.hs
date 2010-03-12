@@ -419,7 +419,9 @@ figureOutHaddockOpts :: IO [String]
 figureOutHaddockOpts = do
     (!output,_) <- runTool' "cabal" (["haddock","--with-haddock=leksahecho","--executables"]) Nothing
     let opts = concatMap (words . toolline) output
-    return (filterOptGhc opts)
+    let res = filterOptGhc opts
+    debugM "leksah-server" ("figureOutHaddockOpts " ++ show res)
+    return res
     where
         filterOptGhc []    = []
         filterOptGhc (s:r) = case stripPrefix "--optghc=" s of
@@ -430,9 +432,11 @@ figureOutGhcOpts :: IO [String]
 figureOutGhcOpts = do
     debugM "leksah-server" "figureOutGhcOpts"
     (!output,_) <- runTool' "runhaskell" ["Setup","build","--with-ghc=leksahecho"] Nothing
-    case catMaybes $ map (findMake . toolline) output of
-        options:_ -> return (words options)
-        _         -> return []
+    let res = case catMaybes $ map (findMake . toolline) output of
+                options:_ -> words options
+                _         -> []
+    debugM "leksah-server" $ ("figureOutGhcOpts " ++ show res)
+    return res
     where
         findMake [] = Nothing
         findMake line@(_:xs) =
