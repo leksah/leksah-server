@@ -31,7 +31,7 @@ import IDE.Utils.FileUtils (figureOutHaddockOpts, figureOutGhcOpts)
 parseTheHeader :: FilePath -> IO ServerAnswer
 parseTheHeader filePath = do
     text        <- readFile filePath
-    opts        <- figureOutHaddockOpts -- TODO:  use figureOutGhcOpts
+    opts        <- figureOutGhcOpts -- figureOutHaddockOpts
     parseResult <- liftIO $ myParseHeader filePath text opts
     case parseResult of
         Left str                                      -> return (ServerFailed str)
