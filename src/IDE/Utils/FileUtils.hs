@@ -440,6 +440,6 @@ figureOutGhcOpts = do
     where
         findMake [] = Nothing
         findMake line@(_:xs) =
-                case stripPrefix " --make " line of
+                case stripPrefix "--make " line of
                     Nothing -> findMake xs
                     s -> s
