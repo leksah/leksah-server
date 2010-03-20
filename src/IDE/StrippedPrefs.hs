@@ -88,6 +88,12 @@ prefsDescription = [
             intParser
             serverPort
             (\b a -> a{serverPort = b})
+    ,   mkFieldS
+            (paraName <<<- ParaName "End the server with last connection" $ emptyParams)
+            (PP.text . show)
+            boolParser
+            endWithLastConn
+            (\b a -> a{endWithLastConn = b})
     ]
 
 -- ------------------------------------------------------------
