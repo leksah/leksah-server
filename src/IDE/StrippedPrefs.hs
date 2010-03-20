@@ -38,6 +38,7 @@ data Prefs = Prefs {
     ,   unpackDirectory     ::   Maybe FilePath
     ,   retreiveURL         ::   Maybe String
     ,   serverPort          ::   Int
+    ,   endWithLastConn     ::   Bool
 } deriving(Eq,Show)
 
 defaultPrefs :: Prefs
@@ -46,6 +47,7 @@ defaultPrefs = Prefs {
     ,   unpackDirectory     =   Nothing
     ,   retreiveURL         =   Just "http://www.leksah.org/"
     ,   serverPort          =   11111
+    ,   endWithLastConn     =   True
     }
 
 -- ------------------------------------------------------------

@@ -23,14 +23,12 @@ import IDE.Core.CTypes
        (PackageDescr(..), TypeDescr(..), RealDescr(..), Descr(..),
         ModuleDescr(..), PackModule(..), SimpleDescr(..), packageIdentifierToString)
 
-#if MIN_VERSION_haddock_leksah(2,6,0)
-import Haddock.Types
-       (ExportItem(..), DeclInfo,
-        Interface(..),HsDoc(..))
-#else
+#ifdef MIN_VERSION_haddock_leksah
 import Haddock.Types
        (ExportItem(..), DeclInfo,
         Interface(..))
+#else
+import Documentation.Haddock
 #endif
 import Distribution.Text (simpleParse)
 import InstEnv (Instance(..))
@@ -50,7 +48,6 @@ import IDE.Metainfo.WorkspaceCollector
 
 import Name (getOccString,getSrcSpan)
 import PackageConfig (PackageConfig)
-import Haddock.Interface (createInterfaces)
 import Distribution.Verbosity (verbose)
 import qualified Distribution.InstalledPackageInfo as IPI
 import IDE.StrippedPrefs (getUnpackDirectory, Prefs(..))
@@ -78,6 +75,11 @@ getThisPackage :: PackageConfig -> PackageIdentifier
 getThisPackage    =   IPI.sourcePackageId
 #else
 getThisPackage    =   IPI.package
+#endif
+
+#ifdef MIN_VERSION_haddock_leksah
+#else
+type HsDoc = Doc
 #endif
 
 type NDoc  = HsDoc Name
@@ -180,7 +182,7 @@ interfaceToModuleDescr _dirPath pid interface =
                         "Can't parse module name"
         descrs     = extractDescrs (PM pid modName)
                         (ifaceDeclMap interface) (ifaceExportItems interface)
-                        (ifaceInstances interface) (ifaceLocals interface)
+                        (ifaceInstances interface) [] --(ifaceLocals interface)
         imports    = Map.empty --TODO
 
 #if MIN_VERSION_ghc(6,12,1)

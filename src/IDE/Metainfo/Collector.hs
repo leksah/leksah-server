@@ -55,17 +55,22 @@ import System.Log.Logger(updateGlobalLogger,rootLoggerName,addHandler,debugM,inf
     setLevel)
 import System.Log.Handler.Simple(fileHandler)
 import Network(withSocketsDo)
-import Network.Socket (SocketType(..), iNADDR_ANY, SockAddr(..),PortNumber(..))
+import Network.Socket
+       (inet_addr, SocketType(..), SockAddr(..), PortNumber(..))
 import IDE.Utils.Server
 import System.IO (Handle, hPutStrLn, hGetLine, hFlush, hClose)
 import IDE.HeaderParser(parseTheHeader)
 import System.Process (system)
 import System.Exit (ExitCode(..))
 import Distribution.Package (PackageIdentifier(..))
+import Data.IORef
+import Control.Concurrent (throwTo, ThreadId, myThreadId)
 
 -- --------------------------------------------------------------------
 -- Command line options
 --
+
+
 
 getThisPackage :: PackageConfig -> PackageIdentifier
 #if MIN_VERSION_Cabal(1,8,0)
@@ -87,6 +92,8 @@ data Flag =    CollectSystem
              | Debug
              | Verbosity String
              | LogFile String
+             | Forever
+             | EndWithLast
        deriving (Show,Eq)
 
 options :: [OptDescr Flag]
@@ -111,6 +118,11 @@ options =   [
                 "One of DEBUG, INFO, NOTICE, WARNING, ERROR, CRITICAL, ALERT, EMERGENCY"
          ,   Option ['l'] ["logfile"] (ReqArg LogFile "LogFile")
                 "File path for logging messages"
+         ,   Option ['f'] ["forever"] (NoArg Forever)
+                "Don't end the server when last connection ends"
+         ,   Option ['c'] ["endWithLast"] (NoArg EndWithLast)
+                "End the server when last connection ends"
+
     ]
 
 header :: String
@@ -161,6 +173,9 @@ main =  withSocketsDo $ catch inner handler
             prefsPath       <- getConfigFilePathForLoad strippedPreferencesFilename Nothing dataDir
             prefs           <- readStrippedPrefs prefsPath
             debugM "leksah-server" $ "prefs " ++ show prefs
+            connRef  <- newIORef []
+            threadId <- myThreadId
+            localServerAddr <- inet_addr "127.0.0.1"
 
             if elem VersionF o
                 then putStrLn $ "Leksah Haskell IDE (server), version " ++ showVersion version
@@ -174,6 +189,13 @@ main =  withSocketsDo $ catch inner handler
                         let sources     =   elem Sources o
                         let rebuild     =   elem Rebuild o
                         let debug       =   elem Debug o
+                        let forever     =   elem Forever o
+                        let endWithLast =   elem EndWithLast o
+                        let newPrefs    =   if forever && not endWithLast
+                                                then prefs{endWithLastConn = False}
+                                                else if  not forever && endWithLast
+                                                        then prefs{endWithLastConn = True}
+                                                        else prefs
                         if elem CollectSystem o
                             then do
                                 debugM "leksah-server" "collectSystem"
@@ -181,26 +203,45 @@ main =  withSocketsDo $ catch inner handler
                             else
                                 case servers of
                                     (Nothing:_)  -> do
-                                        running <- serveOne Nothing (server (PortNum (fromIntegral (serverPort prefs))) prefs)
+                                        running <- serveOne Nothing (server (PortNum (fromIntegral
+                                            (serverPort prefs))) newPrefs connRef threadId localServerAddr)
                                         waitFor running
                                         return ()
                                     (Just ps:_)  -> do
                                         let port = read ps
-                                        running <- serveOne Nothing (server (PortNum (fromIntegral port)) prefs)
+                                        running <- serveOne Nothing (server (PortNum
+                                            (fromIntegral port)) newPrefs connRef threadId localServerAddr)
                                         waitFor running
                                         return ()
                                     _ -> return ()
 
-        server port prefs = Server (SockAddrInet port iNADDR_ANY) Stream (doCommands prefs)
+        server port prefs connRef threadId hostAddr = Server (SockAddrInet port hostAddr) Stream
+                                        (doCommands prefs connRef threadId)
 
-doCommands :: Prefs -> (Handle, t1, t2) -> IO ()
-doCommands prefs (h,n,p) = do
+doCommands :: Prefs -> IORef [Handle] -> ThreadId -> (Handle, t1, t2) -> IO ()
+doCommands prefs connRef threadId (h,n,p) = do
+    atomicModifyIORef connRef (\ list -> (h : list, ()))
+    doCommands' prefs connRef threadId (h,n,p)
+
+
+doCommands' :: Prefs -> IORef [Handle] -> ThreadId -> (Handle, t1, t2) -> IO ()
+doCommands' prefs connRef threadId (h,n,p) = do
     debugM "leksah-server" $ "***wait"
     mbLine <- catch (liftM Just (hGetLine h))
                 (\ (_e :: SomeException) -> do
                     infoM "leksah-server" $ "***lost connection"
                     hClose h
-                    return Nothing)
+                    atomicModifyIORef connRef (\ list -> (delete h list,()))
+                    handles <- readIORef connRef
+                    case handles of
+                        [] -> do
+                                when (endWithLastConn prefs) $ do
+                                    infoM "leksah-server" $ "***lost last connection - exiting"
+                                    throwTo threadId ExitSuccess
+                                    --exitSuccess
+                                infoM "leksah-server" $ "***lost last connection - waiting"
+                                return Nothing
+                        _  -> return Nothing)
     case mbLine of
         Nothing -> return ()
         Just line -> do
@@ -229,7 +270,7 @@ doCommands prefs (h,n,p) = do
                         (\ (e :: SomeException) -> do
                             hPutStrLn h (show (ServerFailed (show e)))
                             hFlush h)
-            doCommands prefs (h,n,p)
+            doCommands' prefs connRef threadId (h,n,p)
 
 collectSystem :: Prefs -> Bool -> Bool -> Bool -> IO()
 collectSystem prefs writeAscii forceRebuild findSources = do
