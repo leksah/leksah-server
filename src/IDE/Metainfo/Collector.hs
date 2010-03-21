@@ -126,7 +126,7 @@ options =   [
     ]
 
 header :: String
-header = "Usage: leksah-collector [OPTION...] files..."
+header = "Usage: leksah-server [OPTION...] files..."
 
 ideOpts :: [String] -> IO ([Flag], [String])
 ideOpts argv =
@@ -148,7 +148,6 @@ main =  withSocketsDo $ catch inner handler
         inner = do
             args            <- getArgs
             (o,_)           <- ideOpts args
-            _fp             <- getConfigFilePathForSave "collectorl.lkslo"
             let verbosity'   =  catMaybes $
                                     map (\x -> case x of
                                         Verbosity s -> Just s
@@ -294,7 +293,9 @@ collectSystem prefs writeAscii forceRebuild findSources = do
             infoM "leksah-server" "Metadata collector has nothing to do"
         else do
             when findSources $ liftIO $ buildSourceForPackageDB prefs
-            stats <- mapM (collectPackage writeAscii prefs) newPackages
+            infoM "leksah-server" "update_toolbar 0.0"
+            stats <- mapM (collectPackage writeAscii prefs (length newPackages))
+                            (zip newPackages [1 .. length newPackages])
             writeStats stats
     infoM "leksah-server" "Metadata collection has finished"
 
@@ -328,8 +329,10 @@ writeStats stats = do
                                         ++ if packagesWithSource > 10 then "..." else ""
 
 
-collectPackage :: Bool -> Prefs -> PackageConfig -> IO PackageCollectStats
-collectPackage writeAscii prefs packageConfig = do
+collectPackage :: Bool -> Prefs -> Int -> (PackageConfig,Int) -> IO PackageCollectStats
+collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
+    infoM "leksah-server" ("update_toolbar " ++ show
+        ((fromIntegral packageIndex / fromIntegral numPackages) :: Double))
     packageDescrHI          <- collectPackageFromHI packageConfig
     let packString = packageIdentifierToString (pdPackage packageDescrHI)
     mbPackageDescrPair      <- collectPackageFromSource prefs packageConfig

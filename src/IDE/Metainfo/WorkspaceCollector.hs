@@ -111,7 +111,7 @@ collectWorkspace packId moduleList forceRebuild writeAscii dir = do
     -- Construct directory
     liftIO $ createDirectoryIfMissing True packageCollectorPath
     setCurrentDirectory dir
-    opts <- figureOutGhcOpts
+    opts <- figureOutHaddockOpts -- figureOutGhcOpts
     debugM "leksah-server" $ "before collect modules"
     mapM_ (collectModule packageCollectorPath writeAscii packId opts) moduleList
     debugM "leksah-server" $ "after collect modules"
