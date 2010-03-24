@@ -26,7 +26,7 @@ import IDE.Utils.GHCUtils
 import Control.Monad.Trans (liftIO)
 import Data.Maybe (mapMaybe)
 import Outputable(pprHsVar,showSDoc)
-import IDE.Utils.FileUtils (figureOutHaddockOpts, figureOutGhcOpts)
+import IDE.Utils.FileUtils (figureOutHaddockOpts)
 
 parseTheHeader :: FilePath -> IO ServerAnswer
 parseTheHeader filePath = do
