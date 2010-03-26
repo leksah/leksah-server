@@ -27,7 +27,7 @@ import IDE.Core.CTypes
 import Haddock.Types
        (ExportItem(..), DeclInfo,
         Interface(..))
-import Haddock.Interfaces
+import Haddock.Interface
 #else
 import Documentation.Haddock
 #endif
