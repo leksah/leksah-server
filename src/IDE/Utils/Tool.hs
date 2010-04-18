@@ -19,6 +19,7 @@ module IDE.Utils.Tool (
     toolline,
     ToolCommand(..),
     ToolState(..),
+    toolProcess,
     newToolState,
     runTool,
     runTool',
@@ -35,25 +36,13 @@ module IDE.Utils.Tool (
 ) where
 
 import Control.Concurrent
-    (takeMVar,
-     putMVar,
-     newEmptyMVar,
-     forkIO,
-     newChan,
-     MVar,
-     Chan,
-     writeChan,
-     getChanContents,
-     dupChan)
+       (readMVar, takeMVar, putMVar, newEmptyMVar, forkIO, newChan, MVar,
+        Chan, writeChan, getChanContents, dupChan)
 import Control.Monad (unless, when)
 import Data.List (stripPrefix)
 import Data.Maybe (isJust, catMaybes)
-#if !defined(mingw32_HOST_OS) && !defined(__MINGW32__)
-import System.Posix (sigQUIT, sigINT, installHandler)
-import System.Posix.Signals (Handler(..))
-#endif
 import System.Process
-    (waitForProcess, ProcessHandle, runInteractiveProcess)
+    (waitForProcess, ProcessHandle, runInteractiveProcessNewGroup)
 import Control.DeepSeq
 import System.Log.Logger (debugM, criticalM)
 import System.Exit (ExitCode(..))
@@ -78,14 +67,16 @@ instance  NFData ToolOutput where
     rnf (ToolPrompt) = rnf ()
     rnf (ToolExit code) = rnf code
 
-
 data ToolCommand = ToolCommand String ([ToolOutput] -> IO ())
 data ToolState = ToolState {
-    toolProcess :: MVar ProcessHandle,
+    toolProcessMVar :: MVar ProcessHandle,
     outputClosed :: MVar Bool,
     toolCommands :: Chan ToolCommand,
     toolCommandsRead :: Chan ToolCommand,
     currentToolCommand :: MVar ToolCommand}
+
+toolProcess :: ToolState -> IO ProcessHandle
+toolProcess = readMVar . toolProcessMVar
 
 data RawToolOutput = RawToolOutput ToolOutput
                    | ToolOutClosed
@@ -116,17 +107,13 @@ runTool' fp args mbDir = do
 
 runTool :: FilePath -> [String] -> Maybe FilePath -> IO ([ToolOutput], ProcessHandle)
 runTool executable arguments mbDir = do
-#if !defined(mingw32_HOST_OS) && !defined(__MINGW32__)
-    installHandler sigINT Ignore Nothing
-    installHandler sigQUIT Ignore Nothing
-#endif
-    (inp,out,err,pid) <- runInteractiveProcess executable arguments mbDir Nothing
+    (inp,out,err,pid) <- runInteractiveProcessNewGroup executable arguments mbDir Nothing
     output <- getOutputNoPrompt inp out err pid
     return (output, pid)
 
 newToolState :: IO ToolState
 newToolState = do
-    toolProcess <- newEmptyMVar
+    toolProcessMVar <- newEmptyMVar
     outputClosed <- newEmptyMVar
     toolCommands <- newChan
     toolCommandsRead <- dupChan toolCommands
@@ -140,13 +127,8 @@ runInteractiveTool ::
     [String] ->
     IO ()
 runInteractiveTool tool clr executable arguments = do
-#if !defined(mingw32_HOST_OS) && !defined(__MINGW32__)
-    installHandler sigINT Ignore Nothing
-    installHandler sigQUIT Ignore Nothing
-#endif
-
-    (inp,out,err,pid) <- runInteractiveProcess executable arguments Nothing Nothing
-    putMVar (toolProcess tool) pid
+    (inp,out,err,pid) <- runInteractiveProcessNewGroup executable arguments Nothing Nothing
+    putMVar (toolProcessMVar tool) pid
     output <- getOutput clr inp out err pid
     -- This is handy to show the processed output
     -- forkIO $ forM_ output (putStrLn.show)
