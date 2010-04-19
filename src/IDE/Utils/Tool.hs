@@ -42,7 +42,8 @@ import Control.Monad (unless, when)
 import Data.List (stripPrefix)
 import Data.Maybe (isJust, catMaybes)
 import System.Process
-    (waitForProcess, ProcessHandle, runInteractiveProcessNewGroup)
+       (proc, waitForProcess, ProcessHandle, createProcess, CreateProcess(..))
+import System.Process.Internals (StdStream(..))
 import Control.DeepSeq
 import System.Log.Logger (debugM, criticalM)
 import System.Exit (ExitCode(..))
@@ -107,7 +108,12 @@ runTool' fp args mbDir = do
 
 runTool :: FilePath -> [String] -> Maybe FilePath -> IO ([ToolOutput], ProcessHandle)
 runTool executable arguments mbDir = do
-    (inp,out,err,pid) <- runInteractiveProcessNewGroup executable arguments mbDir Nothing
+    (Just inp,Just out,Just err,pid) <- createProcess (proc executable arguments)
+        { std_in  = CreatePipe,
+          std_out = CreatePipe,
+          std_err = CreatePipe,
+          cwd = mbDir,
+          new_group = True }
     output <- getOutputNoPrompt inp out err pid
     return (output, pid)
 
@@ -127,7 +133,11 @@ runInteractiveTool ::
     [String] ->
     IO ()
 runInteractiveTool tool clr executable arguments = do
-    (inp,out,err,pid) <- runInteractiveProcessNewGroup executable arguments Nothing Nothing
+    (Just inp,Just out,Just err,pid) <- createProcess (proc executable arguments)
+        { std_in  = CreatePipe,
+          std_out = CreatePipe,
+          std_err = CreatePipe,
+          new_group = True }
     putMVar (toolProcessMVar tool) pid
     output <- getOutput clr inp out err pid
     -- This is handy to show the processed output
