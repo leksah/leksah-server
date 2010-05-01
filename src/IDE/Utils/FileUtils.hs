@@ -75,7 +75,7 @@ import Data.List
 import qualified Data.Set as  Set (empty, fromList)
 import Control.Monad.Trans (MonadIO(..))
 import Distribution.Package (PackageIdentifier)
-import System.Process
+import IDE.System.Process
     (waitForProcess, runCommand)
 import Data.Char (ord)
 import Distribution.Text (simpleParse)

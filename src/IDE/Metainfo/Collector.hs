@@ -60,7 +60,7 @@ import Network.Socket
 import IDE.Utils.Server
 import System.IO (Handle, hPutStrLn, hGetLine, hFlush, hClose)
 import IDE.HeaderParser(parseTheHeader)
-import System.Process (system)
+import IDE.System.Process (system)
 import System.Exit (ExitCode(..))
 import Distribution.Package (PackageIdentifier(..))
 import Data.IORef

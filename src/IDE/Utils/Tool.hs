@@ -41,9 +41,9 @@ import Control.Concurrent
 import Control.Monad (unless, when)
 import Data.List (stripPrefix)
 import Data.Maybe (isJust, catMaybes)
-import System.Process
+import IDE.System.Process
        (proc, waitForProcess, ProcessHandle, createProcess, CreateProcess(..))
-import System.Process.Internals (StdStream(..))
+import IDE.System.Process.Internals (StdStream(..))
 import Control.DeepSeq
 import System.Log.Logger (debugM, criticalM)
 import System.Exit (ExitCode(..))
