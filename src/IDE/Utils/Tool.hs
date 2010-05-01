@@ -297,7 +297,7 @@ ghciStripExpectedError output =
 
 ghciIsExpectedOutput :: Int -> String -> Bool
 ghciIsExpectedOutput n =
-    (==) ("\"" ++ marker n ++ "\"")
+    (==) (marker n)
 
 ghciCommandLineReader :: CommandLineReader
 ghciCommandLineReader    = CommandLineReader {
@@ -305,7 +305,7 @@ ghciCommandLineReader    = CommandLineReader {
     stripFollowingPrompt = ghciStripFollowingPrompt,
     errorSyncCommand     = Just $ \n -> marker n,
     stripExpectedError   = ghciStripExpectedError,
-    outputSyncCommand    = Just $ \n -> "\"" ++ marker n ++ "\"",
+    outputSyncCommand    = Just $ \n -> ":set prompt " ++ marker n ++ "\n:set prompt " ++ ghciPrompt,
     isExpectedOutput     = ghciIsExpectedOutput
     }
 
