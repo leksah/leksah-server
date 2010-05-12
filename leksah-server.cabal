@@ -37,7 +37,7 @@ library
 
     exposed-modules: IDE.Utils.GHCUtils IDE.Utils.Utils IDE.Utils.Tool
         IDE.Utils.FileUtils IDE.Core.CTypes IDE.Core.Serializable IDE.StrippedPrefs
-        IDE.Utils.Server
+        IDE.Utils.Server IDE.Metainfo.PackageCollector
     exposed: True
     buildable: True
     extensions: CPP
@@ -77,7 +77,7 @@ executable leksah-server
         IDE.Core.CTypes IDE.Core.Serializable
         IDE.Metainfo.WorkspaceCollector IDE.Metainfo.InterfaceCollector
         IDE.Metainfo.SourceCollectorH IDE.Metainfo.SourceDB IDE.Utils.Tool
-        IDE.HeaderParser
+        IDE.HeaderParser IDE.Metainfo.PackageCollector
     if (impl(ghc >= 6.12))
        ghc-options: -Wall -fno-warn-unused-do-bind -ferror-spans -threaded -O2
     else
