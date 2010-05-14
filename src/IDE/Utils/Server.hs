@@ -31,7 +31,7 @@ import Control.Concurrent
 import Control.Exception hiding (catch)
 
 import Data.Word
-import Debug.Trace (trace)
+import System.Log.Logger (infoM)
 
 data UserAndGroup = UserAndGroup String String | UserWithDefaultGroup String
 
@@ -56,8 +56,8 @@ serverSocket server = do
 	sock <- serverSocket' server
 	setSocketOption sock ReuseAddr 1
 	bindSocket sock (serverAddr server)
-	trace ("Bind " ++ show (serverAddr server)) $
-	    listen sock maxListenQueue
+	infoM "leksah-server" $ ("Bind " ++ show (serverAddr server))
+	listen sock maxListenQueue
 	return (sock, server)
 
 

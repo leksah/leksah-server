@@ -40,6 +40,7 @@ module IDE.Utils.FileUtils (
 ,   getInstalledPackageIds
 ,   figureOutGhcOpts
 ,   figureOutHaddockOpts
+,   allFilesWithExtensions
 ) where
 
 import System.FilePath

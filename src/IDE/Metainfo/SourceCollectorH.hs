@@ -57,7 +57,6 @@ import qualified Distribution.InstalledPackageInfo as IPI
 import IDE.StrippedPrefs (getUnpackDirectory, Prefs(..))
 import IDE.Metainfo.SourceDB (sourceForPackage, getSourcesMap)
 import MonadUtils (liftIO)
-import Debug.Trace (trace)
 import System.Directory (setCurrentDirectory, doesDirectoryExist,createDirectory,canonicalizePath)
 import System.FilePath ((<.>), dropFileName, (</>))
 import Data.Maybe(mapMaybe)
@@ -125,8 +124,9 @@ findSourceForPackage prefs packageConfig = do
                         else do
                             setCurrentDirectory (fpUnpack </> packageName)
                             NewException.catch (runTool' "cabal" (["configure","--user"]) Nothing >> return ())
-                                                    (\ (_e :: NewException.SomeException) ->
-                                                        trace "Can't configure" $ return ())
+                                                    (\ (_e :: NewException.SomeException) -> do
+                                                        debugM "leksah-server" "Can't configure"
+                                                        return ())
                             return (Right (fpUnpack </> packageName </>  takeWhile (/= '-') packageName <.> "cabal"))
     where
         packageName = packageIdentifierToString (getThisPackage packageConfig)
@@ -139,8 +139,9 @@ packageFromSource cabalPath packageConfig = do
     debugM "leksah-server" ("ghcFlags:  " ++ show ghcFlags)
     NewException.catch (inner ghcFlags) handler
     where
-        _handler' (_e :: NewException.SomeException) =
-            trace "would block" $ return ([])
+        _handler' (_e :: NewException.SomeException) = do
+            debugM "leksah-server" "would block"
+            return ([])
         handler (e :: NewException.SomeException) = do
             warningM "leksah-server" ("Ghc failed to process: " ++ show e)
             return (Nothing, PackageCollectStats packageName Nothing False False

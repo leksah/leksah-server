@@ -35,7 +35,6 @@ import GHC hiding(Id,Failed,Succeeded,ModuleName)
 import HscTypes hiding (liftIO)
 import Outputable hiding(trace)
 import ErrUtils
-import Debug.Trace
 import qualified Data.Map as Map
 import Data.Map(Map)
 import System.Directory
@@ -610,12 +609,16 @@ mayGetInterfaceDescription ::  PackageIdentifier -> ModuleName -> Ghc (Maybe Mod
 mayGetInterfaceDescription pid mn = do
     mbIf <- mayGetInterfaceFile pid mn
     case mbIf of
-        Nothing -> trace ("no interface file for " ++ show mn) $ return Nothing
+        Nothing -> do
+            liftIO $ infoM "leksah-server" ("no interface file for " ++ show mn)
+            return Nothing
         Just (mif,_) ->
             let allDescrs  =    extractExportedDescrH pid mif
                 mod'       =    extractExportedDescrR pid allDescrs mif
-            in trace ("interface file for " ++ show mn ++ " descrs: " ++ show (length (mdIdDescriptions mod')))
-                $ return (Just mod')
+            in do
+                liftIO $ debugM "leksah-server" ("interface file for " ++ show mn ++ " descrs: " ++
+                                    show (length (mdIdDescriptions mod')))
+                return (Just mod')
 
 
 
