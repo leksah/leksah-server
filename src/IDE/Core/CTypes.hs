@@ -58,6 +58,9 @@ module IDE.Core.CTypes (
 ,   ImportSpecList(..)
 ,   ImportSpec(..)
 
+,   getThisPackage
+,   RetrieveStrategy(..)
+
 ) where
 
 import Data.Typeable (Typeable(..))
@@ -78,6 +81,9 @@ import Data.Char (isAlpha)
 import Control.DeepSeq (NFData(..))
 import qualified Data.ByteString.Char8 as BS (ByteString)
 import Data.Version (Version(..))
+import PackageConfig (PackageConfig)
+import qualified Distribution.InstalledPackageInfo as IPI
+       (sourcePackageId)
 
 -- ---------------------------------------------------------------------
 --  | Information about the system, extraced from .hi and source files
@@ -89,6 +95,16 @@ configDirName = ".leksah-" ++ leksahVersion
 
 metadataVersion :: Integer
 metadataVersion = 7
+
+getThisPackage :: PackageConfig -> PackageIdentifier
+#if MIN_VERSION_Cabal(1,8,0)
+getThisPackage    =   IPI.sourcePackageId
+#else
+getThisPackage    =   IPI.package
+#endif
+
+data RetrieveStrategy = RetrieveThenBuild | BuildThenRetrieve | NeverRetrieve
+    deriving (Show, Read, Eq, Ord, Enum, Bounded)
 
 data ServerCommand =
         SystemCommand {

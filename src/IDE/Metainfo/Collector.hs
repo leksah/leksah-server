@@ -34,9 +34,6 @@ import Prelude hiding(catch)
 import Control.Monad (liftM)
 import qualified Data.Set as Set (member)
 import IDE.Core.CTypes hiding (Extension)
-import qualified Distribution.InstalledPackageInfo as IPI
-import PackageConfig (PackageConfig)
-import TcRnMonad (MonadIO(..))
 import IDE.Metainfo.SourceDB (buildSourceForPackageDB)
 import Data.Time
 import Control.Exception
@@ -53,7 +50,6 @@ import IDE.Utils.Server
 import System.IO (Handle, hPutStrLn, hGetLine, hFlush, hClose)
 import IDE.HeaderParser(parseTheHeader)
 import System.Exit (ExitCode(..))
-import Distribution.Package (PackageIdentifier(..))
 import Data.IORef
 import Control.Concurrent (throwTo, ThreadId, myThreadId)
 import IDE.Metainfo.PackageCollector(collectPackage)
@@ -62,19 +58,12 @@ import System.Directory
        (removeFile, doesFileExist, removeDirectoryRecursive,
         doesDirectoryExist)
 import IDE.Metainfo.SourceCollectorH (PackageCollectStats(..))
+import Control.Monad.Trans (liftIO)
 
 -- --------------------------------------------------------------------
 -- Command line options
 --
 
-
-
-getThisPackage :: PackageConfig -> PackageIdentifier
-#if MIN_VERSION_Cabal(1,8,0)
-getThisPackage    =   IPI.sourcePackageId
-#else
-getThisPackage    =   IPI.package
-#endif
 
 data Flag =    CollectSystem
 

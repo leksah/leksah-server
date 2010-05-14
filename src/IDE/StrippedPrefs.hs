@@ -15,6 +15,7 @@
 module IDE.StrippedPrefs (
 
     Prefs(..)
+,   RetrieveStrategy(..)
 ,   readStrippedPrefs
 ,   writeStrippedPrefs
 ,   getSourceDirectories
@@ -29,6 +30,7 @@ import System.FilePath
        (joinPath, (</>), dropTrailingPathSeparator, splitPath)
 import System.Directory (getHomeDirectory)
 import Control.Monad (liftM)
+import IDE.Core.CTypes (RetrieveStrategy(..))
 
 --
 -- | Preferences is a data structure to hold configuration data
@@ -36,7 +38,8 @@ import Control.Monad (liftM)
 data Prefs = Prefs {
         sourceDirectories   ::   [FilePath]
     ,   unpackDirectory     ::   Maybe FilePath
-    ,   retreiveURL         ::   Maybe String
+    ,   retrieveURL         ::   String
+    ,   retrieveStrategy    ::   RetrieveStrategy
     ,   serverPort          ::   Int
     ,   endWithLastConn     ::   Bool
 } deriving(Eq,Show)
@@ -45,7 +48,8 @@ defaultPrefs :: Prefs
 defaultPrefs = Prefs {
         sourceDirectories   =   []
     ,   unpackDirectory     =   Nothing
-    ,   retreiveURL         =   Just "http://www.leksah.org/"
+    ,   retrieveURL         =   "http://www.leksah.org/"
+    ,   retrieveStrategy    =   RetrieveThenBuild
     ,   serverPort          =   11111
     ,   endWithLastConn     =   True
     }
@@ -77,11 +81,17 @@ prefsDescription = [
             unpackDirectory
             (\b a -> a{unpackDirectory = b})
     ,   mkFieldS
-            (paraName <<<- ParaName "Maybe an URL to load prebuild metadata " $ emptyParams)
+            (paraName <<<- ParaName "An URL to load prebuild metadata" $ emptyParams)
+            (PP.text . show)
+            stringParser
+            retrieveURL
+            (\b a -> a{retrieveURL = b})
+    ,   mkFieldS
+            (paraName <<<- ParaName "A strategy for downloading prebuild metadata" $ emptyParams)
             (PP.text . show)
             readParser
-            retreiveURL
-            (\b a -> a{retreiveURL = b})
+            retrieveStrategy
+            (\b a -> a{retrieveStrategy = b})
     ,   mkFieldS
             (paraName <<<- ParaName "Port number for server connection" $ emptyParams)
             (PP.text . show)

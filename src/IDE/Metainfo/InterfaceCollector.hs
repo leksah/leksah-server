@@ -55,12 +55,6 @@ import TcRnMonad (initTcRnIf)
 import IDE.Utils.GHCUtils
 import Control.DeepSeq(deepseq)
 
-getThisPackage :: PackageConfig -> PackageIdentifier
-#if MIN_VERSION_Cabal(1,8,0)
-getThisPackage    =   IPI.sourcePackageId
-#else
-getThisPackage    =   IPI.package
-#endif
 
 collectPackageFromHI :: PackageConfig -> IO PackageDescr
 collectPackageFromHI  packageConfig = inGhcIO [] [] $ \ _ -> do

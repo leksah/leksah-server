@@ -14,14 +14,17 @@
 -----------------------------------------------------------------------------
 
 module IDE.Metainfo.SourceCollectorH (
-    collectPackageFromSource
+--    collectPackageFromSource
+    findSourceForPackage
+,   packageFromSource
 ,   interfaceToModuleDescr
 ,   PackageCollectStats(..)
 ) where
 
 import IDE.Core.CTypes
-       (PackageDescr(..), TypeDescr(..), RealDescr(..), Descr(..),
-        ModuleDescr(..), PackModule(..), SimpleDescr(..), packageIdentifierToString)
+       (getThisPackage, PackageDescr(..), TypeDescr(..), RealDescr(..),
+        Descr(..), ModuleDescr(..), PackModule(..), SimpleDescr(..),
+        packageIdentifierToString)
 
 #ifdef MIN_VERSION_haddock_leksah
 import Haddock.Types
@@ -56,7 +59,7 @@ import IDE.Metainfo.SourceDB (sourceForPackage, getSourcesMap)
 import MonadUtils (liftIO)
 import Debug.Trace (trace)
 import System.Directory (setCurrentDirectory, doesDirectoryExist,createDirectory,canonicalizePath)
-import System.FilePath (dropFileName,(</>),(<.>))
+import System.FilePath ((<.>), dropFileName, (</>))
 import Data.Maybe(mapMaybe)
 import IDE.Utils.GHCUtils (inGhcIO)
 import qualified Control.Exception as NewException (SomeException, catch)
@@ -70,13 +73,6 @@ import Control.DeepSeq (deepseq)
 import Data.ByteString.Char8 (ByteString)
 import Outputable hiding (trace)
 import GHC.Show(showSpace)
-
-getThisPackage :: PackageConfig -> PackageIdentifier
-#if MIN_VERSION_Cabal(1,8,0)
-getThisPackage    =   IPI.sourcePackageId
-#else
-getThisPackage    =   IPI.package
-#endif
 
 #ifdef MIN_VERSION_haddock_leksah
 #else
@@ -105,40 +101,38 @@ data PackageCollectStats = PackageCollectStats {
     retrieved           :: Bool,
     mbError             :: Maybe String}
 
--- Hell
-
-collectPackageFromSource :: Prefs -> PackageConfig -> IO (Maybe PackageDescr, PackageCollectStats, Maybe FilePath)
-collectPackageFromSource prefs packageConfig = do
+findSourceForPackage :: Prefs -> PackageConfig -> IO (Either String FilePath)
+findSourceForPackage prefs packageConfig = do
     sourceMap <- liftIO $ getSourcesMap prefs
     case sourceForPackage (getThisPackage packageConfig) sourceMap of
-        Just fp -> do
-            let dirPath      = dropFileName fp
+        Just fpSource -> do
+            let dirPath      = dropFileName fpSource
             setCurrentDirectory dirPath
             runTool' "cabal" (["configure","--user"]) Nothing
-            packageFromSource fp packageConfig
+            return (Right fpSource)
         Nothing -> do
             unpackDir <- getUnpackDirectory prefs
             case unpackDir of
-                Nothing -> return (Nothing, PackageCollectStats packageName Nothing False False
-                                (Just ("No source found. Prefs don't allow for retreiving")), Nothing)
-                Just fp -> do
-                    exists <- doesDirectoryExist fp
-                    unless exists $ createDirectory fp
-                    setCurrentDirectory fp
+                Nothing -> return (Left "No source found. Prefs don't allow for retreiving")
+                Just fpUnpack -> do
+                    exists <- doesDirectoryExist fpUnpack
+                    unless exists $ createDirectory fpUnpack
+                    setCurrentDirectory fpUnpack
                     runTool' "cabal" (["unpack",packageName]) Nothing
-                    success <- doesDirectoryExist (fp </> packageName)
+                    success <- doesDirectoryExist (fpUnpack </> packageName)
                     if not success
-                        then return (Nothing, PackageCollectStats packageName Nothing False False
-                                (Just ("Failed to download and unpack source")), Nothing)
+                        then return (Left "Failed to download and unpack source")
                         else do
-                            setCurrentDirectory (fp </> packageName)
-                            runTool' "cabal" (["configure","--user"]) Nothing
-                            packageFromSource (fp </> packageName </> packageName <.> "cabal")
-                                        packageConfig
+                            setCurrentDirectory (fpUnpack </> packageName)
+                            NewException.catch (runTool' "cabal" (["configure","--user"]) Nothing >> return ())
+                                                    (\ (_e :: NewException.SomeException) ->
+                                                        trace "Can't configure" $ return ())
+                            return (Right (fpUnpack </> packageName </>  takeWhile (/= '-') packageName <.> "cabal"))
     where
         packageName = packageIdentifierToString (getThisPackage packageConfig)
 
-packageFromSource :: FilePath -> PackageConfig -> IO (Maybe PackageDescr, PackageCollectStats, Maybe FilePath)
+
+packageFromSource :: FilePath -> PackageConfig -> IO (Maybe PackageDescr, PackageCollectStats)
 packageFromSource cabalPath packageConfig = do
     setCurrentDirectory dirPath
     ghcFlags <- figureOutHaddockOpts
@@ -150,7 +144,7 @@ packageFromSource cabalPath packageConfig = do
         handler (e :: NewException.SomeException) = do
             warningM "leksah-server" ("Ghc failed to process: " ++ show e)
             return (Nothing, PackageCollectStats packageName Nothing False False
-                                            (Just ("Ghc failed to process: " ++ show e)), Just dirPath)
+                                            (Just ("Ghc failed to process: " ++ show e)))
         inner ghcFlags = inGhcIO ghcFlags [Opt_Haddock] $ \ _flags -> do
             (interfaces,_) <- createInterfaces verbose (exportedMods ++ hiddenMods) [] []
             liftIO $ print (length interfaces)
@@ -162,7 +156,7 @@ packageFromSource cabalPath packageConfig = do
                 ,   pdBuildDepends      =   [] -- TODO depends packageConfig
                 ,   pdMbSourcePath      =   Just sp}
             let stat = PackageCollectStats packageName (Just (length mods)) True False Nothing
-            liftIO $ deepseq pd $ return (Just pd, stat, Just dirPath)
+            liftIO $ deepseq pd $ return (Just pd, stat)
         exportedMods = map moduleNameString $ IPI.exposedModules packageConfig
         hiddenMods   = map moduleNameString $ IPI.hiddenModules packageConfig
         dirPath      = dropFileName cabalPath

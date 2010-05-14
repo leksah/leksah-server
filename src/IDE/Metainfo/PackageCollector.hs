@@ -19,17 +19,18 @@ module IDE.Metainfo.PackageCollector (
 
 ) where
 
-import IDE.StrippedPrefs (Prefs(..))
+import IDE.StrippedPrefs (RetrieveStrategy(..), Prefs(..))
 import PackageConfig (PackageConfig)
 import IDE.Metainfo.SourceCollectorH
-       (collectPackageFromSource, PackageCollectStats(..))
+       (findSourceForPackage, packageFromSource, PackageCollectStats(..))
 import System.Log.Logger (debugM, infoM)
 import IDE.Metainfo.InterfaceCollector (collectPackageFromHI)
 import IDE.Core.CTypes
-       (SimpleDescr(..), TypeDescr(..), ReexportedDescr(..), Descr(..),
-        RealDescr(..), dscTypeHint, descrType, dscName, Descr,
-        ModuleDescr(..), PackModule(..), PackageDescr(..), metadataVersion,
-        leksahVersion, packageIdentifierToString)
+       (getThisPackage, SimpleDescr(..), TypeDescr(..),
+        ReexportedDescr(..), Descr(..), RealDescr(..), dscTypeHint,
+        descrType, dscName, Descr, ModuleDescr(..), PackModule(..),
+        PackageDescr(..), metadataVersion, leksahVersion,
+        packageIdentifierToString)
 import Control.Monad.Trans (MonadIO, MonadIO(..))
 import IDE.Utils.FileUtils (getCollectorPath)
 import System.Directory (doesFileExist, setCurrentDirectory)
@@ -37,7 +38,7 @@ import IDE.Utils.Utils
        (leksahMetadataPathFileExtension,
         leksahMetadataSystemFileExtension)
 import IDE.System.Process (system)
-import System.FilePath ((<.>), (</>))
+import System.FilePath (dropFileName, (<.>), (</>))
 import Data.Binary.Shared (encodeFileSer)
 import qualified Data.Map as Map
        (fromListWith, fromList, keys, lookup)
@@ -51,47 +52,81 @@ collectPackage :: Bool -> Prefs -> Int -> (PackageConfig,Int) -> IO PackageColle
 collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
     infoM "leksah-server" ("update_toolbar " ++ show
         ((fromIntegral packageIndex / fromIntegral numPackages) :: Double))
-    packageDescrHI          <- collectPackageFromHI packageConfig
-    let packString = packageIdentifierToString (pdPackage packageDescrHI)
-    mbPackageDescrPair      <- collectPackageFromSource prefs packageConfig
-    case mbPackageDescrPair of
-        (Nothing,stat, Just fp) ->  do
-            -- Try to retreive prebuild package
-            case retreiveURL prefs of
-                Just url -> do
-                    collectorPath   <- liftIO $ getCollectorPath
-                    setCurrentDirectory collectorPath
-                    let fullUrl = url ++ "/metadata-" ++ leksahVersion ++ "/" ++ packString ++ leksahMetadataSystemFileExtension
-                    debugM "leksah-server" $ "collectPackage: before retreiving = " ++ fullUrl
-                    catch (system $ "wget " ++ fullUrl)
-                        (\(e :: SomeException) -> do
-                            debugM "leksah-server" $ "collectPackage: Error when calling wget " ++ show e
-                            return (ExitFailure 1))
-                    debugM "leksah-server" $ "collectPackage: after retreiving = " ++ packString -- ++ " result = " ++ res
-                    let filePath    =  collectorPath </> packString <.> leksahMetadataSystemFileExtension
-                    exist <- doesFileExist filePath
-                    if exist
+    let packageName = packageIdentifierToString (getThisPackage packageConfig)
+    let stat = PackageCollectStats packageName Nothing False False Nothing
+    eitherStrFp    <- findSourceForPackage prefs packageConfig
+    case eitherStrFp of
+        Left message -> do
+            packageDescrHi <- collectPackageFromHI packageConfig
+            writeExtractedPackage False packageDescrHi
+            return stat {packageString = message, modulesTotal = Just (length (pdModules packageDescrHi))}
+        Right fpSource ->
+            case retrieveStrategy prefs of
+                RetrieveThenBuild -> do
+                    success <- retrieve packageName
+                    if success
                         then do
-                            debugM "leksah-server" $ "collectPackage: retreived = " ++ packString
-                            liftIO $ writePackagePath fp packageDescrHI
-                            return (stat {modulesTotal = Just (length (pdModules packageDescrHI)),
-                                    withSource=True, retrieved= True, mbError=Nothing})
+                            debugM "leksah-server" $ "collectPackage: retreived = " ++ packageName
+                            liftIO $ writePackagePath (dropFileName fpSource) packageName
+                            return (stat {withSource=True, retrieved= True, mbError=Nothing})
                         else do
-                            debugM "leksah-server" $ "collectPackage: Can't retreive = " ++ packString
-                            liftIO $ writeExtractedPackage False packageDescrHI
-                            return (stat {modulesTotal = Just (length (pdModules packageDescrHI))})
-                Nothing -> do
-                    liftIO $ writeExtractedPackage False packageDescrHI
-                    return (stat {modulesTotal = Just (length (pdModules packageDescrHI))})
-        (Just packageDescrS,stat, Just fp) ->  do
-            let mergedPackageDescr = mergePackageDescrs packageDescrHI packageDescrS
+                            debugM "leksah-server" $ "collectPackage: Can't retreive = " ++ packageName
+                            packageDescrHi <- collectPackageFromHI packageConfig
+                            mbPackageDescrPair <- packageFromSource fpSource packageConfig
+                            case mbPackageDescrPair of
+                                (Just packageDescrS, bstat) ->  do
+                                    writeMerged packageDescrS packageDescrHi fpSource packageName
+                                    return bstat{modulesTotal = Just (length (pdModules packageDescrHi))}
+                                (Nothing,bstat) ->  do
+                                    writeExtractedPackage False packageDescrHi
+                                    return bstat{modulesTotal = Just (length (pdModules packageDescrHi))}
+                BuildThenRetrieve -> do
+                        mbPackageDescrPair <- packageFromSource fpSource packageConfig
+                        case mbPackageDescrPair of
+                            (Just packageDescrS,bstat) ->  do
+                                packageDescrHi <- collectPackageFromHI packageConfig
+                                writeMerged packageDescrS packageDescrHi fpSource packageName
+                                return bstat{modulesTotal = Just (length (pdModules packageDescrHi))}
+                            (Nothing,bstat) ->  do
+                                success  <- retrieve packageName
+                                if success
+                                    then do
+                                        debugM "leksah-server" $ "collectPackage: retreived = " ++ packageName
+                                        liftIO $ writePackagePath (dropFileName fpSource) packageName
+                                        return (stat {withSource=True, retrieved= True, mbError=Nothing})
+                                    else do
+                                        packageDescrHi <- collectPackageFromHI packageConfig
+                                        writeExtractedPackage False packageDescrHi
+                                        return bstat{modulesTotal = Just (length (pdModules packageDescrHi))}
+                NeverRetrieve -> do
+                        packageDescrHi <- collectPackageFromHI packageConfig
+                        mbPackageDescrPair <- packageFromSource fpSource packageConfig
+                        case mbPackageDescrPair of
+                                (Just packageDescrS,bstat) ->  do
+                                    writeMerged packageDescrS packageDescrHi fpSource packageName
+                                    return bstat{modulesTotal = Just (length (pdModules packageDescrHi))}
+                                (Nothing,bstat) ->  do
+                                    writeExtractedPackage False packageDescrHi
+                                    return bstat{modulesTotal = Just (length (pdModules packageDescrHi))}
+    where
+        retrieve :: String -> IO Bool
+        retrieve packString = do
+            collectorPath   <- liftIO $ getCollectorPath
+            setCurrentDirectory collectorPath
+            let fullUrl = retrieveURL prefs ++ "/metadata-" ++ leksahVersion ++ "/" ++ packString ++ leksahMetadataSystemFileExtension
+            debugM "leksah-server" $ "collectPackage: before retreiving = " ++ fullUrl
+            catch (system $ "wget " ++ fullUrl)
+                (\(e :: SomeException) -> do
+                    debugM "leksah-server" $ "collectPackage: Error when calling wget " ++ show e
+                    return (ExitFailure 1))
+            debugM "leksah-server" $ "collectPackage: after retreiving = " ++ packString -- ++ " result = " ++ res
+            let filePath    =  collectorPath </> packString <.> leksahMetadataSystemFileExtension
+            exist <- doesFileExist filePath
+            return exist
+        writeMerged packageDescrS packageDescrHi fpSource packageName = do
+            let mergedPackageDescr = mergePackageDescrs packageDescrHi packageDescrS
             liftIO $ writeExtractedPackage writeAscii mergedPackageDescr
-            liftIO $ writePackagePath fp mergedPackageDescr
-            return (stat)
-        (Nothing,stat,Nothing) ->  do
-            liftIO $ writeExtractedPackage False packageDescrHI
-            return (stat {modulesTotal = Just (length (pdModules packageDescrHI))})
-        _ -> fail "Unexpected error in collectPackage"
+            liftIO $ writePackagePath (dropFileName fpSource) packageName
 
 writeExtractedPackage :: MonadIO m => Bool -> PackageDescr -> m ()
 writeExtractedPackage writeAscii pd = do
@@ -102,11 +137,10 @@ writeExtractedPackage writeAscii pd = do
         then liftIO $ writeFile (filePath ++ "dpg") (show pd)
         else liftIO $ encodeFileSer filePath (metadataVersion, pd)
 
-writePackagePath :: MonadIO m => FilePath -> PackageDescr -> m ()
-writePackagePath fp pd = do
+writePackagePath :: MonadIO m => FilePath -> String -> m ()
+writePackagePath fp packageName = do
     collectorPath   <- liftIO $ getCollectorPath
-    let filePath    =  collectorPath </> packageIdentifierToString (pdPackage pd) <.>
-                            leksahMetadataPathFileExtension
+    let filePath    =  collectorPath </> packageName <.> leksahMetadataPathFileExtension
     liftIO $ writeFile filePath fp
 
 --------------Merging of .hi and .hs parsing / parsing and typechecking results
