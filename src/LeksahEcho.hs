@@ -17,7 +17,7 @@ main
 ) where
 
 import System.Environment (getArgs)
-import IDE.Utils.FileUtils (getHaddockVersion, getGhcVersion)
+import IDE.Utils.VersionUtils (getHaddockVersion, getGhcVersion)
 
 main :: IO ()
 main = do

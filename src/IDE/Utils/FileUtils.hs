@@ -25,8 +25,6 @@ module IDE.Utils.FileUtils (
 ,   getConfigFilePathForSave
 ,   getCollectorPath
 ,   getSysLibDir
-,   getHaddockVersion
-,   getGhcVersion
 ,   moduleNameFromFilePath
 ,   moduleNameFromFilePath'
 ,   findKnownPackages
@@ -377,27 +375,6 @@ getCollectorPath = liftIO $ do
         else do
             createDirectory filePath
             return filePath
-
-getGhcVersion :: IO FilePath
-getGhcVersion = catch (do
-    (!output,_) <- runTool' "ghc" ["--numeric-version"] Nothing
-    let vers = toolline $ head output
-        vers2 = if ord (last vers) == 13
-                    then List.init vers
-                    else vers
-    debugM "leksah-server" $ "Got GHC Version " ++ vers2
-    return vers2
-    ) $ \ _ -> error ("FileUtils>>getGhcVersion failed")
-
-getHaddockVersion :: IO String
-getHaddockVersion = catch (do
-    (!output,_) <- runTool' "haddock" ["--version"] Nothing
-    let vers = toolline $ head output
-        vers2 = if ord (last vers) == 13
-                    then List.init vers
-                    else vers
-    return vers2
-    ) $ \ _ -> error ("FileUtils>>getHaddockVersion failed")
 
 getSysLibDir :: IO FilePath
 getSysLibDir = catch (do

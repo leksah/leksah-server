@@ -37,7 +37,7 @@ library
 
     exposed-modules: IDE.Utils.GHCUtils IDE.Utils.Utils IDE.Utils.Tool
         IDE.Utils.FileUtils IDE.Core.CTypes IDE.Core.Serializable IDE.StrippedPrefs
-        IDE.Utils.Server IDE.Metainfo.PackageCollector
+        IDE.Utils.Server IDE.Metainfo.PackageCollector IDE.Utils.VersionUtils
     exposed: True
     buildable: True
     extensions: CPP
