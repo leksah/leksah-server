@@ -115,7 +115,11 @@ collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
             setCurrentDirectory collectorPath
             let fullUrl = retrieveURL prefs ++ "/metadata-" ++ leksahVersion ++ "/" ++ packString ++ leksahMetadataSystemFileExtension
             debugM "leksah-server" $ "collectPackage: before retreiving = " ++ fullUrl
+#if defined(darwin_HOST_OS)
+            catch (system $ "curl -OL " ++ fullUrl)
+#else
             catch (system $ "wget " ++ fullUrl)
+#endif
                 (\(e :: SomeException) -> do
                     debugM "leksah-server" $ "collectPackage: Error when calling wget " ++ show e
                     return (ExitFailure 1))
