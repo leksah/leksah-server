@@ -37,7 +37,6 @@ import System.Directory (doesFileExist, setCurrentDirectory)
 import IDE.Utils.Utils
        (leksahMetadataPathFileExtension,
         leksahMetadataSystemFileExtension)
-import IDE.System.Process (system)
 import System.FilePath (dropFileName, (<.>), (</>))
 import Data.Binary.Shared (encodeFileSer)
 import qualified Data.Map as Map
@@ -45,7 +44,13 @@ import qualified Data.Map as Map
 import Data.List (delete, nub)
 import Distribution.Text (display)
 import Control.Exception (SomeException,catch)
-import GHC.IO.Exception (ExitCode(..))
+#if defined(USE_LIBCURL)
+import Network.Curl (curlGetString, CurlCode(..))
+import Control.Monad (when)
+import System.IO (withBinaryFile, IOMode(..), hPutStr)
+#else
+import IDE.System.Process (system)
+#endif
 import Prelude hiding(catch)
 
 collectPackage :: Bool -> Prefs -> Int -> (PackageConfig,Int) -> IO PackageCollectStats
@@ -113,18 +118,23 @@ collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
         retrieve packString = do
             collectorPath   <- liftIO $ getCollectorPath
             setCurrentDirectory collectorPath
-            let fullUrl = retrieveURL prefs ++ "/metadata-" ++ leksahVersion ++ "/" ++ packString ++ leksahMetadataSystemFileExtension
+            let fullUrl  = retrieveURL prefs ++ "/metadata-" ++ leksahVersion ++ "/" ++ packString ++ leksahMetadataSystemFileExtension
+                filePath = collectorPath </> packString <.> leksahMetadataSystemFileExtension
             debugM "leksah-server" $ "collectPackage: before retreiving = " ++ fullUrl
-#if defined(darwin_HOST_OS)
-            catch (system $ "curl -OL " ++ fullUrl)
+#if defined(USE_LIBCURL)
+            catch (do
+                (code, string) <- curlGetString fullUrl []
+                when (code == CurlOK) $
+                    withBinaryFile filePath WriteMode $ \ file -> do
+                        hPutStr file string)
+#elif defined(USE_CURL)
+            catch ((system $ "curl -OL " ++ fullUrl) >> return ())
 #else
-            catch (system $ "wget " ++ fullUrl)
+            catch ((system $ "wget " ++ fullUrl) >> return ())
 #endif
-                (\(e :: SomeException) -> do
-                    debugM "leksah-server" $ "collectPackage: Error when calling wget " ++ show e
-                    return (ExitFailure 1))
+                (\(e :: SomeException) ->
+                    debugM "leksah-server" $ "collectPackage: Error when calling wget " ++ show e)
             debugM "leksah-server" $ "collectPackage: after retreiving = " ++ packString -- ++ " result = " ++ res
-            let filePath    =  collectorPath </> packString <.> leksahMetadataSystemFileExtension
             exist <- doesFileExist filePath
             return exist
         writeMerged packageDescrS packageDescrHi fpSource packageName = do
