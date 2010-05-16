@@ -72,7 +72,7 @@ import Distribution.Package
        (PackageName(..), PackageIdentifier(..))
 import Distribution.ModuleName (components, ModuleName)
 import Data.ByteString.Char8 (ByteString)
-import Distribution.Text (simpleParse, display)
+import Distribution.Text (Text(..), simpleParse, display)
 import qualified Data.ByteString.Char8 as  BS (unpack, empty)
 import qualified Data.Map as Map (lookup,keysSet,splitLookup, insertWith,empty,elems,union)
 import Text.PrettyPrint as PP
@@ -156,6 +156,9 @@ data PackageDescr       =   PackageDescr {
     ,   pdBuildDepends      ::   [PackageIdentifier]
 } deriving (Show,Typeable)
 
+instance Default PackageDescr where
+    getDefault = PackageDescr getDefault getDefault getDefault getDefault
+
 newtype Present alpha       =   Present alpha
 
 instance Show (Present PackageDescr) where
@@ -173,6 +176,9 @@ data ModuleDescr        =   ModuleDescr {
     ,   mdReferences        ::   (Map ModuleName (Set String)) -- imports
     ,   mdIdDescriptions    ::   [Descr]
 } deriving (Show,Typeable)
+
+instance Default ModuleDescr where
+    getDefault = ModuleDescr getDefault getDefault Map.empty getDefault
 
 instance Show (Present ModuleDescr) where
     show (Present md)   =   (show . mdModuleId) md
@@ -353,6 +359,11 @@ instance Ord ReexportedDescr where
 
 instance Default PackModule where
     getDefault = parsePackModule "unknow-0:Undefined"
+
+instance Default PackageIdentifier where
+    getDefault = case packageIdentifierFromString "unknown-0" of
+                    Nothing -> error "CTypes.getDefault: Can't parse Package Identifier"
+                    Just it -> it
 
 -- | A portion of the source, spanning one or more lines and zero or more columns.
 data SrcSpan = SrcSpan
