@@ -83,7 +83,6 @@ import qualified Data.ByteString.Char8 as BS (ByteString)
 import Data.Version (Version(..))
 import PackageConfig (PackageConfig)
 import qualified Distribution.InstalledPackageInfo as IPI
-       (sourcePackageId)
 
 -- ---------------------------------------------------------------------
 --  | Information about the system, extraced from .hi and source files
