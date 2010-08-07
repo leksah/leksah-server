@@ -110,7 +110,12 @@ collectWorkspace packId moduleList forceRebuild writeAscii dir = do
     -- Construct directory
     liftIO $ createDirectoryIfMissing True packageCollectorPath
     setCurrentDirectory dir
-    opts <- figureOutHaddockOpts -- figureOutGhcOpts
+#if MIN_VERSION_ghc(6,12,3)
+    opts <- figureOutGhcOpts
+#else
+    opts <- figureOutHaddockOpts
+#endif
+
     debugM "leksah-server" $ "before collect modules"
     mapM_ (collectModule packageCollectorPath writeAscii packId opts) moduleList
     debugM "leksah-server" $ "after collect modules"
@@ -610,7 +615,7 @@ mayGetInterfaceDescription pid mn = do
     mbIf <- mayGetInterfaceFile pid mn
     case mbIf of
         Nothing -> do
-            liftIO $ infoM "leksah-server" ("no interface file for " ++ show mn)
+            liftIO $ debugM "leksah-server" ("no interface file for " ++ show mn)
             return Nothing
         Just (mif,_) ->
             let allDescrs  =    extractExportedDescrH pid mif

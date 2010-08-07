@@ -77,7 +77,7 @@ inGhcIO flags' udynFlags ghcAct = do
         (dynflags', rest, _) <- parseDynamicFlags dynflags flags_
         if not (null rest)
             then do
-                liftIO $ warningM "leksah-server" ("No dynamic GHC options: " ++ (unwords (map unLoc rest)))
+                liftIO $ debugM "leksah-server" ("No dynamic GHC options: " ++ (unwords (map unLoc rest)))
                 return dynflags'
             else return dynflags'
 
