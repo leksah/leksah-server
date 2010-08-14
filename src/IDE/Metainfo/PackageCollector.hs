@@ -128,7 +128,7 @@ collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
                     withBinaryFile filePath WriteMode $ \ file -> do
                         hPutStr file string)
 #elif defined(USE_CURL)
-            catch ((system $ "curl -OL " ++ fullUrl) >> return ())
+            catch ((system $ "curl -OL --fail " ++ fullUrl) >> return ())
 #else
             catch ((system $ "wget " ++ fullUrl) >> return ())
 #endif
