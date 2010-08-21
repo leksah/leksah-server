@@ -20,7 +20,7 @@ module IDE.Utils.FileUtils (
 ,   cabalFileName
 ,   allCabalFiles
 ,   getConfigFilePathForLoad
-,   hasConfigDir
+,   hasSavedConfigFile
 ,   getConfigDir
 ,   getConfigFilePathForSave
 ,   getCollectorPath
@@ -146,11 +146,10 @@ getConfigDirForLoad = do
         then return (Just filePath)
         else return Nothing
 
-hasConfigDir :: IO Bool
-hasConfigDir = do
-    d <- getHomeDirectory
-    let filePath = d </> configDirName
-    doesDirectoryExist filePath
+hasSavedConfigFile :: String -> IO Bool
+hasSavedConfigFile fn = do
+    savedConfigFile <- getConfigFilePathForSave fn
+    doesFileExist savedConfigFile
 
 
 getConfigFilePathForLoad :: String -> Maybe FilePath -> FilePath -> IO FilePath
