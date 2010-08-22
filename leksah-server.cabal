@@ -105,13 +105,13 @@ executable leksah-server
         IDE.Metainfo.SourceCollectorH IDE.Metainfo.SourceDB IDE.Utils.Tool
         IDE.HeaderParser IDE.Metainfo.PackageCollector
 
-    if flag(threaded) && impl(ghc >= 6.12)
+    if flag(threaded)
         ghc-options: -threaded
 
     if impl(ghc >= 6.12)
         ghc-options: -Wall -fno-warn-unused-do-bind -ferror-spans -O2
     else
-        ghc-options: -Wall -ferror-spans -threaded -O2
+        ghc-options: -Wall -ferror-spans -O2
     ghc-prof-options: -auto-all -prof
 
 executable leksahecho
