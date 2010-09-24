@@ -40,11 +40,11 @@ data UserAndGroup = UserAndGroup String String | UserWithDefaultGroup String
 setUserAndGroup :: UserAndGroup -> IO ()
 setUserAndGroup _ = return ()
 				
--- |make an IP Address: (127,0,0,1) is the localhost
+-- | make an IP Address: (127,0,0,1) is the localhost
 ipAddress :: (Word8, Word8, Word8, Word8) -> HostAddress
 ipAddress (a, b, c, d) = fromIntegral a + 0x100 * fromIntegral b + 0x10000 * fromIntegral c + 0x1000000 * fromIntegral d
 
--- |the functionality of a server
+-- | the functionality of a server
 type ServerRoutine = (Handle, HostName, PortNumber) -> IO ()
 
 serverSocket' :: Server -> IO Socket
@@ -59,7 +59,6 @@ serverSocket server = do
 	infoM "leksah-server" $ ("Bind " ++ show (serverAddr server))
 	listen sock maxListenQueue
 	return (sock, server)
-
 
 -- |the specification of a serving process
 data Server = Server {
