@@ -29,6 +29,7 @@ leksahTemplateFileExtension          = ".lksht"
 leksahFlagFileExtension              = ".lkshf"
 
 standardSessionFilename              =   "current" ++ leksahSessionFileExtension
+emptySessionFilename                 =   "empty" ++ leksahSessionFileExtension
 packageSessionFilename               =   "leksah" ++ leksahSessionFileExtension
 standardKeymapFilename               =   "keymap" ++ leksahKeymapFileExtension
 standardCandyFilename                =   "candy" ++ leksahCandyFileExtension
