@@ -58,7 +58,7 @@ import GHC.Exception
 import MyMissing(forceHead)
 import LoadIface(findAndReadIface)
 import Distribution.Text(display)
-import TcRnMonad hiding (liftIO,MonadIO,LIE)
+import TcRnMonad (initTcRnIf, IfGblEnv(..))
 import qualified Maybes as M
 import IDE.Metainfo.InterfaceCollector
 import Data.Maybe
@@ -146,7 +146,7 @@ collectModule collectorPackagePath writeAscii packId opts (modId,sourcePath) = d
 
 collectModule' :: FilePath -> FilePath -> Bool -> PackageIdentifier -> [String] -> ModuleName -> IO()
 collectModule' sourcePath destPath writeAscii packId opts moduleName' = gcatch (
-    inGhcIO opts [Opt_Haddock,Opt_Cpp] $ \ _dynFlags -> do
+    inGhcIO (opts++["-cpp"]) [Opt_Haddock] $ \ _dynFlags -> do
         session         <-  getSession
         (dynFlags3,fp') <-  preprocess session (sourcePath,Nothing)
         mbInterfaceDescr <- mayGetInterfaceDescription packId moduleName'

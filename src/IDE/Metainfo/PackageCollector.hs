@@ -49,7 +49,11 @@ import Network.Curl (curlGetString, CurlCode(..))
 import Control.Monad (when)
 import System.IO (withBinaryFile, IOMode(..), hPutStr)
 #else
+#ifdef MIN_VERSION_process_leksah
 import IDE.System.Process (system)
+#else
+import System.Process (system)
+#endif
 #endif
 import Prelude hiding(catch)
 

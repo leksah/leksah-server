@@ -138,7 +138,11 @@ myParseModule dflags src_filename maybe_src_buf
 
       let loc  = mkSrcLoc (mkFastString src_filename) 1 0
 
+#if MIN_VERSION_ghc(7,0,1)
+      case unP P.parseModule (mkPState dflags buf' loc) of {
+#else
       case unP P.parseModule (mkPState buf' loc dflags) of {
+#endif
 
 	PFailed span' err -> return (Left (mkPlainErrMsg span' err));
 
@@ -158,7 +162,7 @@ myParseModule dflags src_filename maybe_src_buf
       }}
 
 myParseHeader :: FilePath -> String -> [String] -> IO (Either String (HsModule RdrName))
-myParseHeader fp _str opts = inGhcIO opts [Opt_Cpp] $ \ _dynFlags -> do
+myParseHeader fp _str opts = inGhcIO (opts++["-cpp"]) [] $ \ _dynFlags -> do
     session   <- getSession
     (dynFlags',fp')    <-  preprocess session (fp,Nothing)
     liftIO $ do
@@ -189,7 +193,11 @@ myParseModuleHeader dflags src_filename maybe_src_buf
 
       let loc  = mkSrcLoc (mkFastString src_filename) 1 0
 
+#if MIN_VERSION_ghc(7,0,1)
+      case unP P.parseHeader (mkPState dflags buf' loc) of {
+#else
       case unP P.parseHeader (mkPState buf' loc dflags) of {
+#endif
 
 	PFailed span' err -> return (Left (mkPlainErrMsg span' err));
 

@@ -41,9 +41,15 @@ import Control.Concurrent
 import Control.Monad (unless, when)
 import Data.List (stripPrefix)
 import Data.Maybe (isJust, catMaybes)
+#ifdef MIN_VERSION_process_leksah
 import IDE.System.Process
        (proc, waitForProcess, ProcessHandle, createProcess, CreateProcess(..))
 import IDE.System.Process.Internals (StdStream(..))
+#else
+import System.Process
+       (proc, waitForProcess, ProcessHandle, createProcess, CreateProcess(..))
+import System.Process.Internals (StdStream(..))
+#endif
 import Control.DeepSeq
 import System.Log.Logger (debugM, criticalM)
 import System.Exit (ExitCode(..))

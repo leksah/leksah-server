@@ -147,7 +147,11 @@ packageFromSource cabalPath packageConfig = do
             return (Nothing, PackageCollectStats packageName Nothing False False
                                             (Just ("Ghc failed to process: " ++ show e)))
         inner ghcFlags = inGhcIO ghcFlags [Opt_Haddock] $ \ _flags -> do
+#if MIN_VERSION_haddock(2,8,0)
+            (interfaces,_) <- processModules verbose (exportedMods ++ hiddenMods) [] []
+#else
             (interfaces,_) <- createInterfaces verbose (exportedMods ++ hiddenMods) [] []
+#endif
             liftIO $ print (length interfaces)
             let mods = map (interfaceToModuleDescr dirPath (getThisPackage packageConfig)) interfaces
             sp <- liftIO $ canonicalizePath dirPath

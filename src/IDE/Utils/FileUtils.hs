@@ -74,8 +74,13 @@ import Data.List
 import qualified Data.Set as  Set (empty, fromList)
 import Control.Monad.Trans (MonadIO(..))
 import Distribution.Package (PackageIdentifier)
+#ifdef MIN_VERSION_process_leksah
 import IDE.System.Process
     (waitForProcess, runCommand)
+#else
+import System.Process
+    (waitForProcess, runCommand)
+#endif
 import Data.Char (ord)
 import Distribution.Text (simpleParse)
 
