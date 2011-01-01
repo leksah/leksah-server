@@ -287,18 +287,20 @@ stripMarker s =
 
 ghciStripExpectedError :: String -> Maybe (Int, String)
 ghciStripExpectedError output =
-    case stripPrefix "\n<interactive>:1:0" output of
+    case stripPrefix "\n<interactive>:1:" output of
         Just rest ->
-            case stripPrefix ": Not in scope: `"
-                (maybe rest id (stripPrefix "-28" rest)) of
-                Just rest2 ->
-                    case stripMarker rest2 of
-                        Just (n, rest3) ->
-                            case stripPrefix "'\n" rest3 of
-                                Just rest4 -> Just (n, rest4)
+            case span (/= ':') rest of
+                (cols, rest2) | cols == "0" || cols == "1" || cols == "0-28" || cols == "1-29" ->
+                    case stripPrefix ": Not in scope: `" rest2 of
+                        Just rest3 ->
+                            case stripMarker rest3 of
+                                Just (n, rest4) ->
+                                    case stripPrefix "'\n" rest4 of
+                                        Just rest5 -> Just (n, rest5)
+                                        Nothing -> Nothing
                                 Nothing -> Nothing
                         Nothing -> Nothing
-                Nothing -> Nothing
+                _ -> Nothing
         Nothing -> Nothing
 
 ghciIsExpectedOutput :: Int -> String -> Bool
