@@ -190,6 +190,7 @@ parseCabal fn = do
             debugM "leksah-server" r
             return (Just r)
 
+
 cabalMinimalParser :: CharParser () String
 cabalMinimalParser = do
     r1 <- cabalMinimalP

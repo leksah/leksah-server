@@ -432,7 +432,7 @@ newGhci buildFlags interactiveFlags startupOutputHandler = do
             ToolCommand (":set prompt " ++ ghciPrompt) startupOutputHandler
         debugM "leksah-server" $ "Working out GHCi options"
         forkIO $ do
-            (output, _) <- runTool "runhaskell" (["Setup","build","--with-ghc=leksahecho"] ++ buildFlags) Nothing
+            (output, _) <- runTool "cabal" (["build","--with-ghc=leksahecho"] ++ buildFlags) Nothing
             case catMaybes $ map (findMake . toolline) output of
                 options:_ -> do
                         let newOptions = filterUnwanted options
