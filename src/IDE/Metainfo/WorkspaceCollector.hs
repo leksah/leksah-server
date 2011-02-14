@@ -101,7 +101,7 @@ type NSig  = Located (Sig RdrName)
 -- | Test
 collectWorkspace :: PackageIdentifier ->  [(String,FilePath)] -> Bool -> Bool -> FilePath -> IO()
 collectWorkspace packId moduleList forceRebuild writeAscii dir = do
-    debugM "leksah-server" $ "collectWorkspace called with " ++ show moduleList
+    debugM "leksah-server" $ "collectWorkspace called with modules " ++ show moduleList ++ " in folder " ++ dir
     collectorPath <- liftIO $ getCollectorPath
     let packageCollectorPath = collectorPath </> packageIdentifierToString packId
     when forceRebuild $ do
@@ -110,14 +110,11 @@ collectWorkspace packId moduleList forceRebuild writeAscii dir = do
     -- Construct directory
     liftIO $ createDirectoryIfMissing True packageCollectorPath
     setCurrentDirectory dir
-#if MIN_VERSION_ghc(6,12,3)
-    opts <- figureOutGhcOpts
-#else
-    opts <- figureOutHaddockOpts
-#endif
+    opts1 <- figureOutGhcOpts
+    opts2 <- figureOutHaddockOpts
 
-    debugM "leksah-server" $ "before collect modules"
-    mapM_ (collectModule packageCollectorPath writeAscii packId opts) moduleList
+    debugM "leksah-server" $ ("before collect modules" ++ "\n\nopts1: " ++ show opts1 ++ "\n\n opt2: " ++ show opts2)
+    mapM_ (collectModule packageCollectorPath writeAscii packId opts1) moduleList
     debugM "leksah-server" $ "after collect modules"
 
 collectModule :: FilePath -> Bool -> PackageIdentifier -> [String] -> (String,FilePath) -> IO()
@@ -509,7 +506,6 @@ extractConstructor decl@(L loc (ConDecl {con_name = name, con_doc = doc})) =
             Nothing -> Nothing
             Just (L _ d) -> Just (BS.pack (printHsDoc d)))
         True
-
 
 extractRecordFields :: Located (ConDecl RdrName) -> [SimpleDescr]
 extractRecordFields (L _ _decl@(ConDecl {con_details = RecCon flds})) =

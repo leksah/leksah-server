@@ -64,7 +64,7 @@ import IDE.Utils.GHCUtils (inGhcIO)
 import qualified Control.Exception as NewException (SomeException, catch)
 import IDE.Utils.Tool
 import Control.Monad (unless)
-import IDE.Utils.FileUtils(figureOutHaddockOpts)
+import IDE.Utils.FileUtils (figureOutGhcOpts, figureOutHaddockOpts)
 import Distribution.Package(PackageIdentifier)
 import GHC hiding(Id,Failed,Succeeded,ModuleName)
 import System.Log.Logger (warningM, debugM)
@@ -135,8 +135,8 @@ findSourceForPackage prefs packageConfig = do
 packageFromSource :: FilePath -> PackageConfig -> IO (Maybe PackageDescr, PackageCollectStats)
 packageFromSource cabalPath packageConfig = do
     setCurrentDirectory dirPath
-    ghcFlags <- figureOutHaddockOpts
-    debugM "leksah-server" ("ghcFlags:  " ++ show ghcFlags)
+    ghcFlags <- figureOutGhcOpts
+    debugM "leksah-server" ("ghcFlags:  " ++ show ghcFlags)	
     NewException.catch (inner ghcFlags) handler
     where
         _handler' (_e :: NewException.SomeException) = do

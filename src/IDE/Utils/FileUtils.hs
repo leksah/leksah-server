@@ -413,7 +413,7 @@ figureOutHaddockOpts = do
 figureOutGhcOpts :: IO [String]
 figureOutGhcOpts = do
     debugM "leksah-server" "figureOutGhcOpts"
-    (!output,_) <- runTool' "runhaskell" ["Setup","build","--with-ghc=leksahecho"] Nothing
+    (!output,_) <- runTool' "cabal" ["build","--with-ghc=leksahecho"] Nothing
     let res = case catMaybes $ map (findMake . toolline) output of
                 options:_ -> words options
                 _         -> []

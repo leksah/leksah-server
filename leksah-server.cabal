@@ -126,7 +126,7 @@ executable leksahecho
     extensions: CPP
     hs-source-dirs: src
     ghc-prof-options: -auto-all -prof
-    ghc-shared-options: -auto-all -prof
+--    ghc-shared-options: -auto-all -prof
 
     if flag(threaded)
         ghc-options: -threaded
