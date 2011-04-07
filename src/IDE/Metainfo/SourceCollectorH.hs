@@ -57,14 +57,14 @@ import qualified Distribution.InstalledPackageInfo as IPI
 import IDE.StrippedPrefs (getUnpackDirectory, Prefs(..))
 import IDE.Metainfo.SourceDB (sourceForPackage, getSourcesMap)
 import MonadUtils (liftIO)
-import System.Directory (setCurrentDirectory, doesDirectoryExist,createDirectory,canonicalizePath)
+import System.Directory (setCurrentDirectory, doesDirectoryExist,createDirectory)
 import System.FilePath ((<.>), dropFileName, (</>))
 import Data.Maybe(mapMaybe)
 import IDE.Utils.GHCUtils (inGhcIO)
 import qualified Control.Exception as NewException (SomeException, catch)
 import IDE.Utils.Tool
 import Control.Monad (unless)
-import IDE.Utils.FileUtils (figureOutGhcOpts, figureOutHaddockOpts)
+import IDE.Utils.FileUtils (figureOutGhcOpts, figureOutHaddockOpts,myCanonicalizePath)
 import Distribution.Package(PackageIdentifier)
 import GHC hiding(Id,Failed,Succeeded,ModuleName)
 import System.Log.Logger (warningM, debugM)
@@ -154,7 +154,7 @@ packageFromSource cabalPath packageConfig = do
 #endif
             liftIO $ print (length interfaces)
             let mods = map (interfaceToModuleDescr dirPath (getThisPackage packageConfig)) interfaces
-            sp <- liftIO $ canonicalizePath dirPath
+            sp <- liftIO $ myCanonicalizePath dirPath
             let pd = PackageDescr {
                     pdPackage           =   getThisPackage packageConfig
                 ,   pdModules           =   mods

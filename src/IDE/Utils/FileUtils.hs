@@ -39,6 +39,7 @@ module IDE.Utils.FileUtils (
 ,   figureOutGhcOpts
 ,   figureOutHaddockOpts
 ,   allFilesWithExtensions
+,   myCanonicalizePath
 ) where
 
 import System.FilePath
@@ -50,13 +51,9 @@ import Data.Maybe (catMaybes)
 import qualified Data.List as  List (init, elem)
 import Distribution.Simple.PreProcess.Unlit (unlit)
 import System.Directory
-    (doesDirectoryExist,
-     doesFileExist,
-     setCurrentDirectory,
-     getCurrentDirectory,
-     getDirectoryContents,
-     createDirectory,
-     getHomeDirectory)
+       (canonicalizePath, doesDirectoryExist, doesFileExist,
+        setCurrentDirectory, getCurrentDirectory, getDirectoryContents,
+        createDirectory, getHomeDirectory)
 import Text.ParserCombinators.Parsec.Language (haskellDef, haskell)
 #if MIN_VERSION_parsec(3,0,0)
 import qualified Text.ParserCombinators.Parsec.Token as P
@@ -92,6 +89,15 @@ import IDE.Utils.Tool
 
 haskellSrcExts :: [String]
 haskellSrcExts = ["hs","lhs","chs","hs.pp","lhs.pp","chs.pp","hsc"]
+
+-- | canonicalizePath without crashing
+myCanonicalizePath :: String -> IO String
+myCanonicalizePath fp = do
+    exists <- doesFileExist fp
+    if exists
+        then canonicalizePath fp
+        else return fp
+
 
 -- | Returns True if the second path is a location which starts with the first path
 isSubPath :: FilePath -> FilePath -> Bool

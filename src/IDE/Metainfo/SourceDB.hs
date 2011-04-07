@@ -30,8 +30,9 @@ import IDE.Utils.Utils (standardSourcesFilename)
 import qualified Data.Map as Map
        (fromList, toList, fromListWith, lookup)
 import IDE.Utils.FileUtils
-       (getConfigFilePathForLoad, getConfigFilePathForSave, allCabalFiles)
-import System.Directory (doesFileExist, canonicalizePath)
+       (myCanonicalizePath, getConfigFilePathForLoad,
+        getConfigFilePathForSave, allCabalFiles)
+import System.Directory (doesFileExist)
 import Data.List (foldl')
 import qualified Text.PrettyPrint as PP
        (colon, (<>), text, ($$), vcat, Doc, render, char)
@@ -86,7 +87,7 @@ buildSourceForPackageDB prefs = do
                             Just dir -> dir : sourceDirs
                             Nothing ->  sourceDirs
     cabalFiles      <-  mapM allCabalFiles dirs
-    fCabalFiles     <-  mapM canonicalizePath $ concat cabalFiles
+    fCabalFiles     <-  mapM myCanonicalizePath $ concat cabalFiles
     mbPackages      <-  mapM (\fp -> parseCabal fp) fCabalFiles
     let pdToFiles   =   Map.fromListWith (++)
                 $ map (\(Just p,o ) -> (p,o))
