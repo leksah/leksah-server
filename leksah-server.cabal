@@ -39,7 +39,7 @@ library
                pretty >=1.0.1.0 && <1.1, process-leksah >=1.0.1.3 && <1.1, time >=1.1 && <1.3, deepseq >=1.1 && <1.2,
                hslogger >= 1.0.7 && <1.2, network >=2.2 && <3.0
     if (impl(ghc >= 6.12))
-       build-depends: haddock >= 2.7.2 && <3
+       build-depends: haddock >= 2.7.2 && <2.10
     else
        build-depends: haddock-leksah == 2.5.0
     if os(windows)
@@ -81,7 +81,7 @@ executable leksah-server
                pretty >=1.0.1.0 && <1.1, process-leksah >=1.0.1.3 && <1.1, time >=1.1 && <1.3, deepseq >=1.1 && <1.2,
                hslogger >= 1.0.7 && <1.2, network >=2.2 && <3.0
     if (impl(ghc >= 6.12))
-       build-depends: haddock >= 2.7.2 && <3
+       build-depends: haddock >= 2.7.2 && <2.10
     else
        build-depends: haddock-leksah == 2.5.0
 
