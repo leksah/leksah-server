@@ -1,6 +1,6 @@
 name: leksah-server
 version: 0.10.0.3
-cabal-version: >= 1.2
+cabal-version: >= 1.8
 build-type: Simple
 license: GPL
 license-file: LICENSE
