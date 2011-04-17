@@ -312,7 +312,7 @@ findKnownPackages filePath = catch (do
     return (Set.fromList nameList))
         $ \ _ -> return (Set.empty)
 
-cabalFileName :: FilePath -> IO (Maybe String)
+cabalFileName :: FilePath -> IO (Maybe FilePath)
 cabalFileName filePath = catch (do
     exists <- doesDirectoryExist filePath
     if exists
