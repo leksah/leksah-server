@@ -213,7 +213,11 @@ extractDescrs pm _ifaceDeclMap ifaceExportItems' ifaceInstances' _ifaceLocals =
 transformToDescrs :: PackModule -> [(LHsDecl Name, Maybe NDoc, [(Name, Maybe NDoc)])] -> [Descr]
 transformToDescrs pm = concatMap transformToDescr
     where
+#if MIN_VERSION_ghc(7,2,0)
+    transformToDescr ((L loc (SigD (TypeSig [name] typ))), mbComment,_subCommentList) =
+#else
     transformToDescr ((L loc (SigD (TypeSig name typ))), mbComment,_subCommentList) =
+#endif
         [Real $ RealDescr {
         dscName'        =   getOccString (unLoc name)
     ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual $ppr typ))
@@ -303,7 +307,11 @@ extractMethods sigs docs =
     in mapMaybe extractMethod pairs
 
 extractMethod :: (LHsDecl Name, Maybe NDoc) -> Maybe SimpleDescr
+#if MIN_VERSION_ghc(7,2,0)
+extractMethod ((L loc (SigD ts@(TypeSig [name] _typ))), mbDoc) =
+#else
 extractMethod ((L loc (SigD ts@(TypeSig name _typ))), mbDoc) =
+#endif
     Just $ SimpleDescr
         (getOccString (unLoc name))
         (Just (BS.pack (showSDocUnqual $ ppr ts)))

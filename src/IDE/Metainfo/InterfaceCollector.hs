@@ -23,8 +23,14 @@ import MyMissing (nonEmptyLines)
 import Module hiding (PackageId,ModuleName)
 import qualified Module as Module (ModuleName)
 import qualified Maybes as M
+#if MIN_VERSION_ghc(7,2,0)
+import HscTypes
+import GhcMonad hiding (liftIO)
+import qualified GhcMonad as Hs (liftIO)
+#else
 import HscTypes hiding (liftIO)
 import qualified HscTypes as Hs (liftIO)
+#endif
 import LoadIface
 import Outputable hiding(trace)
 import IfaceSyn
@@ -164,7 +170,11 @@ extractIdentifierDescr package modules decl
             (IfaceId _ _ _)
 #endif
                 -> map Real [descr]
+#if MIN_VERSION_Cabal(1,11,0)
+            (IfaceData name _ _ ifCons' _ _ _)
+#else
             (IfaceData name _ _ ifCons' _ _ _ _)
+#endif
                 -> let d = case ifCons' of
                             IfDataTyCon _decls
                                 ->  let
@@ -253,10 +263,18 @@ extractInstances pm ifaceInst  =
 
 
 extractUsages :: Usage -> (ModuleName, Set String)
+#if MIN_VERSION_Cabal(1,11,0)
+extractUsages (UsagePackageModule usg_mod' _ _) =
+#else
 extractUsages (UsagePackageModule usg_mod' _ ) =
+#endif
     let name    =   (fromJust . simpleParse . moduleNameString) (moduleName usg_mod')
     in (name, Set.fromList [])
+#if MIN_VERSION_Cabal(1,11,0)
+extractUsages (UsageHomeModule usg_mod_name' _ usg_entities' _ _) =
+#else
 extractUsages (UsageHomeModule usg_mod_name' _ usg_entities' _) =
+#endif
     let name    =   (fromJust . simpleParse . moduleNameString) usg_mod_name'
         ids     =   map (showSDocUnqual . ppr . fst) usg_entities'
     in (name, Set.fromList ids)

@@ -119,7 +119,11 @@ runTool executable arguments mbDir = do
           std_out = CreatePipe,
           std_err = CreatePipe,
           cwd = mbDir,
+#ifdef MIN_VERSION_process_leksah
           new_group = True }
+#else
+          create_group = True }
+#endif
     output <- getOutputNoPrompt inp out err pid
     return (output, pid)
 
@@ -143,7 +147,11 @@ runInteractiveTool tool clr executable arguments = do
         { std_in  = CreatePipe,
           std_out = CreatePipe,
           std_err = CreatePipe,
+#ifdef MIN_VERSION_process_leksah
           new_group = True }
+#else
+          create_group = True }
+#endif
     putMVar (toolProcessMVar tool) pid
     output <- getOutput clr inp out err pid
     -- This is handy to show the processed output

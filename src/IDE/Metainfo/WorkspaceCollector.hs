@@ -32,7 +32,9 @@ module IDE.Metainfo.WorkspaceCollector (
 import IDE.Utils.Utils
 import IDE.Utils.GHCUtils
 import GHC hiding(Id,Failed,Succeeded,ModuleName)
+#if !MIN_VERSION_ghc(7,2,0)
 import HscTypes hiding (liftIO)
+#endif
 import Outputable hiding(trace)
 import ErrUtils
 import qualified Data.Map as Map
@@ -145,7 +147,11 @@ collectModule' :: FilePath -> FilePath -> Bool -> PackageIdentifier -> [String] 
 collectModule' sourcePath destPath writeAscii packId opts moduleName' = gcatch (
     inGhcIO (opts++["-cpp"]) [Opt_Haddock] $ \ _dynFlags -> do
         session         <-  getSession
+#if MIN_VERSION_ghc(7,2,0)
+        (dynFlags3,fp') <-  liftIO $ preprocess session (sourcePath,Nothing)
+#else
         (dynFlags3,fp') <-  preprocess session (sourcePath,Nothing)
+#endif
         mbInterfaceDescr <- mayGetInterfaceDescription packId moduleName'
         liftIO $ do
             stringBuffer    <-  hGetStringBuffer fp'
@@ -325,6 +331,16 @@ finishedDoc d doc rest | notDocDecl d = (d, Just doc) : rest
     notDocDecl _              = True
 finishedDoc _ _ rest = rest
 
+#if MIN_VERSION_ghc(7,2,0)
+sigNameNoLoc :: Sig name -> Maybe name    
+-- Used only in Haddock
+sigNameNoLoc (TypeSig   [n] _)          = Just (unLoc n)
+sigNameNoLoc (SpecSig   n _ _)        = Just (unLoc n)
+sigNameNoLoc (InlineSig n _)          = Just (unLoc n)
+sigNameNoLoc (FixSig (FixitySig n _)) = Just (unLoc n)
+sigNameNoLoc _                        = Nothing
+#endif
+
 attachSignatures :: [(NDecl, (Maybe NDoc))] -> [(NDecl,Maybe NDoc)]
     -> [(NDecl, (Maybe NDoc), [(NSig,Maybe NDoc)])]
 attachSignatures signatures = map (attachSignature signaturesMap)
@@ -487,7 +503,11 @@ extractMethods sigs docs =
     in mapMaybe extractMethod pairs
 
 extractMethod :: OutputableBndr alpha => (LHsDecl alpha, Maybe (NDoc)) -> Maybe SimpleDescr
+#if MIN_VERSION_ghc(7,2,0)
+extractMethod ((L loc (SigD ts@(TypeSig [name] _typ))), mbDoc) =
+#else
 extractMethod ((L loc (SigD ts@(TypeSig name _typ))), mbDoc) =
+#endif
     Just $ SimpleDescr
         ((showSDoc . ppr) (unLoc name))
         (Just (BS.pack (showSDocUnqual $ ppr ts)))
@@ -532,11 +552,18 @@ sigToByteString [(sig,_)] = Just (BS.pack (showSDocUnqual $ppr sig))
 sigToByteString ((sig,_):_) = Just (BS.pack (showSDocUnqual $ppr sig))
 
 srcSpanToLocation :: SrcSpan -> Maybe Location
+#if MIN_VERSION_ghc(7,2,0)
+srcSpanToLocation (RealSrcSpan span')
+    =   Just (Location (srcSpanStartLine span') (srcSpanStartCol span')
+                 (srcSpanEndLine span') (srcSpanEndCol span'))
+srcSpanToLocation _ = Nothing
+#else
 srcSpanToLocation span' | not (isGoodSrcSpan span')
     =   Nothing
 srcSpanToLocation span'
     =   Just (Location (srcSpanStartLine span') (srcSpanStartCol span')
                  (srcSpanEndLine span') (srcSpanEndCol span'))
+#endif
 
 toComment :: Maybe (NDoc) -> [NDoc] -> Maybe ByteString
 toComment (Just c) _    =  Just (BS.pack (printHsDoc c))

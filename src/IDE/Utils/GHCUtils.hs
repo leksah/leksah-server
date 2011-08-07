@@ -36,13 +36,23 @@ import StringBuffer (StringBuffer(..),hGetStringBuffer)
 import FastString (mkFastString)
 import Lexer (mkPState,ParseResult(..),getMessages,unP)
 import Outputable (ppr)
+#if MIN_VERSION_ghc(7,2,0)
+import ErrUtils (dumpIfSet_dyn,printBagOfErrors,printBagOfWarnings,errorsFound,mkPlainErrMsg,showPass,ErrMsg(..))
+import Control.Monad (unless)
+#else
 import ErrUtils (dumpIfSet_dyn,printErrorsAndWarnings,mkPlainErrMsg,showPass,ErrMsg(..))
+#endif
 import PackageConfig (PackageConfig)
 import Data.Foldable (maximumBy)
 import qualified Parser as P (parseModule,parseHeader)
 import HscStats (ppSourceStats)
 import Control.Monad.Trans
+#if MIN_VERSION_ghc(7,2,0)
+import GhcMonad (Ghc(..))
+import SrcLoc (mkRealSrcLoc)
+#else
 import HscTypes (Ghc(..))
+#endif
 import IDE.Utils.FileUtils (getSysLibDir)
 import DynFlags (dopt_set)
 import System.Log.Logger(warningM, debugM)
@@ -136,7 +146,11 @@ myParseModule dflags src_filename maybe_src_buf
 		Just b  -> return b
 		Nothing -> hGetStringBuffer src_filename
 
+#if MIN_VERSION_ghc(7,2,0)
+      let loc  = mkRealSrcLoc (mkFastString src_filename) 1 0
+#else
       let loc  = mkSrcLoc (mkFastString src_filename) 1 0
+#endif
 
 #if MIN_VERSION_ghc(7,0,1)
       case unP P.parseModule (mkPState dflags buf' loc) of {
@@ -148,8 +162,14 @@ myParseModule dflags src_filename maybe_src_buf
 
 	POk pst rdr_module -> do {
 
+#if MIN_VERSION_ghc(7,2,0)
+      let {ms@(warnings, errors) = getMessages pst};
+      printBagOfErrors dflags errors;
+      unless (errorsFound dflags ms) $ printBagOfWarnings dflags warnings;
+#else
       let {ms = getMessages pst};
       printErrorsAndWarnings dflags ms;
+#endif
       -- when (errorsFound dflags ms) $ exitWith (ExitFailure 1);
 
       dumpIfSet_dyn dflags Opt_D_dump_parsed "Parser" (ppr rdr_module) ;
@@ -164,7 +184,11 @@ myParseModule dflags src_filename maybe_src_buf
 myParseHeader :: FilePath -> String -> [String] -> IO (Either String (HsModule RdrName))
 myParseHeader fp _str opts = inGhcIO (opts++["-cpp"]) [] $ \ _dynFlags -> do
     session   <- getSession
+#if MIN_VERSION_ghc(7,2,0)
+    (dynFlags',fp')    <-  liftIO $ preprocess session (fp,Nothing)
+#else
     (dynFlags',fp')    <-  preprocess session (fp,Nothing)
+#endif
     liftIO $ do
         stringBuffer  <-  hGetStringBuffer fp'
         parseResult   <-  myParseModuleHeader dynFlags' fp (Just stringBuffer)
@@ -191,7 +215,11 @@ myParseModuleHeader dflags src_filename maybe_src_buf
 		Just b  -> return b
 		Nothing -> hGetStringBuffer src_filename
 
+#if MIN_VERSION_ghc(7,2,0)
+      let loc  = mkRealSrcLoc (mkFastString src_filename) 1 0
+#else
       let loc  = mkSrcLoc (mkFastString src_filename) 1 0
+#endif
 
 #if MIN_VERSION_ghc(7,0,1)
       case unP P.parseHeader (mkPState dflags buf' loc) of {
@@ -203,8 +231,14 @@ myParseModuleHeader dflags src_filename maybe_src_buf
 
 	POk pst rdr_module -> do {
 
+#if MIN_VERSION_ghc(7,2,0)
+      let {ms@(warnings, errors) = getMessages pst};
+      printBagOfErrors dflags errors;
+      unless (errorsFound dflags ms) $ printBagOfWarnings dflags warnings;
+#else
       let {ms = getMessages pst};
       printErrorsAndWarnings dflags ms;
+#endif
       -- when (errorsFound dflags ms) $ exitWith (ExitFailure 1);
 
       dumpIfSet_dyn dflags Opt_D_dump_parsed "Parser" (ppr rdr_module) ;

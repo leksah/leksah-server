@@ -37,12 +37,12 @@ parseTheHeader filePath = do
         Left str                                      -> return (ServerFailed str)
         Right (pr@HsModule{ hsmodImports = []})       -> do
             let i = case hsmodDecls pr of
-                        decls@(_hd:_tl) -> (foldl (\ a b -> min a (srcSpanStartLine (getLoc b))) 0 decls) - 1
+                        decls@(_hd:_tl) -> (foldl (\ a b -> min a (srcSpanStartLine' (getLoc b))) 0 decls) - 1
                         [] -> case hsmodExports pr of
-                            Just list ->  (foldl (\ a b -> max a (srcSpanEndLine (getLoc b))) 0 list) + 1
+                            Just list ->  (foldl (\ a b -> max a (srcSpanEndLine' (getLoc b))) 0 list) + 1
                             Nothing -> case hsmodName pr of
                                         Nothing -> 0
-                                        Just mn -> srcSpanEndLine (getLoc mn) + 2
+                                        Just mn -> srcSpanEndLine' (getLoc mn) + 2
             return (ServerHeader (Right i))
         Right (_pr@HsModule{ hsmodImports = imports }) -> return (ServerHeader (Left (transformImports imports)))
 
@@ -79,9 +79,31 @@ transformEntity (L _ (IEThingWith name list))   = Just (IThingWith (showRdrName 
                                                         (map showRdrName list))	
 transformEntity  _                              = Nothing
 
+#if MIN_VERSION_ghc(7,2,0)
+srcSpanToLocation :: SrcSpan -> Location
+srcSpanToLocation (RealSrcSpan span')
+    =   Location (srcSpanStartLine span') (srcSpanStartCol span')
+                 (srcSpanEndLine span') (srcSpanEndCol span')
+srcSpanToLocation _ = error "srcSpanToLocation: unhelpful span"
+
+srcSpanStartLine' :: SrcSpan -> Int
+srcSpanStartLine' (RealSrcSpan span) = srcSpanStartLine span
+srcSpanStartLine' _ = error "srcSpanStartLine': unhelpful span"
+
+srcSpanEndLine' :: SrcSpan -> Int
+srcSpanEndLine' (RealSrcSpan span) = srcSpanEndLine span
+srcSpanEndLine' _ = error "srcSpanEndLine': unhelpful span"
+#else
 srcSpanToLocation :: SrcSpan -> Location
 srcSpanToLocation span' | not (isGoodSrcSpan span')
     =   error "srcSpanToLocation: unhelpful span"
 srcSpanToLocation span'
     =   Location (srcSpanStartLine span') (srcSpanStartCol span')
                  (srcSpanEndLine span') (srcSpanEndCol span')
+
+srcSpanStartLine' :: SrcSpan -> Int
+srcSpanStartLine' = srcSpanStartLine
+
+srcSpanEndLine' :: SrcSpan -> Int
+srcSpanEndLine' = srcSpanEndLine
+#endif
