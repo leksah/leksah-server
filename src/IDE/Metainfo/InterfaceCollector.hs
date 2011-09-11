@@ -113,9 +113,15 @@ extractExportedDescrH :: PackageIdentifier -> ModIface -> [Descr]
 extractExportedDescrH pid iface =
     let mid                 =   (fromJust . simpleParse . moduleNameString . moduleName) (mi_module iface)
         exportedNames       =   Set.fromList
+#if MIN_VERSION_Cabal(1,11,0)
+                                $ map (occNameString . nameOccName)
+                                    $ concatMap availNames
+                                        $ mi_exports iface
+#else
                                 $ map occNameString
                                     $ concatMap availNames
                                         $ concatMap snd (mi_exports iface)
+#endif
         exportedDecls       =   filter (\ ifdecl -> (occNameString $ ifName ifdecl)
                                                     `Set.member` exportedNames)
                                                             (map snd (mi_decls iface))
@@ -129,9 +135,15 @@ extractExportedDescrR :: PackageIdentifier
 extractExportedDescrR pid hidden iface =
     let mid             =   (fromJust . simpleParse . moduleNameString . moduleName) (mi_module iface)
         exportedNames   =   Set.fromList
-                                $map occNameString
-                                    $concatMap availNames
-                                        $concatMap snd (mi_exports iface)
+#if MIN_VERSION_Cabal(1,11,0)
+                                $ map (occNameString . nameOccName)
+                                    $ concatMap availNames
+                                        $ mi_exports iface
+#else
+                                $ map occNameString
+                                    $ concatMap availNames
+                                        $ concatMap snd (mi_exports iface)
+#endif
         exportedDecls   =   filter (\ ifdecl -> (occNameString $ifName ifdecl)
                                                     `Set.member` exportedNames)
                                                             (map snd (mi_decls iface))
