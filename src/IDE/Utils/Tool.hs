@@ -25,6 +25,7 @@ module IDE.Utils.Tool (
     runTool',
     runInteractiveTool,
     newGhci,
+    newGhci',
     executeCommand,
     executeGhciCommand,
     quoteArg,
@@ -57,23 +58,23 @@ import System.Log.Logger (debugM)
 import System.Exit (ExitCode(..))
 import System.IO (hFlush, hPutStrLn, Handle)
 import Control.Applicative ((<|>))
-import Data.Enumerator.Binary (enumHandle)
+--import Data.Enumerator.Binary as E (enumHandle)
 import Data.Enumerator as E
-       ((=$), (>>==), Stream(..), Enumeratee, Enumerator, run, ($$),
-        ($=), (>==>))
-import qualified Data.Enumerator.Binary as EB (filter)
+       ((=$), (>>==), Stream(..),Enumeratee, Enumerator, run, ($$), ($=), (>==>))
+import qualified Data.Enumerator.Binary as EB (enumHandle, filter)
 import Data.Attoparsec.Enumerator (iterParser)
-import qualified Data.Attoparsec as AP
-       (endOfInput, word8, takeWhile, try, skipWhile, string, Parser)
+import qualified Data.Attoparsec.Char8 as AP
+       (endOfInput, takeWhile, satisfy, skipWhile, string, try, Parser,
+        endOfLine, digit, manyTill)
 import Data.ByteString (ByteString)
 import qualified Data.Enumerator as E
        (enumList, returnI, Step(..), isEOF, checkDone, yield,
         continue, Iteratee(..), sequence, run_)
-import qualified Data.Attoparsec.Char8 as AP (digit, isDigit_w8)
 import qualified Data.ByteString.Char8 as B (unpack, pack)
 import Data.Attoparsec ((<?>))
 import qualified Data.Enumerator.List as EL
        (mapAccumM, filter, consume, concatMap, concatMapAccumM)
+import Data.Char (isDigit)
 
 data ToolOutput = ToolInput String
                 | ToolError String
@@ -240,7 +241,8 @@ runInteractiveTool tool clr executable arguments = do
             return (s, [o])
         writeCommandOutput s (RawToolOutput o) = do
             return (s, [o])
-        writeCommandOutput s _ = do
+        writeCommandOutput s x = do
+            debugM "leksah-server" $ "Unexpected output " ++ show x
             return (s, [])
 
 {-
@@ -251,8 +253,8 @@ newInteractiveTool getOutput' executable arguments = do
     return tool
 -}
 
-ghciPrompt :: ByteString
-ghciPrompt = B.pack "3KM2KWR7LZZbHdXfHUOA5YBBsJVYoCQnKX"
+ghciPrompt :: String
+ghciPrompt = "3KM2KWR7LZZbHdXfHUOA5YBBsJVYoCQnKX"
 
 data CommandLineReader = CommandLineReader {
     parseInitialPrompt :: AP.Parser (),
@@ -264,20 +266,18 @@ data CommandLineReader = CommandLineReader {
     }
 
 ghciParseInitialPrompt :: AP.Parser ()
-ghciParseInitialPrompt = do
-    ((AP.string $ B.pack "Prelude") <|> (AP.string $ B.pack "*"))
-    AP.skipWhile (/= 62) -- 62 == ord '>'
-    AP.string $ B.pack "> "
-    return ()
+ghciParseInitialPrompt = AP.try (do
+        ((AP.string $ B.pack "Prelude") <|> (AP.string $ B.pack "*"))
+        AP.skipWhile (\c -> c /= '>' && c/= '\n')
+        AP.string $ B.pack "> "
+        return ())
+    <?> "ghciParseInitialPrompt"
 
 ghciParseFollowingPrompt :: AP.Parser ()
-ghciParseFollowingPrompt = do
-    AP.string $ ghciPrompt
-    return ()
-
-{-
-stripMarker $ marker 0 ++ "dfskfjdkl"
--}
+ghciParseFollowingPrompt = AP.try (do
+        AP.satisfy (/='\n') `AP.manyTill` (AP.try $ AP.string $ B.pack $ ghciPrompt)
+        return ())
+    <?> "ghciParseFollowingPrompt"
 
 marker :: Int -> String
 marker n = "kMAKWRALZZbHdXfHUOAAYBB" ++ show n
@@ -285,7 +285,7 @@ marker n = "kMAKWRALZZbHdXfHUOAAYBB" ++ show n
 parseMarker :: AP.Parser Int
 parseMarker = AP.try (do
         AP.string $ B.pack "kMAKWRALZZbHdXfHUOAAYBB"
-        nums <- AP.takeWhile AP.isDigit_w8
+        nums <- AP.takeWhile isDigit
         return . read $ B.unpack nums)
     <?> "parseMarker"
 
@@ -328,7 +328,7 @@ ghciCommandLineReader    = CommandLineReader {
     parseFollowingPrompt = ghciParseFollowingPrompt,
     errorSyncCommand     = Just $ \n -> marker n,
     parseExpectedError   = ghciParseExpectedError,
-    outputSyncCommand    = Just $ \n -> ":set prompt \"" ++ marker n ++ "\\n\"\n:set prompt " ++ B.unpack ghciPrompt,
+    outputSyncCommand    = Just $ \n -> ":set prompt \"" ++ marker n ++ "\\n\"\n:set prompt " ++ ghciPrompt,
     isExpectedOutput     = ghciIsExpectedOutput
     }
 
@@ -347,8 +347,8 @@ parseError expectedErrorParser = AP.try (do
         counter <- expectedErrorParser
         return $ Left counter)
     <|> AP.try (do
-        line <- AP.takeWhile (/= 10)
-        (AP.word8 10 >> return () <|> AP.endOfInput)
+        line <- AP.takeWhile (/= '\n')
+        (AP.endOfInput <|> AP.endOfLine)
         return $ Right line)
     <?> "parseError"
 
@@ -381,7 +381,7 @@ getOutput clr inp out err pid = do
 
     readError :: MVar RawToolOutput -> Handle -> MVar Int -> IO ()
     readError mvar errors foundExpectedError = do
-        result <- E.run $ (enumHandle 2048 errors $= EB.filter (/= 13))
+        result <- E.run $ (EB.enumHandle 2048 errors $= EB.filter (/= 13))
                     $$ (E.sequence (iterParser $ parseError (parseExpectedError clr)))
                     $$ sendErrors
         case result of
@@ -418,18 +418,15 @@ getOutput clr inp out err pid = do
                     parsePrompt
                     return ToolPrompt)
                 <|> AP.try (do
-                    line <- AP.takeWhile (/= 10)
-                    ((AP.word8 10 >> return ()) <|> AP.endOfInput)
+                    line <- AP.takeWhile (/= '\n')
+                    (AP.endOfInput <|> AP.endOfLine)
                     return . ToolOutput $ B.unpack line)
                 <?> "parseLines"
             parseInitialLines = parseLines (parseInitialPrompt clr)
             parseFollowinglines = parseLines (parseFollowingPrompt clr)
-        result <- E.run $ (enumHandle 2048 output $= EB.filter (/= 13))
+        E.run_ $ (EB.enumHandle 2048 output $= EB.filter (/= 13))
                     $$ outputSequence (iterParser parseInitialLines) (iterParser parseFollowinglines)
                     $$ sendErrors
-        case result of
-            Left e  -> putStrLn $ show e
-            Right _ -> return ()
         return ()
       where
         sendErrors = E.continue (loop 0 False)
@@ -469,11 +466,19 @@ getOutputNoPrompt inp out err pid = do
     output <- getOutput noInputCommandLineReader inp out err pid
     return $ output $= EL.concatMap fromRawOutput
 
+newGhci' :: [String] -> (E.Iteratee ToolOutput IO ()) -> IO ToolState
+newGhci' flags startupOutputHandler = do
+    tool <- newToolState
+    writeChan (toolCommands tool) $
+        ToolCommand (":set prompt " ++ ghciPrompt) startupOutputHandler
+    runInteractiveTool tool ghciCommandLineReader "ghci" flags
+    return tool
+
 newGhci :: [String] -> [String] -> (E.Iteratee ToolOutput IO ()) -> IO ToolState
 newGhci buildFlags interactiveFlags startupOutputHandler = do
         tool <- newToolState
         writeChan (toolCommands tool) $
-            ToolCommand (":set prompt " ++ B.unpack ghciPrompt) startupOutputHandler
+            ToolCommand (":set prompt " ++ ghciPrompt) startupOutputHandler
         debugM "leksah-server" $ "Working out GHCi options"
         forkIO $ do
             (out, _) <- runTool "cabal" (["build","--with-ghc=leksahecho"] ++ buildFlags) Nothing
@@ -526,7 +531,8 @@ executeGhciCommand tool command handler = do
         removePrompts _fullLine line 0 = line
         removePrompts fullLine line n = case dropWhile ((/=) '|') line of
             '|':' ':xs -> removePrompts fullLine xs (n-1)
-            _ -> fullLine
+            '|':xs -> removePrompts fullLine xs (n-1)
+            _ -> line
 
 --children :: MVar [MVar ()]
 --children = unsafePerformIO (newMVar [])

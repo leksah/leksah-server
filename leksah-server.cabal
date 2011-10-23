@@ -160,4 +160,10 @@ executable leksahecho
     else
        ghc-options: -Wall -ferror-spans -O2
 
-
+test-suite test-tool
+    type:       exitcode-stdio-1.0
+    hs-source-dirs: tests
+    main-is:    TestTool.hs
+    build-depends: base >= 4.0.0.0 && <4.5,  hslogger >= 1.0.7 && <1.2,
+               leksah-server, process >= 1.1 && <1.2,
+               HUnit >=1.2 && <1.3, mtl >=1.1.0.2 && <2.1, enumerator >=0.4.14 && <0.5
