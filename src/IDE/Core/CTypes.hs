@@ -74,7 +74,8 @@ import Distribution.ModuleName (components, ModuleName)
 import Data.ByteString.Char8 (ByteString)
 import Distribution.Text (Text(..), simpleParse, display)
 import qualified Data.ByteString.Char8 as  BS (unpack, empty)
-import qualified Data.Map as Map (lookup,keysSet,splitLookup, insertWith,empty,elems,union)
+import qualified Data.Map as Map (lookup,keysSet,splitLookup, insertWith,empty,elems,union,toList)
+import qualified Data.Set as Set (toList)
 import Text.PrettyPrint as PP
 import Text.PrinterParser
 import Data.Char (isAlpha)
@@ -475,6 +476,14 @@ isOperator _         =  False
 -- ---------------------------------------------------------------------
 -- NFData instances for forcing evaluation
 --
+#if MIN_VERSION_deepseq(1,2,0)
+instance (NFData k, NFData a) => NFData (Map k a) where
+    rnf = rnf . Map.toList
+
+instance NFData a => NFData (Set a) where
+    rnf = rnf . Set.toList
+#endif
+
 instance NFData Location where
 
     rnf pd =  rnf (locationSLine pd)
