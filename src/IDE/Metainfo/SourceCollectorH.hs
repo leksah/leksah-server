@@ -275,7 +275,7 @@ transformToDescrs pm = concatMap transformToDescr
         derivings Nothing = []
         derivings (Just _l) = []
 
-    transformToDescr ((L loc (TyClD cl@(ClassDecl _ tcdLName' _ _ tcdSigs' _ _ docs))), mbComment,_subCommentList) =
+    transformToDescr ((L loc (TyClD cl@(ClassDecl{tcdLName=tcdLName', tcdSigs=tcdSigs', tcdDocs=docs}))), mbComment,_subCommentList) =
         [Real $ RealDescr {
         dscName'        =   getOccString (unLoc tcdLName')
     ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual $ppr cl{tcdMeths = emptyLHsBinds}))

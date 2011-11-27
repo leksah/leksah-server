@@ -544,7 +544,7 @@ instance NFData DescrType where  rnf a = seq a ()
 
 instance NFData BS.ByteString where  rnf b = seq b ()
 
-instance NFData Version where  rnf v = seq v ()
+-- instance NFData Version where  rnf v = seq v ()
 
 instance NFData PackModule where
     rnf pd =  rnf (pack pd)
