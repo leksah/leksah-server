@@ -32,6 +32,7 @@ import HscTypes hiding (liftIO)
 import qualified HscTypes as Hs (liftIO)
 #endif
 #if MIN_VERSION_ghc(7,3,0)
+import Avail
 import TysWiredIn ( eqTyConName )
 #endif
 import LoadIface
@@ -40,7 +41,6 @@ import IfaceSyn
 import FastString
 import Name
 import PrelNames
-import Avail
 #if MIN_VERSION_ghc(6,12,1)
 import PackageConfig (PackageConfig, mkPackageId)
 #else
@@ -211,7 +211,11 @@ extractIdentifierDescr package modules decl
                                                                     _ -> error $ "InterfaceCollector >> extractIdentifierDescr: "
                                                                          ++ "Newtype with not exactly one constructor"
                                     in NewtypeDescr constructor mbField
+#if MIN_VERSION_ghc(7,3,0)
                             IfAbstractTyCon _ ->  DataDescr [] []
+#else
+                            IfAbstractTyCon ->  DataDescr [] []
+#endif
                             IfOpenDataTyCon ->  DataDescr [] []
                     in [Real (descr{dscTypeHint' = d})]
             (IfaceClass context _ _ _ _ ifSigs' _ )
@@ -236,7 +240,11 @@ extractConstructors name decls    =   map (\decl -> SimpleDescr (unpackFS $occNa
                     		(t:ts) -> fsep (t : map (arrow <+>) ts)
                     		[]     -> panic "pp_con_taus"
     pp_res_ty decl  = ppr name <+> fsep [ppr tv | (tv,_) <- ifConUnivTvs decl]
+#if MIN_VERSION_ghc(7,3,0)
     eq_ctxt decl    = [IfaceTyConApp (IfaceTc eqTyConName) [(IfaceTyVar (occNameFS tv)), ty]
+#else
+    eq_ctxt decl    = [(IfaceEqPred (IfaceTyVar (occNameFS tv)) ty)
+#endif
 	                        | (tv,ty) <- ifConEqSpec decl]
 
 extractFields ::  IfaceConDecl -> [SimpleDescr]
@@ -257,8 +265,11 @@ extractClassOp (IfaceClassOp occName _dm ty) = SimpleDescr (unpackFS $occNameFS 
 
 extractSuperClassNames :: [IfacePredType] -> [String]
 extractSuperClassNames l = catMaybes $ map extractSuperClassName l
-    where   -- extractSuperClassName (IfaceClassP name _)  =
-            --    Just (unpackFS $occNameFS $ nameOccName name)
+    where
+#if !MIN_VERSION_ghc(7,3,0)
+            extractSuperClassName (IfaceClassP name _)  =
+                Just (unpackFS $occNameFS $ nameOccName name)
+#endif
             extractSuperClassName _                     =   Nothing
 
 extractInstances :: PackModule -> IfaceInst -> [Descr]
