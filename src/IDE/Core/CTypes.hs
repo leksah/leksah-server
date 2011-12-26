@@ -476,7 +476,7 @@ isOperator _         =  False
 -- ---------------------------------------------------------------------
 -- NFData instances for forcing evaluation
 --
-#if MIN_VERSION_deepseq(1,2,0)
+#if MIN_VERSION_deepseq(1,2,0) && !MIN_VERSION_containers(0,4,2)
 instance (NFData k, NFData a) => NFData (Map k a) where
     rnf = rnf . Map.toList
 

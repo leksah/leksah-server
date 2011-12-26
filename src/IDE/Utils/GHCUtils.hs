@@ -101,7 +101,7 @@ unload = do
 getInstalledPackageInfos :: Ghc [PackageConfig]
 getInstalledPackageInfos = do
     dflags1         <-  getSessionDynFlags
-    setSessionDynFlags dflags1{flags = Opt_ReadUserPackageConf : (flags dflags1)}
+    setSessionDynFlags $ dopt_set dflags1 Opt_ReadUserPackageConf
     pkgInfos        <-  case pkgDatabase dflags1 of
                             Nothing -> return []
 #if MIN_VERSION_Cabal(1,8,0)
