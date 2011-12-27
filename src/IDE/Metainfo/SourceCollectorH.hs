@@ -379,7 +379,7 @@ instance Outputable alpha => Show (PPDoc alpha)  where
     showsPrec _ (PPDoc (DocString str))          =   showString str
     showsPrec _ (PPDoc (DocParagraph d))         =   shows (PPDoc d) . showChar '\n'
     showsPrec _ (PPDoc (DocIdentifier l))        =   foldr (\i _f -> showChar '\'' .
-                                                     ((showString . showSDoc .  ppr) i) . showChar '\'') id l
+                                                     ((showString . showSDoc .  ppr) i) . showChar '\'') id [l]
     showsPrec _ (PPDoc (DocModule str))          =   showChar '"' . showString str . showChar '"'
     showsPrec _ (PPDoc (DocEmphasis doc))        =   showChar '/' . shows (PPDoc doc)  . showChar '/'
     showsPrec _ (PPDoc (DocMonospaced doc))      =   showChar '@' . shows (PPDoc doc) . showChar '@'

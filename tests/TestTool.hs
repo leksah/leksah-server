@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  Main
@@ -21,7 +22,11 @@ import System.Exit (exitWith, exitSuccess, exitFailure, ExitCode(..))
 import IDE.Utils.Tool
        (toolProcess, executeGhciCommand, ToolOutput(..), runTool',
         newGhci')
+#ifdef MIN_VERSION_process_leksah
+import IDE.System.Process (interruptProcessGroup, getProcessExitCode)
+#else
 import System.Process (interruptProcessGroupOf, getProcessExitCode)
+#endif
 import Test.HUnit
        ((@=?), (@?=), putTextToHandle, Counts(..), runTestTT, assertBool,
         runTestText, (~:), Testable(..), Test(..))
@@ -96,35 +101,48 @@ tests = test [
         t <- newEmptyMVar
         tool <- newGhci' [] $ do
             output <- EL.consume
-            sendTest t $ last output @?= ToolPrompt
+            sendTest t $ last output @?= (ToolPrompt "")
         executeGhciCommand tool "1+1" $ do
             output <- EL.consume
             sendTest t $ output `check` [
                 ToolInput "1+1",
                 ToolOutput "2",
-                ToolPrompt]
+                ToolPrompt ""]
         executeGhciCommand tool "jfkdfjdkl" $ do
             output <- EL.consume
             sendTest t $ output `check` [
                 ToolInput "jfkdfjdkl",
                 ToolError "",
-                ToolError $ " Not in scope: `jfkdfjdkl'",
-                ToolPrompt]
+#if __GLASGOW_HASKELL__ > 702
+                ToolError "<interactive>:12:1: Not in scope: `jfkdfjdkl'",
+#else
+                ToolError "<interactive>:1:1: Not in scope: `jfkdfjdkl'",
+#endif
+                ToolPrompt ""]
         executeGhciCommand tool "\n1+1" $ do
             output <- EL.consume
             sendTest t $ output `check` [
                 ToolInput "",
                 ToolInput "1+1",
                 ToolOutput "2",
-                ToolPrompt]
+                ToolPrompt ""]
+        executeGhciCommand tool ":m + Prelude" $ do
+            output <- EL.consume
+            sendTest t $ output `check` [
+                ToolInput ":m + Prelude",
+                ToolPrompt ""]
         executeGhciCommand tool "\njfkdfjdkl" $ do
             output <- EL.consume
             sendTest t $ output `check` [
                 ToolInput "",
                 ToolInput "jfkdfjdkl",
                 ToolError "",
-                ToolError "<interactive>:4:1: Not in scope: `jfkdfjdkl'",
-                ToolPrompt]
+#if __GLASGOW_HASKELL__ > 702
+                ToolError "<interactive>:27:1: Not in scope: `jfkdfjdkl'",
+#else
+                ToolError "<interactive>:1:1: Not in scope: `jfkdfjdkl'",
+#endif
+                ToolPrompt ""]
         executeGhciCommand tool "do\n putStrLn \"1\"\n putStrLn \"2\"\n putStrLn \"3\"\n putStrLn \"4\"\n putStrLn \"5\"\n" $ do
             output <- EL.consume
             sendTest t $ output `check` [
@@ -139,7 +157,7 @@ tests = test [
                 ToolOutput "3",
                 ToolOutput "4",
                 ToolOutput "5",
-                ToolPrompt]
+                ToolPrompt ""]
         executeGhciCommand tool "do\n putStrLn \"| 1\"\n putStrLn \"| 2\"\n putStrLn \"| 3\"\n putStrLn \"| 4\"\n putStrLn \"| 5\"\n" $ do
             output <- EL.consume
             sendTest t $ output `check` [
@@ -154,7 +172,17 @@ tests = test [
                 ToolOutput "| 3",
                 ToolOutput "| 4",
                 ToolOutput "| 5",
-                ToolPrompt]
+                ToolPrompt ""]
+        executeGhciCommand tool "putStr \"ABC\"" $ do
+            output <- EL.consume
+            sendTest t $ output `check` [
+                ToolInput "putStr \"ABC\"",
+                ToolPrompt "ABC"]
+        executeGhciCommand tool ":m +Data.List" $ do
+            output <- EL.consume
+            sendTest t $ output `check` [
+                ToolInput ":m +Data.List",
+                ToolPrompt ""]
         executeGhciCommand tool ":quit" $ do
             output <- EL.consume
             sendTest t $ output `check` [
