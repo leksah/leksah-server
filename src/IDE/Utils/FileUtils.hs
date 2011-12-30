@@ -69,7 +69,6 @@ import Data.Set (Set)
 import Data.List
     (isPrefixOf, isSuffixOf, stripPrefix)
 import qualified Data.Set as  Set (empty, fromList)
-import Control.Monad.Trans (MonadIO(..))
 import Distribution.Package (PackageIdentifier)
 #ifdef MIN_VERSION_process_leksah
 import IDE.System.Process
@@ -86,6 +85,7 @@ import IDE.Core.CTypes(configDirName)
 import qualified Distribution.Text as  T (simpleParse)
 import System.Log.Logger(errorM,warningM,debugM)
 import IDE.Utils.Tool
+import Control.Monad.IO.Class (MonadIO(..), MonadIO)
 
 haskellSrcExts :: [String]
 haskellSrcExts = ["hs","lhs","chs","hs.pp","lhs.pp","chs.pp","hsc"]

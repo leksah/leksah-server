@@ -43,7 +43,6 @@ import System.Directory
 import Distribution.Package hiding (PackageId)
 import Distribution.ModuleName
 import Distribution.Text (simpleParse)
-import Control.Monad.Reader
 import System.FilePath
 import qualified Data.ByteString.Char8 as BS
 import Data.Binary.Shared
@@ -71,6 +70,8 @@ import System.Log.Logger
 import Control.DeepSeq (deepseq)
 #if MIN_VERSION_ghc(6,12,1)
 import FastString(mkFastString,appendFS,nullFS,unpackFS)
+import Control.Monad.IO.Class (MonadIO, MonadIO(..))
+import Control.Monad (when)
 #else
 import GHC.Show(showSpace)
 #endif

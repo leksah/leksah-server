@@ -41,7 +41,7 @@ import Control.Concurrent
         newEmptyMVar, forkIO, newChan, MVar, Chan, writeChan,
         getChanContents, dupChan)
 import Control.Monad (forM_, when)
-import Control.Monad.Trans (liftIO, MonadIO)
+import Control.Monad.IO.Class (liftIO, MonadIO)
 import Data.List (stripPrefix)
 import Data.Maybe (catMaybes)
 #ifdef MIN_VERSION_process_leksah
@@ -67,7 +67,7 @@ import Data.Attoparsec.Enumerator (iterParser)
 import qualified Data.Attoparsec.Char8 as AP
        (endOfInput, takeWhile, satisfy, skipWhile, string, Parser,
         endOfLine, digit, manyTill, takeWhile1)
-import Data.ByteString (hGetSome, hGet, ByteString)
+import Data.ByteString (ByteString)
 import qualified Data.Enumerator as E
        (enumList, returnI, Step(..), isEOF, checkDone, yield,
         continue, Iteratee(..), sequence, run_)

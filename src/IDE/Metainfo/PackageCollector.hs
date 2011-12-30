@@ -31,7 +31,6 @@ import IDE.Core.CTypes
         descrType, dscName, Descr, ModuleDescr(..), PackModule(..),
         PackageDescr(..), metadataVersion, leksahVersion,
         packageIdentifierToString)
-import Control.Monad.Trans (MonadIO, MonadIO(..))
 import IDE.Utils.FileUtils (getCollectorPath)
 import System.Directory (doesFileExist, setCurrentDirectory)
 import IDE.Utils.Utils
@@ -56,6 +55,7 @@ import System.Process (system)
 #endif
 #endif
 import Prelude hiding(catch)
+import Control.Monad.IO.Class (MonadIO, MonadIO(..))
 
 collectPackage :: Bool -> Prefs -> Int -> (PackageConfig,Int) -> IO PackageCollectStats
 collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do

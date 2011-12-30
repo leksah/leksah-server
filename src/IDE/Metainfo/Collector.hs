@@ -58,7 +58,7 @@ import System.Directory
        (removeFile, doesFileExist, removeDirectoryRecursive,
         doesDirectoryExist)
 import IDE.Metainfo.SourceCollectorH (PackageCollectStats(..))
-import Control.Monad.Trans (liftIO)
+import Control.Monad.IO.Class (MonadIO(..))
 
 -- --------------------------------------------------------------------
 -- Command line options

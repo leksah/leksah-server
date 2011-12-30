@@ -23,10 +23,10 @@ import GHC hiding (ImportDecl)
 import FastString(unpackFS)
 import RdrName(showRdrName)
 import IDE.Utils.GHCUtils
-import Control.Monad.Trans (liftIO)
 import Data.Maybe (mapMaybe)
 import Outputable(pprHsVar,showSDoc)
 import IDE.Utils.FileUtils (figureOutHaddockOpts, figureOutGhcOpts)
+import Control.Monad.IO.Class (MonadIO(..))
 
 parseTheHeader :: FilePath -> IO ServerAnswer
 parseTheHeader filePath = do

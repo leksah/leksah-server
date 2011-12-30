@@ -46,7 +46,6 @@ import PackageConfig (PackageConfig)
 import Data.Foldable (maximumBy)
 import qualified Parser as P (parseModule,parseHeader)
 import HscStats (ppSourceStats)
-import Control.Monad.Trans
 #if MIN_VERSION_ghc(7,2,0)
 import GhcMonad (Ghc(..))
 import SrcLoc (mkRealSrcLoc)
@@ -56,6 +55,7 @@ import HscTypes (Ghc(..))
 import IDE.Utils.FileUtils (getSysLibDir)
 import DynFlags (dopt_set)
 import System.Log.Logger(warningM, debugM)
+import Control.Monad.IO.Class (MonadIO(..), MonadIO)
 
 -- this should not be repeated here, why is it necessary?
 instance MonadIO Ghc where
