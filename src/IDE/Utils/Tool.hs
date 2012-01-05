@@ -53,6 +53,11 @@ import System.Process
        (proc, waitForProcess, ProcessHandle, createProcess, CreateProcess(..))
 import System.Process.Internals (StdStream(..))
 #endif
+#if MIN_VERSION_base(4,3,0)
+import System.IO (hGetBufSome)
+#else
+import System.IO (hWaitForInput, hIsEOF)
+#endif
 import Control.DeepSeq
 import System.Log.Logger (debugM)
 import System.Exit (ExitCode(..))
@@ -79,8 +84,10 @@ import Data.Char (isDigit)
 import qualified System.IO as IO (hWaitForInput, Handle)
 import qualified Data.ByteString as B
        (empty, hGetNonBlocking, null, ByteString)
+import qualified Data.ByteString.Internal as B
+       (createAndTrim)
 import qualified Control.Exception as Exc (throwIO, catch)
-import System.IO.Error (isEOFError)
+import System.IO.Error (isEOFError, mkIOError, illegalOperationErrorType)
 
 data ToolOutput = ToolInput String
                 | ToolError String
@@ -360,6 +367,48 @@ parseError expectedErrorParser = (do
         return $ Right line)
     <?> "parseError"
 
+-- From enumerator but using hGetSome (to fix Win32)
+enumHandle :: MonadIO m
+           => Integer -- ^ Buffer size
+           -> IO.Handle
+           -> Enumerator B.ByteString m b
+enumHandle bufferSize h = checkContinue0 $ \loop k -> do
+    let intSize = fromInteger bufferSize
+
+    bytes <- tryIO (hGetSome h intSize)
+    if B.null bytes
+        then continue k
+        else k (Chunks [bytes]) >>== loop
+
+-- From byteString (for GHC 6.12.3 support)
+hGetSome :: Handle -> Int -> IO ByteString
+hGetSome hh i
+#if MIN_VERSION_base(4,3,0)
+    | i >  0    = B.createAndTrim i $ \p -> hGetBufSome hh p i
+#else
+    | i >  0    = let
+                   loop = do
+                     s <- B.hGetNonBlocking hh i
+                     if not (B.null s)
+                        then return s
+                        else do eof <- hIsEOF hh
+                                if eof then return s
+                                       else hWaitForInput hh (-1) >> loop
+                                         -- for this to work correctly, the
+                                         -- Handle should be in binary mode
+                                         -- (see GHC ticket #3808)
+                  in loop
+#endif
+    | i == 0    = return B.empty
+    | otherwise = illegalBufferSize hh "hGetSome" i
+
+illegalBufferSize :: Handle -> String -> Int -> IO a
+illegalBufferSize handle fn sz =
+    ioError (mkIOError illegalOperationErrorType msg (Just handle) Nothing)
+    --TODO: System.IO uses InvalidArgument here, but it's not exported :-(
+    where
+      msg = fn ++ ": illegal ByteString size " ++ showsPrec 9 sz []
+
 getOutput :: MonadIO m => CommandLineReader -> Handle -> Handle -> Handle -> ProcessHandle
     -> IO (Enumerator RawToolOutput m b)
 getOutput clr inp out err pid = do
@@ -391,7 +440,7 @@ getOutput clr inp out err pid = do
 
     readError :: MVar RawToolOutput -> Handle -> MVar Int -> IO ()
     readError mvar errors foundExpectedError = do
-        result <- E.run $ (EB.enumHandle 2048 errors $= EB.filter (/= 13))
+        result <- E.run $ (enumHandle 2048 errors $= EB.filter (/= 13))
                     $$ (E.sequence (iterParser $ parseError (parseExpectedError clr)))
                     $$ sendErrors
         case result of
@@ -434,7 +483,7 @@ getOutput clr inp out err pid = do
                 <?> "parseLines"
             parseInitialLines = parseLines (parseInitialPrompt clr)
             parseFollowinglines = parseLines (parseFollowingPrompt clr)
-        E.run_ $ (EB.enumHandle 2048 output $= EB.filter (/= 13))
+        E.run_ $ (enumHandle 2048 output $= EB.filter (/= 13))
                     $$ outputSequence (iterParser parseInitialLines) (iterParser parseFollowinglines)
                     $$ sendErrors
         return ()
