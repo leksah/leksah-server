@@ -34,7 +34,7 @@ import System.IO (hPutStr, stdout, hPutStrLn, stderr)
 import qualified Data.Enumerator.List as EL (consume)
 import Control.Concurrent
        (threadDelay, forkIO, takeMVar, putMVar, newEmptyMVar)
-import Control.Monad.Trans (liftIO)
+import Control.Monad.IO.Class (liftIO)
 import Control.Monad (forM_)
 import System.Log.Logger
        (setLevel, rootLoggerName, updateGlobalLogger)
