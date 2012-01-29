@@ -17,6 +17,7 @@ module IDE.Utils.FileUtils (
     allModules
 ,   allHiFiles
 ,   allHaskellSourceFiles
+,   isEmptyDirectory
 ,   cabalFileName
 ,   allCabalFiles
 ,   getConfigFilePathForLoad
@@ -44,7 +45,7 @@ module IDE.Utils.FileUtils (
 
 import System.FilePath
        (splitFileName, dropExtension, takeExtension,
-        combine, addExtension, (</>), normalise, splitPath)
+        combine, addExtension, (</>), normalise, splitPath, takeFileName)
 import Distribution.ModuleName (toFilePath, ModuleName)
 import Control.Monad (foldM, filterM)
 import Data.Maybe (catMaybes)
@@ -311,6 +312,16 @@ findKnownPackages filePath = catch (do
     let nameList    =   map dropExtension  $filter (\s -> leksahMetadataSystemFileExtension `isSuffixOf` s) paths
     return (Set.fromList nameList))
         $ \ _ -> return (Set.empty)
+
+isEmptyDirectory :: FilePath -> IO Bool
+isEmptyDirectory filePath = catch (do
+    exists <- doesDirectoryExist filePath
+    if exists
+        then do
+            filesAndDirs <- getDirectoryContents filePath
+            return . null $ filter (not . ("." `isPrefixOf`) . takeFileName) filesAndDirs
+        else return False)
+        (\_ -> return False)
 
 cabalFileName :: FilePath -> IO (Maybe FilePath)
 cabalFileName filePath = catch (do
