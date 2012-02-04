@@ -185,6 +185,9 @@ interfaceToModuleDescr _dirPath pid interface =
                         (ifaceInstances interface) [] --(ifaceLocals interface)
         imports    = Map.empty --TODO
 
+#if MIN_VERSION_ghc(7,4,1)
+type DeclInfo = [LHsDecl Name]
+#endif
 #if MIN_VERSION_ghc(6,12,1)
 extractDescrs :: PackModule -> Map Name DeclInfo -> [ExportItem Name] -> [Instance] -> [Name] -> [Descr]
 extractDescrs pm _ifaceDeclMap ifaceExportItems' ifaceInstances' _ifaceLocals =

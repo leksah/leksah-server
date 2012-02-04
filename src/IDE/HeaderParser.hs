@@ -24,7 +24,11 @@ import FastString(unpackFS)
 import RdrName(showRdrName)
 import IDE.Utils.GHCUtils
 import Data.Maybe (mapMaybe)
+#if MIN_VERSION_ghc(7,4,1)
+import Outputable(pprPrefixOcc,showSDoc)
+#else
 import Outputable(pprHsVar,showSDoc)
+#endif
 import IDE.Utils.FileUtils (figureOutHaddockOpts, figureOutGhcOpts)
 import Control.Monad.IO.Class (MonadIO(..))
 
@@ -72,7 +76,11 @@ transformImport (L srcSpan importDecl) =
                         Just (hide, list) -> Just (ImportSpecList hide (mapMaybe transformEntity list))
 
 transformEntity :: LIE RdrName -> Maybe ImportSpec
+#if MIN_VERSION_ghc(7,2,0)
+transformEntity (L _ (IEVar name))              = Just (IVar (showSDoc (pprPrefixOcc name)))
+#else
 transformEntity (L _ (IEVar name))              = Just (IVar (showSDoc (pprHsVar name)))
+#endif
 transformEntity (L _ (IEThingAbs name))         = Just (IAbs (showRdrName name))
 transformEntity (L _ (IEThingAll name))         = Just (IThingAll (showRdrName name))	
 transformEntity (L _ (IEThingWith name list))   = Just (IThingWith (showRdrName name)
