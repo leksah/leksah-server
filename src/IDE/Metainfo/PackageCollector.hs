@@ -56,6 +56,8 @@ import System.Process (system)
 #endif
 import Prelude hiding(catch)
 import Control.Monad.IO.Class (MonadIO, MonadIO(..))
+import qualified Control.Exception as NewException (SomeException, catch)
+import IDE.Utils.Tool (runTool')
 
 collectPackage :: Bool -> Prefs -> Int -> (PackageConfig,Int) -> IO PackageCollectStats
 collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
@@ -80,6 +82,7 @@ collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
                             return (stat {withSource=True, retrieved= True, mbError=Nothing})
                         else do
                             debugM "leksah-server" $ "collectPackage: Can't retreive = " ++ packageName
+                            runCabalConfigure fpSource
                             packageDescrHi <- collectPackageFromHI packageConfig
                             mbPackageDescrPair <- packageFromSource fpSource packageConfig
                             case mbPackageDescrPair of
@@ -90,6 +93,7 @@ collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
                                     writeExtractedPackage False packageDescrHi
                                     return bstat{modulesTotal = Just (length (pdModules packageDescrHi))}
                 BuildThenRetrieve -> do
+                        runCabalConfigure fpSource
                         mbPackageDescrPair <- packageFromSource fpSource packageConfig
                         case mbPackageDescrPair of
                             (Just packageDescrS,bstat) ->  do
@@ -108,6 +112,7 @@ collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
                                         writeExtractedPackage False packageDescrHi
                                         return bstat{modulesTotal = Just (length (pdModules packageDescrHi))}
                 NeverRetrieve -> do
+                        runCabalConfigure fpSource
                         packageDescrHi <- collectPackageFromHI packageConfig
                         mbPackageDescrPair <- packageFromSource fpSource packageConfig
                         case mbPackageDescrPair of
@@ -145,6 +150,13 @@ collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
             let mergedPackageDescr = mergePackageDescrs packageDescrHi packageDescrS
             liftIO $ writeExtractedPackage writeAscii mergedPackageDescr
             liftIO $ writePackagePath (dropFileName fpSource) packageName
+        runCabalConfigure fpSource = do
+            let dirPath      = dropFileName fpSource
+            setCurrentDirectory dirPath
+            NewException.catch (runTool' "cabal" (["configure","--user"]) Nothing >> return ())
+                                    (\ (_e :: NewException.SomeException) -> do
+                                        debugM "leksah-server" "Can't configure"
+                                        return ())
 
 writeExtractedPackage :: MonadIO m => Bool -> PackageDescr -> m ()
 writeExtractedPackage writeAscii pd = do

@@ -64,7 +64,7 @@ import IDE.Utils.GHCUtils (inGhcIO)
 import qualified Control.Exception as NewException (SomeException, catch)
 import IDE.Utils.Tool
 import Control.Monad (unless)
-import IDE.Utils.FileUtils (figureOutGhcOpts, figureOutHaddockOpts,myCanonicalizePath)
+import IDE.Utils.FileUtils (figureOutGhcOpts, myCanonicalizePath)
 import Distribution.Package(PackageIdentifier)
 import GHC hiding(Id,Failed,Succeeded,ModuleName)
 import System.Log.Logger (warningM, debugM)
@@ -104,11 +104,7 @@ findSourceForPackage :: Prefs -> PackageConfig -> IO (Either String FilePath)
 findSourceForPackage prefs packageConfig = do
     sourceMap <- liftIO $ getSourcesMap prefs
     case sourceForPackage (getThisPackage packageConfig) sourceMap of
-        Just fpSource -> do
-            let dirPath      = dropFileName fpSource
-            setCurrentDirectory dirPath
-            runTool' "cabal" (["configure","--user"]) Nothing
-            return (Right fpSource)
+        Just fpSource -> return (Right fpSource)
         Nothing -> do
             unpackDir <- getUnpackDirectory prefs
             case unpackDir of
@@ -121,13 +117,7 @@ findSourceForPackage prefs packageConfig = do
                     success <- doesDirectoryExist (fpUnpack </> packageName)
                     if not success
                         then return (Left "Failed to download and unpack source")
-                        else do
-                            setCurrentDirectory (fpUnpack </> packageName)
-                            NewException.catch (runTool' "cabal" (["configure","--user"]) Nothing >> return ())
-                                                    (\ (_e :: NewException.SomeException) -> do
-                                                        debugM "leksah-server" "Can't configure"
-                                                        return ())
-                            return (Right (fpUnpack </> packageName </>  takeWhile (/= '-') packageName <.> "cabal"))
+                        else return (Right (fpUnpack </> packageName </>  takeWhile (/= '-') packageName <.> "cabal"))
     where
         packageName = packageIdentifierToString (getThisPackage packageConfig)
 
