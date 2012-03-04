@@ -157,8 +157,9 @@ extractExportedDescrR pid hidden iface =
                                  $ filter (\k -> (dscName k) `Set.member` otherDecls) hidden
         inst            =   concatMap (extractInstances (PM pid mid)) (mi_insts iface)
         uses            =   Map.fromList $ map extractUsages (mi_usages iface)
-        declsWithExp    =   map (\ (Real decl) -> Real $ decl{dscExported' =
-                                                Set.member (dscName' decl) exportedNames})  ownDecls
+        declsWithExp    =   map withExp ownDecls
+        withExp (Real d) =  Real $ d{dscExported' = Set.member (dscName' d) exportedNames}
+        withExp _        =  error "Unexpected Reexported"
     in  ModuleDescr {
                     mdModuleId          =   PM pid mid
                 ,   mdMbSourcePath      =   Nothing

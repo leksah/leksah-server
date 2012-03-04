@@ -72,7 +72,7 @@ import Distribution.Package
        (PackageName(..), PackageIdentifier(..))
 import Distribution.ModuleName (components, ModuleName)
 import Data.ByteString.Char8 (ByteString)
-import Distribution.Text (Text(..), simpleParse, display)
+import Distribution.Text (simpleParse, display)
 import qualified Data.ByteString.Char8 as  BS (unpack, empty)
 import qualified Data.Map as Map (lookup,keysSet,splitLookup, insertWith,empty,elems,union,toList)
 import qualified Data.Set as Set (toList)

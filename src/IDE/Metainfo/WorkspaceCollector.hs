@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -XScopedTypeVariables #-}
+{-# LANGUAGE ScopedTypeVariables, PatternGuards #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.Metainfo.WorkspaceCollector
@@ -63,7 +63,7 @@ import TcRnMonad (initTcRnIf, IfGblEnv(..))
 import qualified Maybes as M
 import IDE.Metainfo.InterfaceCollector
 import Data.Maybe
-       (isJust, fromJust, catMaybes, mapMaybe, isNothing)
+       (isJust, catMaybes, mapMaybe, isNothing)
 import Module (stringToPackageId)
 import PrelNames
 import System.Log.Logger
@@ -333,7 +333,7 @@ finishedDoc d doc rest | notDocDecl d = (d, Just doc) : rest
 finishedDoc _ _ rest = rest
 
 #if MIN_VERSION_ghc(7,2,0)
-sigNameNoLoc :: Sig name -> Maybe name    
+sigNameNoLoc :: Sig name -> Maybe name
 -- Used only in Haddock
 sigNameNoLoc (TypeSig   [n] _)          = Just (unLoc n)
 sigNameNoLoc (SpecSig   n _ _)        = Just (unLoc n)
@@ -346,9 +346,9 @@ attachSignatures :: [(NDecl, (Maybe NDoc))] -> [(NDecl,Maybe NDoc)]
     -> [(NDecl, (Maybe NDoc), [(NSig,Maybe NDoc)])]
 attachSignatures signatures = map (attachSignature signaturesMap)
     where
-    signaturesMap = Map.fromListWith (++)
-                        $ map (\ (L loc (SigD sig),c) -> (fromJust $ sigNameNoLoc sig, [(L loc sig,c)]))
-                                signatures
+    signaturesMap = Map.fromListWith (++) $ map sigMap signatures
+    sigMap (L loc (SigD sig),c) | Just name <- sigNameNoLoc sig = (name, [(L loc sig,c)])
+    sigMap _ = error "Unexpected location type"
     attachSignature :: Map RdrName  [(NSig,Maybe NDoc)] -> (NDecl, (Maybe NDoc))
         -> (NDecl, (Maybe NDoc), [(NSig,Maybe NDoc)])
     attachSignature signaturesMap'  (decl,mbDoc) =

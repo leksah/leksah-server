@@ -54,7 +54,7 @@ import HscTypes (Ghc(..))
 #endif
 import IDE.Utils.FileUtils (getSysLibDir)
 import DynFlags (dopt_set)
-import System.Log.Logger(warningM, debugM)
+import System.Log.Logger(debugM)
 import Control.Monad.IO.Class (MonadIO(..), MonadIO)
 
 -- this should not be repeated here, why is it necessary?

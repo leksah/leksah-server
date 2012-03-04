@@ -29,7 +29,7 @@ import Outputable(pprPrefixOcc,showSDoc)
 #else
 import Outputable(pprHsVar,showSDoc)
 #endif
-import IDE.Utils.FileUtils (figureOutHaddockOpts, figureOutGhcOpts)
+import IDE.Utils.FileUtils (figureOutHaddockOpts)
 import Control.Monad.IO.Class (MonadIO(..))
 
 parseTheHeader :: FilePath -> IO ServerAnswer

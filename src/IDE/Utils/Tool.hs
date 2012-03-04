@@ -30,6 +30,13 @@ module IDE.Utils.Tool (
     executeGhciCommand,
     quoteArg,
     escapeQuotes,
+    runCommand,
+    waitForProcess,
+    interruptProcessGroupOf,
+    ProcessHandle,
+    getProcessExitCode,
+    runInteractiveProcess,
+    runProcess
 
 --    waitForChildren,
 --    forkChild
@@ -46,48 +53,53 @@ import Data.List (stripPrefix)
 import Data.Maybe (catMaybes)
 #ifdef MIN_VERSION_process_leksah
 import IDE.System.Process
-       (proc, waitForProcess, ProcessHandle, createProcess, CreateProcess(..))
+       (proc, waitForProcess, ProcessHandle, createProcess, CreateProcess(..),
+       interruptProcessGroup, runCommand, getProcessExitCode,
+       runProcess, runInteractiveProcess)
 import IDE.System.Process.Internals (StdStream(..))
 #else
 import System.Process
-       (proc, waitForProcess, ProcessHandle, createProcess, CreateProcess(..))
+       (proc, waitForProcess, ProcessHandle, createProcess, CreateProcess(..),
+       interruptProcessGroupOf, runCommand, getProcessExitCode,
+       runProcess, runInteractiveProcess)
 import System.Process.Internals (StdStream(..))
 #endif
 #if MIN_VERSION_base(4,3,0)
 import System.IO (hGetBufSome)
+import qualified Data.ByteString.Internal as B
+       (createAndTrim)
 #else
 import System.IO (hWaitForInput, hIsEOF)
+import qualified Data.ByteString as B
+       (hGetNonBlocking)
 #endif
 import Control.DeepSeq
 import System.Log.Logger (debugM)
 import System.Exit (ExitCode(..))
 import System.IO (hFlush, hPutStrLn, Handle, hSetBuffering, BufferMode(..))
-import Control.Applicative ((<|>), pure)
+import Control.Applicative ((<|>))
 --import Data.Enumerator.Binary as E (enumHandle)
 import Data.Enumerator as E
        (continue, tryIO, checkContinue0, (=$), (>>==), Stream(..),
         Enumeratee, Enumerator, run, ($$), ($=), (>==>))
-import qualified Data.Enumerator.Binary as EB (enumHandle, filter)
+import qualified Data.Enumerator as E
+       (enumList, returnI, Step(..), isEOF, checkDone, yield,
+        Iteratee(..), sequence, run_)
+import qualified Data.Enumerator.Binary as EB (filter)
 import Data.Attoparsec.Enumerator (iterParser)
 import qualified Data.Attoparsec.Char8 as AP
        (endOfInput, takeWhile, satisfy, skipWhile, string, Parser,
         endOfLine, digit, manyTill, takeWhile1)
 import Data.ByteString (ByteString)
-import qualified Data.Enumerator as E
-       (enumList, returnI, Step(..), isEOF, checkDone, yield,
-        continue, Iteratee(..), sequence, run_)
 import qualified Data.ByteString.Char8 as B (unpack, pack)
 import Data.Attoparsec ((<?>))
 import qualified Data.Enumerator.List as EL
-       (mapAccumM, filter, consume, concatMap, concatMapAccumM)
+       (consume, concatMap, concatMapAccumM)
 import Data.Char (isDigit)
-import qualified System.IO as IO (hWaitForInput, Handle)
+import qualified System.IO as IO (Handle)
 import qualified Data.ByteString as B
-       (empty, hGetNonBlocking, null, ByteString)
-import qualified Data.ByteString.Internal as B
-       (createAndTrim)
-import qualified Control.Exception as Exc (throwIO, catch)
-import System.IO.Error (isEOFError, mkIOError, illegalOperationErrorType)
+       (empty, null, ByteString)
+import System.IO.Error (mkIOError, illegalOperationErrorType)
 
 data ToolOutput = ToolInput String
                 | ToolError String
@@ -135,6 +147,11 @@ quoteArg s                = s
 
 escapeQuotes :: String -> String
 escapeQuotes = foldr (\c s -> if c == '"' then '\\':c:s else c:s) ""
+
+#ifdef MIN_VERSION_process_leksah
+interruptProcessGroupOf :: ProcessHandle -> IO ()
+interruptProcessGroupOf = interruptProcessGroup
+#endif
 
 runTool' :: FilePath -> [String] -> Maybe FilePath -> IO ([ToolOutput], ProcessHandle)
 runTool' fp args mbDir = do

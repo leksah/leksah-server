@@ -88,13 +88,12 @@ buildSourceForPackageDB prefs = do
                             Nothing ->  sourceDirs
     cabalFiles      <-  mapM allCabalFiles dirs
     fCabalFiles     <-  mapM myCanonicalizePath $ concat cabalFiles
-    mbPackages      <-  mapM (\fp -> parseCabal fp) fCabalFiles
-    let pdToFiles   =   Map.fromListWith (++)
-                $ map (\(Just p,o ) -> (p,o))
-                    $ filter (\(mb, _) -> case mb of
-                                            Nothing -> False
-                                            _       -> True )
-                        $ zip mbPackages (map (\a -> [a]) fCabalFiles)
+    mbPackAndFiles  <-  mapM (\fp -> do
+                                mb <- parseCabal fp
+                                case mb of
+                                    Just s  -> return $ Just (s, [fp])
+                                    Nothing -> return Nothing) fCabalFiles
+    let pdToFiles   =   Map.fromListWith (++) $ catMaybes mbPackAndFiles
     filePath        <-  getConfigFilePathForSave standardSourcesFilename
     writeFile filePath  (PP.render (showSourceForPackageDB pdToFiles))
 
