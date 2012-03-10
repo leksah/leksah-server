@@ -47,7 +47,7 @@ import Control.Concurrent
        (tryTakeMVar, readMVar, takeMVar, putMVar,
         newEmptyMVar, forkIO, newChan, MVar, Chan, writeChan,
         getChanContents, dupChan)
-import Control.Monad (forM_, when)
+import Control.Monad (forM_, when, unless)
 import Control.Monad.IO.Class (liftIO, MonadIO)
 import Data.List (stripPrefix)
 import Data.Maybe (catMaybes)
@@ -77,7 +77,7 @@ import Control.DeepSeq
 import System.Log.Logger (debugM)
 import System.Exit (ExitCode(..))
 import System.IO (hFlush, hPutStrLn, Handle, hSetBuffering, BufferMode(..))
-import Control.Applicative ((<|>))
+import Control.Applicative ((<|>), Alternative, liftA2, liftA)
 --import Data.Enumerator.Binary as E (enumHandle)
 import Data.Enumerator as E
        (continue, tryIO, checkContinue0, (=$), (>>==), Stream(..),
@@ -290,7 +290,7 @@ data CommandLineReader = CommandLineReader {
     parseInitialPrompt :: AP.Parser String,
     parseFollowingPrompt :: AP.Parser String,
     errorSyncCommand :: Maybe (Int -> String),
-    parseExpectedError :: AP.Parser Int,
+    parseExpectedError :: AP.Parser (String, Int),
     outputSyncCommand :: Maybe (Int -> String),
     isExpectedOutput :: Int -> String -> Bool
     }
@@ -337,8 +337,13 @@ ghciParseExpectedErrorCols = (do
         return ())
     <?> "ghciParseExpectedErrorCols"
 
-ghciParseExpectedError :: AP.Parser Int
+manyTill' :: Alternative f => f a -> f b -> f ([a], b)
+manyTill' p end = scan
+    where scan = liftA (\b -> ([], b)) end <|> liftA2 (\a (as, b) -> (a:as, b)) p scan
+
+ghciParseExpectedError :: AP.Parser (String, Int)
 ghciParseExpectedError = (do
+       AP.satisfy (/='\n') `manyTill'` (do
         ((AP.string $ B.pack "\n") >> return () <|> return ())
         AP.string $ B.pack "<interactive>:"
         AP.takeWhile1 isDigit
@@ -347,7 +352,7 @@ ghciParseExpectedError = (do
         AP.string $ B.pack ": Not in scope: `"
         result <- parseMarker
         AP.string $ B.pack "'\n"
-        return result)
+        return result))
     <?> "ghciParseExpectedError"
 
 ghciIsExpectedOutput :: Int -> String -> Bool
@@ -374,10 +379,10 @@ noInputCommandLineReader = CommandLineReader {
     isExpectedOutput = \_ _ -> False
     }
 
-parseError :: AP.Parser Int -> AP.Parser (Either Int ByteString)
+parseError :: AP.Parser (String, Int) -> AP.Parser (Either (String, Int) ByteString)
 parseError expectedErrorParser = (do
-        counter <- expectedErrorParser
-        return $ Left counter)
+        expected <- expectedErrorParser
+        return $ Left expected)
     <|> (do
         line <- AP.takeWhile (/= '\n')
         (AP.endOfInput <|> AP.endOfLine)
@@ -471,7 +476,9 @@ getOutput clr inp out err pid = do
                     forM_ xs $ \x -> liftIO $ do
                         debugM "leksah-server" $ show x
                         case x of
-                            Left counter -> putMVar foundExpectedError counter
+                            Left (line, counter) -> do
+                                unless (null line) $ putMVar mvar $ RawToolOutput $ ToolError line
+                                putMVar foundExpectedError counter
                             Right line   -> putMVar mvar $ RawToolOutput $ ToolError (B.unpack line)
                     E.continue loop
                 loop E.EOF = E.yield () E.EOF

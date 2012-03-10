@@ -1,5 +1,5 @@
 name: leksah-server
-version: 0.12.0.1
+version: 0.12.0.3
 cabal-version: >= 1.10.2
 build-type: Simple
 license: GPL

@@ -102,6 +102,17 @@ tests = test [
         tool <- newGhci' [] $ do
             output <- EL.consume
             sendTest t $ last output @?= (ToolPrompt "")
+        executeGhciCommand tool ":m +System.IO" $ do
+            output <- EL.consume
+            sendTest t $ output `check` [
+                ToolInput ":m +System.IO",
+                ToolPrompt ""]
+        executeGhciCommand tool "hPutStr stderr \"Test\"" $ do
+            output <- EL.consume
+            sendTest t $ output `check` [
+                ToolInput "hPutStr stderr \"Test\"",
+                ToolError "Test",
+                ToolPrompt ""]
         executeGhciCommand tool "1+1" $ do
             output <- EL.consume
             sendTest t $ output `check` [
