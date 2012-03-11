@@ -544,7 +544,7 @@ instance NFData DescrType where  rnf a = seq a ()
 
 instance NFData BS.ByteString where  rnf b = seq b ()
 
-#if !MIN_VERSION_ghc(7,3,0)
+#if !MIN_VERSION_deepseq(1,3,0)
 instance NFData Version where  rnf v = seq v ()
 #endif
 
