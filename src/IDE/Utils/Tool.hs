@@ -344,8 +344,7 @@ manyTill' p end = scan
 ghciParseExpectedError :: AP.Parser (String, Int)
 ghciParseExpectedError = (do
        AP.satisfy (/='\n') `manyTill'` (do
-        ((AP.string $ B.pack "\n") >> return () <|> return ())
-        AP.string $ B.pack "<interactive>:"
+        AP.string $ B.pack "\n<interactive>:"
         AP.takeWhile1 isDigit
         AP.string $ B.pack ":"
         ghciParseExpectedErrorCols

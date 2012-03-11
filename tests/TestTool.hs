@@ -97,6 +97,17 @@ tests = test [
     "Unterminated Err" ~: do
         (output, _) <- runSelf' ["Unterminated", "StdErr"]
         output `check` [ToolError "Unterminated", ToolExit ExitSuccess],
+    "GHCi Failed Sart" ~: do
+        t <- newEmptyMVar
+        tool <- newGhci' ["MissingFile.hs"] $ do
+            output <- EL.consume
+            sendTest t $ last output @?= (ToolPrompt "")
+        executeGhciCommand tool ":quit" $ do
+            output <- EL.consume
+            sendTest t $ output `check` [
+                ToolInput ":quit",
+                ToolOutput "Leaving GHCi.",
+                ToolExit ExitSuccess],
     "GHCi" ~: do
         t <- newEmptyMVar
         tool <- newGhci' [] $ do
