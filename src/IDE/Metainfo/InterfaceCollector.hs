@@ -156,7 +156,7 @@ extractExportedDescrR pid hidden iface =
         reexported      =   map (\d -> Reexported (ReexportedDescr (Just (PM pid mid)) d))
                                  $ filter (\k -> (dscName k) `Set.member` otherDecls) hidden
         inst            =   concatMap (extractInstances (PM pid mid)) (mi_insts iface)
-        uses            =   Map.fromList $ map extractUsages (mi_usages iface)
+        uses            =   Map.fromList . catMaybes $ map extractUsages (mi_usages iface)
         declsWithExp    =   map withExp ownDecls
         withExp (Real d) =  Real $ d{dscExported' = Set.member (dscName' d) exportedNames}
         withExp _        =  error "Unexpected Reexported"
@@ -290,14 +290,14 @@ extractInstances pm ifaceInst  =
                     ,   dscExported'     =   False})]
 
 
-extractUsages :: Usage -> (ModuleName, Set String)
+extractUsages :: Usage -> Maybe (ModuleName, Set String)
 #if MIN_VERSION_Cabal(1,11,0)
 extractUsages (UsagePackageModule usg_mod' _ _) =
 #else
 extractUsages (UsagePackageModule usg_mod' _ ) =
 #endif
     let name    =   (fromJust . simpleParse . moduleNameString) (moduleName usg_mod')
-    in (name, Set.fromList [])
+    in Just (name, Set.fromList [])
 #if MIN_VERSION_Cabal(1,11,0)
 extractUsages (UsageHomeModule usg_mod_name' _ usg_entities' _ _) =
 #else
@@ -305,7 +305,10 @@ extractUsages (UsageHomeModule usg_mod_name' _ usg_entities' _) =
 #endif
     let name    =   (fromJust . simpleParse . moduleNameString) usg_mod_name'
         ids     =   map (showSDocUnqual . ppr . fst) usg_entities'
-    in (name, Set.fromList ids)
+    in Just (name, Set.fromList ids)
+#if MIN_VERSION_ghc(7,4,0)
+extractUsages (UsageFile _ _) = Nothing
+#endif
 
 filterExtras, filterExtras' :: String -> String
 filterExtras ('{':'-':r)                =   filterExtras' r
