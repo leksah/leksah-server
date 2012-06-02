@@ -333,22 +333,24 @@ finishedDoc d doc rest | notDocDecl d = (d, Just doc) : rest
 finishedDoc _ _ rest = rest
 
 #if MIN_VERSION_ghc(7,2,0)
-sigNameNoLoc :: Sig name -> Maybe name
--- Used only in Haddock
-sigNameNoLoc (TypeSig   [n] _)          = Just (unLoc n)
-sigNameNoLoc (SpecSig   n _ _)        = Just (unLoc n)
-sigNameNoLoc (InlineSig n _)          = Just (unLoc n)
-sigNameNoLoc (FixSig (FixitySig n _)) = Just (unLoc n)
-sigNameNoLoc _                        = Nothing
+sigNameNoLoc :: Sig name -> [name]
+sigNameNoLoc (TypeSig   ns _)         = map unLoc ns
+sigNameNoLoc (SpecSig   n _ _)        = [unLoc n]
+sigNameNoLoc (InlineSig n _)          = [unLoc n]
+sigNameNoLoc (FixSig (FixitySig n _)) = [unLoc n]
+sigNameNoLoc _                        = []
 #endif
 
 attachSignatures :: [(NDecl, (Maybe NDoc))] -> [(NDecl,Maybe NDoc)]
     -> [(NDecl, (Maybe NDoc), [(NSig,Maybe NDoc)])]
 attachSignatures signatures = map (attachSignature signaturesMap)
     where
-    signaturesMap = Map.fromListWith (++) $ map sigMap signatures
-    sigMap (L loc (SigD sig),c) | Just name <- sigNameNoLoc sig = (name, [(L loc sig,c)])
-    sigMap _ = error "Unexpected location type"
+    signaturesMap = Map.fromListWith (++) $ concatMap sigMap signatures
+
+    sigMap (L loc (SigD sig),c) | nameList <- sigNameNoLoc sig =
+        map (\n -> (n, [(L loc sig,c)])) nameList
+    sigMap v = error ("Unexpected location type" ++ (showSDoc . ppr) v)
+
     attachSignature :: Map RdrName  [(NSig,Maybe NDoc)] -> (NDecl, (Maybe NDoc))
         -> (NDecl, (Maybe NDoc), [(NSig,Maybe NDoc)])
     attachSignature signaturesMap'  (decl,mbDoc) =
