@@ -75,31 +75,31 @@ prefsDescription = [
             sourceDirectories
             (\b a -> a{sourceDirectories = b})
     ,   mkFieldS
-            (paraName <<<- ParaName "Maybe a directory for unpacking cabal packages" $ emptyParams)
+            (paraName <<<- ParaName "Unpack source for cabal packages to" $ emptyParams)
             (PP.text . show)
             readParser
             unpackDirectory
             (\b a -> a{unpackDirectory = b})
     ,   mkFieldS
-            (paraName <<<- ParaName "An URL to load prebuild metadata" $ emptyParams)
+            (paraName <<<- ParaName "URL from which to download prebuilt metadata" $ emptyParams)
             (PP.text . show)
             stringParser
             retrieveURL
             (\b a -> a{retrieveURL = b})
     ,   mkFieldS
-            (paraName <<<- ParaName "A strategy for downloading prebuild metadata" $ emptyParams)
+            (paraName <<<- ParaName "Strategy for downloading prebuilt metadata" $ emptyParams)
             (PP.text . show)
             readParser
             retrieveStrategy
             (\b a -> a{retrieveStrategy = b})
     ,   mkFieldS
-            (paraName <<<- ParaName "Port number for server connection" $ emptyParams)
+            (paraName <<<- ParaName "Port number for leksah to comunicate with leksah-server" $ emptyParams)
             (PP.text . show)
             intParser
             serverPort
             (\b a -> a{serverPort = b})
     ,   mkFieldS
-            (paraName <<<- ParaName "End the server with last connection" $ emptyParams)
+            (paraName <<<- ParaName "Stop the leksah-server process when leksah disconnects" $ emptyParams)
             (PP.text . show)
             boolParser
             endWithLastConn
