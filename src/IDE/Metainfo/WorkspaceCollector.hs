@@ -332,13 +332,15 @@ finishedDoc d doc rest | notDocDecl d = (d, Just doc) : rest
     notDocDecl _              = True
 finishedDoc _ _ rest = rest
 
+sigNameNoLoc' :: Sig name -> [name]
 #if MIN_VERSION_ghc(7,2,0)
-sigNameNoLoc :: Sig name -> [name]
-sigNameNoLoc (TypeSig   ns _)         = map unLoc ns
-sigNameNoLoc (SpecSig   n _ _)        = [unLoc n]
-sigNameNoLoc (InlineSig n _)          = [unLoc n]
-sigNameNoLoc (FixSig (FixitySig n _)) = [unLoc n]
-sigNameNoLoc _                        = []
+sigNameNoLoc' (TypeSig   ns _)         = map unLoc ns
+sigNameNoLoc' (SpecSig   n _ _)        = [unLoc n]
+sigNameNoLoc' (InlineSig n _)          = [unLoc n]
+sigNameNoLoc' (FixSig (FixitySig n _)) = [unLoc n]
+sigNameNoLoc' _                        = []
+#else
+sigNameNoLoc' = maybe [] (:[]) . sigNameNoLoc
 #endif
 
 attachSignatures :: [(NDecl, (Maybe NDoc))] -> [(NDecl,Maybe NDoc)]
@@ -347,7 +349,7 @@ attachSignatures signatures = map (attachSignature signaturesMap)
     where
     signaturesMap = Map.fromListWith (++) $ concatMap sigMap signatures
 
-    sigMap (L loc (SigD sig),c) | nameList <- sigNameNoLoc sig =
+    sigMap (L loc (SigD sig),c) | nameList <- sigNameNoLoc' sig =
         map (\n -> (n, [(L loc sig,c)])) nameList
     sigMap v = error ("Unexpected location type" ++ (showSDoc . ppr) v)
 
