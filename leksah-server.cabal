@@ -40,7 +40,7 @@ library
                pretty >=1.0.1.0 && <1.2, time >=1.1 && <1.5, deepseq >=1.1 && <1.4,
                hslogger >= 1.0.7 && <1.2, network >=2.2 && <3.0, enumerator >=0.4.14 && < 0.5,
                attoparsec-enumerator >=0.3 && <0.4, attoparsec >=0.10.0.3 && <0.11,
-               transformers >=0.2.2.0 && <0.4
+               transformers >=0.2.2.0 && <0.4, strict >=0.3.2 && <0.4
     if (impl(ghc >= 7.4))
        build-depends: haddock >= 2.7.2 && <2.11
     else
@@ -85,9 +85,9 @@ library
         IDE.Metainfo.SourceCollectorH
         IDE.Metainfo.SourceDB Paths_leksah_server
     if (impl(ghc >= 6.12))
-       ghc-options: -Wall -fno-warn-unused-do-bind -ferror-spans 
+       ghc-options: -Wall -fno-warn-unused-do-bind -ferror-spans
     else
-       ghc-options: -Wall -ferror-spans 
+       ghc-options: -Wall -ferror-spans
     ghc-prof-options: -auto-all -prof
 
 executable leksah-server
@@ -100,7 +100,7 @@ executable leksah-server
                pretty >=1.0.1.0 && <1.2, time >=1.1 && <1.5, deepseq >=1.1 && <1.4,
                hslogger >= 1.0.7 && <1.2, network >=2.2 && <3.0, enumerator >= 0.4.14 && <0.5,
                attoparsec-enumerator >=0.3 && <0.4, attoparsec >=0.10.0.3 && <0.11,
-               transformers >=0.2.2.0 && <0.4
+               transformers >=0.2.2.0 && <0.4, strict >=0.3.2 && <0.4
     if (impl(ghc >= 7.4))
        build-depends: haddock >= 2.7.2 && <2.11
     else
@@ -150,9 +150,9 @@ executable leksah-server
         ghc-options: -rtsopts
 
     if impl(ghc >= 6.12)
-        ghc-options: -Wall -fno-warn-unused-do-bind -ferror-spans 
+        ghc-options: -Wall -fno-warn-unused-do-bind -ferror-spans
     else
-        ghc-options: -Wall -ferror-spans 
+        ghc-options: -Wall -ferror-spans
     ghc-prof-options: -auto-all -prof
 
 executable leksahecho
@@ -177,9 +177,9 @@ executable leksahecho
         ghc-options: -threaded
 
     if (impl(ghc >= 6.12))
-       ghc-options: -Wall -fno-warn-unused-do-bind -ferror-spans 
+       ghc-options: -Wall -fno-warn-unused-do-bind -ferror-spans
     else
-       ghc-options: -Wall -ferror-spans 
+       ghc-options: -Wall -ferror-spans
 
 test-suite test-tool
     default-language: Haskell98
