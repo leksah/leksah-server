@@ -38,7 +38,9 @@ import qualified Text.PrettyPrint as PP
        (colon, (<>), text, ($$), vcat, Doc, render, char)
 import Text.ParserCombinators.Parsec
        (try, char, unexpected, noneOf, eof, many, CharParser,
-        parseFromFile, (<?>), (<|>))
+        Parser, (<?>), (<|>))
+import Text.Parsec.Prim (runP)
+import Text.Parsec.Error (ParseError)
 import Text.ParserCombinators.Parsec.Language (emptyDef)
 #if MIN_VERSION_parsec(3,0,0)
 import qualified Text.ParserCombinators.Parsec.Token as P
@@ -53,6 +55,7 @@ import Data.Maybe (catMaybes)
 import IDE.Core.CTypes (packageIdentifierFromString)
 import Paths_leksah_server
 import System.Log.Logger(errorM,debugM)
+import System.IO.Strict as S (readFile)
 
 -- ---------------------------------------------------------------------
 -- Function to map packages to file paths
@@ -105,6 +108,12 @@ showSourceForPackageDB aMap = PP.vcat (map showIt (Map.toList aMap))
                              PP.<>  PP.char '\n'
         where label  =  PP.text pd PP.<> PP.colon
 
+-- Strict version
+parseFromFile :: Parser a -> String -> IO (Either ParseError a)
+parseFromFile p f = do
+    input <- S.readFile f
+    return $ runP p () f input
+
 parseSourceForPackageDB :: IO (Maybe (Map PackageIdentifier [FilePath]))
 parseSourceForPackageDB = do
     dataDir         <-  getDataDir
@@ -112,7 +121,7 @@ parseSourceForPackageDB = do
     exists          <-  doesFileExist filePath
     if exists
         then do
-            res             <-  parseFromFile sourceForPackageParser filePath
+            res <- parseFromFile sourceForPackageParser filePath
             case res of
                 Left pe ->  do
                     errorM "leksah-server" $ "Error reading source packages file "
@@ -181,7 +190,7 @@ filePathParser = try (do
 parseCabal :: FilePath -> IO (Maybe String)
 parseCabal fn = do
     --putStrLn $ "Now parsing minimal " ++ fn
-    res     <-  parseFromFile cabalMinimalParser fn
+    res   <- parseFromFile cabalMinimalParser fn
     case res of
         Left pe ->  do
             errorM "leksah-server" $"Error reading cabal file " ++ show fn ++ " " ++ show pe
