@@ -39,8 +39,8 @@ import qualified Text.PrettyPrint as PP
 import Text.ParserCombinators.Parsec
        (try, char, unexpected, noneOf, eof, many, CharParser,
         Parser, (<?>), (<|>))
-import Text.Parsec.Prim (runP)
-import Text.Parsec.Error (ParseError)
+import Text.ParserCombinators.Parsec.Prim (parse)
+import Text.ParserCombinators.Parsec.Error (ParseError)
 import Text.ParserCombinators.Parsec.Language (emptyDef)
 #if MIN_VERSION_parsec(3,0,0)
 import qualified Text.ParserCombinators.Parsec.Token as P
@@ -112,7 +112,7 @@ showSourceForPackageDB aMap = PP.vcat (map showIt (Map.toList aMap))
 parseFromFile :: Parser a -> String -> IO (Either ParseError a)
 parseFromFile p f = do
     input <- S.readFile f
-    return $ runP p () f input
+    return $ parse p f input
 
 parseSourceForPackageDB :: IO (Maybe (Map PackageIdentifier [FilePath]))
 parseSourceForPackageDB = do
