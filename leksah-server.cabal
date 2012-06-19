@@ -1,5 +1,5 @@
 name: leksah-server
-version: 0.12.1.1
+version: 0.12.1.2
 cabal-version: >= 1.10.2
 build-type: Simple
 license: GPL
@@ -41,6 +41,10 @@ library
                hslogger >= 1.0.7 && <1.2, network >=2.2 && <3.0, enumerator >=0.4.14 && < 0.5,
                attoparsec-enumerator >=0.3 && <0.4, attoparsec >=0.10.0.3 && <0.11,
                transformers >=0.2.2.0 && <0.4, strict >=0.3.2 && <0.4
+
+    if (impl(ghc >= 7.2))
+        binary-shared >=0.8.2
+
     if (impl(ghc >= 7.4))
        build-depends: haddock >= 2.7.2 && <2.11
     else
