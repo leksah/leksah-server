@@ -44,9 +44,10 @@ import Data.List (delete, nub)
 import Distribution.Text (display)
 import Control.Exception (SomeException,catch)
 #if defined(USE_LIBCURL)
-import Network.Curl (curlGetString, CurlCode(..))
+import Network.Curl (curlGetString_, CurlCode(..))
 import Control.Monad (when)
-import System.IO (withBinaryFile, IOMode(..), hPutStr)
+import System.IO (withBinaryFile, IOMode(..))
+import Data.ByteString (hPutStr)
 #else
 #ifdef MIN_VERSION_process_leksah
 import IDE.System.Process (system)
@@ -132,7 +133,7 @@ collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
             debugM "leksah-server" $ "collectPackage: before retreiving = " ++ fullUrl
 #if defined(USE_LIBCURL)
             catch (do
-                (code, string) <- curlGetString fullUrl []
+                (code, string) <- curlGetString_ fullUrl []
                 when (code == CurlOK) $
                     withBinaryFile filePath WriteMode $ \ file -> do
                         hPutStr file string)
