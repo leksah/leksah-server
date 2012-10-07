@@ -90,7 +90,7 @@ import qualified Distribution.InstalledPackageInfo as IPI
 --
 
 leksahVersion, configDirName :: String
-leksahVersion = "0.12"
+leksahVersion = "0.13"
 configDirName = ".leksah-" ++ leksahVersion
 
 metadataVersion :: Integer
