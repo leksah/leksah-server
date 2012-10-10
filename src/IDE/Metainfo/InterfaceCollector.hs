@@ -329,7 +329,7 @@ extractUsages _ (UsagePackageModule usg_mod' _ ) =
 #if MIN_VERSION_Cabal(1,11,0)
 extractUsages dflags (UsageHomeModule usg_mod_name' _ usg_entities' _ _) =
 #else
-extractUsages _ (UsageHomeModule usg_mod_name' _ usg_entities' _) =
+extractUsages dflags (UsageHomeModule usg_mod_name' _ usg_entities' _) =
 #endif
     let name    =   (fromJust . simpleParse . moduleNameString) usg_mod_name'
         ids     =   map (showSDocUnqual dflags . ppr . fst) usg_entities'
