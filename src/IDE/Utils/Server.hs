@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -XFlexibleInstances #-}
+{-# LANGUAGE FlexibleInstances, ScopedTypeVariables #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.Utils.Server
@@ -28,7 +28,7 @@ import Network.Socket hiding (accept)
 
 import System.IO
 import Control.Concurrent
-import Control.Exception hiding (catch)
+import Control.Exception as E
 
 import Data.Word
 import System.Log.Logger (infoM)
@@ -97,9 +97,10 @@ instance WaitFor (ThreadId, MVar ()) where
 	waitFor (_, mvar) = waitFor mvar
 
 acceptance :: Socket -> ServerRoutine -> IO ()
-acceptance sock action = catch (do
+acceptance sock action = E.catch (do
 		dta <- accept sock
-		forkIO (action dta) >> return ()) print >>
+		forkIO (action dta) >> return ())
+		(\(e :: SomeException) -> print e) >>
 		acceptance sock action
 
 

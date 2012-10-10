@@ -55,9 +55,8 @@ import IDE.System.Process (system)
 import System.Process (system)
 #endif
 #endif
-import Prelude hiding(catch)
 import Control.Monad.IO.Class (MonadIO, MonadIO(..))
-import qualified Control.Exception as NewException (SomeException, catch)
+import qualified Control.Exception as E (SomeException, catch)
 import IDE.Utils.Tool (runTool')
 
 collectPackage :: Bool -> Prefs -> Int -> (PackageConfig,Int) -> IO PackageCollectStats
@@ -132,15 +131,15 @@ collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
                 filePath = collectorPath </> packString <.> leksahMetadataSystemFileExtension
             debugM "leksah-server" $ "collectPackage: before retreiving = " ++ fullUrl
 #if defined(USE_LIBCURL)
-            catch (do
+            E.catch (do
                 (code, string) <- curlGetString_ fullUrl []
                 when (code == CurlOK) $
                     withBinaryFile filePath WriteMode $ \ file -> do
                         hPutStr file string)
 #elif defined(USE_CURL)
-            catch ((system $ "curl -OL --fail " ++ fullUrl) >> return ())
+            E.catch ((system $ "curl -OL --fail " ++ fullUrl) >> return ())
 #else
-            catch ((system $ "wget " ++ fullUrl) >> return ())
+            E.catch ((system $ "wget " ++ fullUrl) >> return ())
 #endif
                 (\(e :: SomeException) ->
                     debugM "leksah-server" $ "collectPackage: Error when calling wget " ++ show e)
@@ -154,8 +153,8 @@ collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
         runCabalConfigure fpSource = do
             let dirPath      = dropFileName fpSource
             setCurrentDirectory dirPath
-            NewException.catch (runTool' "cabal" (["configure","--user"]) Nothing >> return ())
-                                    (\ (_e :: NewException.SomeException) -> do
+            E.catch (runTool' "cabal" (["configure","--user"]) Nothing >> return ())
+                                    (\ (_e :: E.SomeException) -> do
                                         debugM "leksah-server" "Can't configure"
                                         return ())
 

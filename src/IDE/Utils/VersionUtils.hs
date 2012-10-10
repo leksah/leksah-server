@@ -22,9 +22,10 @@ import IDE.Utils.Tool (toolline, runTool')
 import Data.Char (ord)
 import qualified Data.List as List (init)
 import System.Log.Logger (debugM)
+import Control.Exception as E (SomeException, catch)
 
 getGhcVersion :: IO FilePath
-getGhcVersion = catch (do
+getGhcVersion = E.catch (do
     (!output,_) <- runTool' "ghc" ["--numeric-version"] Nothing
     let vers = toolline $ head output
         vers2 = if ord (last vers) == 13
@@ -32,17 +33,17 @@ getGhcVersion = catch (do
                     else vers
     debugM "leksah-server" $ "Got GHC Version " ++ vers2
     return vers2
-    ) $ \ _ -> error ("FileUtils>>getGhcVersion failed")
+    ) $ \ (_ :: SomeException) -> error ("FileUtils>>getGhcVersion failed")
 
 getHaddockVersion :: IO String
-getHaddockVersion = catch (do
+getHaddockVersion = E.catch (do
     (!output,_) <- runTool' "haddock" ["--version"] Nothing
     let vers = toolline $ head output
         vers2 = if ord (last vers) == 13
                     then List.init vers
                     else vers
     return vers2
-    ) $ \ _ -> error ("FileUtils>>getHaddockVersion failed")
+    ) $ \ (_ :: SomeException) -> error ("FileUtils>>getHaddockVersion failed")
 
 
 

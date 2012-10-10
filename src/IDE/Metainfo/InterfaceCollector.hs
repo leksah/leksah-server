@@ -23,6 +23,7 @@ import MyMissing (nonEmptyLines)
 import Module hiding (PackageId,ModuleName)
 import qualified Module as Module (ModuleName)
 import qualified Maybes as M
+import DynFlags (DynFlags)
 #if MIN_VERSION_ghc(7,2,0)
 import HscTypes
 import GhcMonad hiding (liftIO)
@@ -36,7 +37,12 @@ import Avail
 import TysWiredIn ( eqTyConName )
 #endif
 import LoadIface
+#if MIN_VERSION_ghc(7,6,0)
 import Outputable hiding(trace)
+#else
+import Outputable hiding(trace, showSDoc, showSDocUnqual)
+import qualified Outputable as O
+#endif
 import IfaceSyn
 import FastString
 import Name
@@ -65,15 +71,21 @@ import TcRnMonad (initTcRnIf)
 import IDE.Utils.GHCUtils
 import Control.DeepSeq(deepseq)
 
+#if !MIN_VERSION_ghc(7,6,0)
+showSDoc :: DynFlags -> SDoc -> String
+showSDoc _ = O.showSDoc
+showSDocUnqual :: DynFlags -> SDoc -> String
+showSDocUnqual _ = O.showSDocUnqual
+#endif
 
 collectPackageFromHI :: PackageConfig -> IO PackageDescr
-collectPackageFromHI  packageConfig = inGhcIO [] [] $ \ _ -> do
+collectPackageFromHI  packageConfig = inGhcIO [] [] $ \ dflags -> do
     session             <-  getSession
     exportedIfaceInfos  <-  getIFaceInfos (getThisPackage packageConfig)
                                             (IPI.exposedModules packageConfig) session
     hiddenIfaceInfos    <-  getIFaceInfos (getThisPackage packageConfig)
                                             (IPI.hiddenModules packageConfig) session
-    let pd = extractInfo exportedIfaceInfos hiddenIfaceInfos (getThisPackage packageConfig)
+    let pd = extractInfo dflags exportedIfaceInfos hiddenIfaceInfos (getThisPackage packageConfig)
 #if MIN_VERSION_Cabal(1,8,0)
                                             [] -- TODO 6.12 (IPI.depends $ packageConfigToInstalledPackageInfo packageConfig))
 #else
@@ -101,20 +113,20 @@ getIFaceInfos pid modules _session = do
 
 -------------------------------------------------------------------------
 
-extractInfo :: [(ModIface, FilePath)] -> [(ModIface, FilePath)] -> PackageIdentifier ->
+extractInfo :: DynFlags -> [(ModIface, FilePath)] -> [(ModIface, FilePath)] -> PackageIdentifier ->
                     [PackageIdentifier] -> PackageDescr
-extractInfo  ifacesExp ifacesHid pid buildDepends =
-    let allDescrs           =   concatMap (extractExportedDescrH pid)
+extractInfo dflags ifacesExp ifacesHid pid buildDepends =
+    let allDescrs           =   concatMap (extractExportedDescrH dflags pid)
                                     (map fst (ifacesHid ++ ifacesExp))
-        mods                =   map (extractExportedDescrR pid allDescrs) (map fst ifacesExp)
+        mods                =   map (extractExportedDescrR dflags pid allDescrs) (map fst ifacesExp)
     in PackageDescr {
         pdPackage           =   pid
     ,   pdModules           =   mods
     ,   pdBuildDepends      =   buildDepends
     ,   pdMbSourcePath      =   Nothing}
 
-extractExportedDescrH :: PackageIdentifier -> ModIface -> [Descr]
-extractExportedDescrH pid iface =
+extractExportedDescrH :: DynFlags -> PackageIdentifier -> ModIface -> [Descr]
+extractExportedDescrH dflags pid iface =
     let mid                 =   (fromJust . simpleParse . moduleNameString . moduleName) (mi_module iface)
         exportedNames       =   Set.fromList
 #if MIN_VERSION_Cabal(1,11,0)
@@ -129,14 +141,15 @@ extractExportedDescrH pid iface =
         exportedDecls       =   filter (\ ifdecl -> (occNameString $ ifName ifdecl)
                                                     `Set.member` exportedNames)
                                                             (map snd (mi_decls iface))
-    in  concatMap (extractIdentifierDescr pid [mid]) exportedDecls
+    in  concatMap (extractIdentifierDescr dflags pid [mid]) exportedDecls
 
 
-extractExportedDescrR :: PackageIdentifier
+extractExportedDescrR :: DynFlags
+    -> PackageIdentifier
     -> [Descr]
     -> ModIface
     -> ModuleDescr
-extractExportedDescrR pid hidden iface =
+extractExportedDescrR dflags pid hidden iface =
     let mid             =   (fromJust . simpleParse . moduleNameString . moduleName) (mi_module iface)
         exportedNames   =   Set.fromList
 #if MIN_VERSION_Cabal(1,11,0)
@@ -151,12 +164,12 @@ extractExportedDescrR pid hidden iface =
         exportedDecls   =   filter (\ ifdecl -> (occNameString $ifName ifdecl)
                                                     `Set.member` exportedNames)
                                                             (map snd (mi_decls iface))
-        ownDecls        =   concatMap (extractIdentifierDescr pid [mid]) exportedDecls
+        ownDecls        =   concatMap (extractIdentifierDescr dflags pid [mid]) exportedDecls
         otherDecls      =   exportedNames `Set.difference` (Set.fromList (map dscName ownDecls))
         reexported      =   map (\d -> Reexported (ReexportedDescr (Just (PM pid mid)) d))
                                  $ filter (\k -> (dscName k) `Set.member` otherDecls) hidden
-        inst            =   concatMap (extractInstances (PM pid mid)) (mi_insts iface)
-        uses            =   Map.fromList . catMaybes $ map extractUsages (mi_usages iface)
+        inst            =   concatMap (extractInstances dflags (PM pid mid)) (mi_insts iface)
+        uses            =   Map.fromList . catMaybes $ map (extractUsages dflags) (mi_usages iface)
         declsWithExp    =   map withExp ownDecls
         withExp (Real d) =  Real $ d{dscExported' = Set.member (dscName' d) exportedNames}
         withExp _        =  error "Unexpected Reexported"
@@ -166,14 +179,14 @@ extractExportedDescrR pid hidden iface =
                 ,   mdReferences        =   uses
                 ,   mdIdDescriptions    =   declsWithExp ++ inst ++ reexported}
 
-extractIdentifierDescr :: PackageIdentifier -> [ModuleName] -> IfaceDecl -> [Descr]
-extractIdentifierDescr package modules decl
+extractIdentifierDescr :: DynFlags -> PackageIdentifier -> [ModuleName] -> IfaceDecl -> [Descr]
+extractIdentifierDescr dflags package modules decl
    = if null modules
       then []
       else
         let descr = RealDescr{
                     dscName'           =   unpackFS $occNameFS (ifName decl)
-                ,   dscMbTypeStr'      =   Just (BS.pack $ unlines $ nonEmptyLines $ filterExtras $ showSDocUnqual $ppr decl)
+                ,   dscMbTypeStr'      =   Just (BS.pack $ unlines $ nonEmptyLines $ filterExtras $ showSDocUnqual dflags $ppr decl)
                 ,   dscMbModu'         =   Just (PM package (last modules))
                 ,   dscMbLocation'     =   Nothing
                 ,   dscMbComment'      =   Nothing
@@ -188,20 +201,20 @@ extractIdentifierDescr package modules decl
 #endif
                 -> map Real [descr]
 #if MIN_VERSION_Cabal(1,11,0)
-            (IfaceData name _ _ ifCons' _ _ _)
+            (IfaceData {ifName=name, ifCons=ifCons'})
 #else
             (IfaceData name _ _ ifCons' _ _ _ _)
 #endif
                 -> let d = case ifCons' of
                             IfDataTyCon _decls
                                 ->  let
-                                        fieldNames          =   concatMap extractFields (visibleIfConDecls ifCons')
-                                        constructors'       =   extractConstructors name (visibleIfConDecls ifCons')
+                                        fieldNames          =   concatMap (extractFields dflags) (visibleIfConDecls ifCons')
+                                        constructors'       =   extractConstructors dflags name (visibleIfConDecls ifCons')
                                     in DataDescr constructors' fieldNames
                             IfNewTyCon _
                                 ->  let
-                                        fieldNames          =   concatMap extractFields (visibleIfConDecls ifCons')
-                                        constructors'       =   extractConstructors name (visibleIfConDecls ifCons')
+                                        fieldNames          =   concatMap (extractFields dflags) (visibleIfConDecls ifCons')
+                                        constructors'       =   extractConstructors dflags name (visibleIfConDecls ifCons')
                                         mbField             =   case fieldNames of
                                                                     [] -> Nothing
                                                                     [fn] -> Just fn
@@ -217,21 +230,29 @@ extractIdentifierDescr package modules decl
 #else
                             IfAbstractTyCon ->  DataDescr [] []
 #endif
+#if MIN_VERSION_ghc(7,6,0)
+                            IfDataFamTyCon ->  DataDescr [] []
+#else
                             IfOpenDataTyCon ->  DataDescr [] []
+#endif
                     in [Real (descr{dscTypeHint' = d})]
             (IfaceClass context _ _ _ _ ifSigs' _ )
                         ->  let
-                                classOpsID          =   map extractClassOp ifSigs'
+                                classOpsID          =   map (extractClassOp dflags) ifSigs'
                                 superclasses        =   extractSuperClassNames context
                             in [Real $ descr{dscTypeHint' = ClassDescr superclasses classOpsID}]
-            (IfaceSyn _ _ _ _ _ )
+            (IfaceSyn {})
                         ->  [Real $ descr{dscTypeHint' = TypeDescr}]
-            (IfaceForeign _ _)
+#if MIN_VERSION_ghc(7,6,0)
+            (IfaceAxiom {})
+                        ->  [Real $ descr]
+#endif
+            (IfaceForeign {})
                         ->  [Real $ descr]
 
-extractConstructors ::   OccName -> [IfaceConDecl] -> [SimpleDescr]
-extractConstructors name decls    =   map (\decl -> SimpleDescr (unpackFS $occNameFS (ifConOcc decl))
-                                                 (Just (BS.pack $ filterExtras $ showSDocUnqual $
+extractConstructors :: DynFlags -> OccName -> [IfaceConDecl] -> [SimpleDescr]
+extractConstructors dflags name decls = map (\decl -> SimpleDescr (unpackFS $occNameFS (ifConOcc decl))
+                                                 (Just (BS.pack $ filterExtras $ showSDocUnqual dflags $
                                                     pprIfaceForAllPart (ifConUnivTvs decl ++ ifConExTvs decl)
                                                         (eq_ctxt decl ++ ifConCtxt decl) (pp_tau decl)))
                                                  Nothing Nothing True) decls
@@ -248,20 +269,20 @@ extractConstructors name decls    =   map (\decl -> SimpleDescr (unpackFS $occNa
 #endif
 	                        | (tv,ty) <- ifConEqSpec decl]
 
-extractFields ::  IfaceConDecl -> [SimpleDescr]
-extractFields  decl    =   map (\ (n, t) -> SimpleDescr n t Nothing Nothing True)
+extractFields :: DynFlags -> IfaceConDecl -> [SimpleDescr]
+extractFields dflags decl = map (\ (n, t) -> SimpleDescr n t Nothing Nothing True)
                                 $ zip (map extractFieldNames (ifConFields decl))
-                                        (map extractType (ifConArgTys decl))
+                                        (map (extractType dflags) (ifConArgTys decl))
 
-extractType :: IfaceType -> Maybe ByteString
-extractType it = Just ((BS.pack . filterExtras . showSDocUnqual . ppr) it)
+extractType :: DynFlags -> IfaceType -> Maybe ByteString
+extractType dflags it = Just ((BS.pack . filterExtras . showSDocUnqual dflags . ppr) it)
 
 extractFieldNames :: OccName -> String
 extractFieldNames occName = unpackFS $occNameFS occName
 
-extractClassOp :: IfaceClassOp -> SimpleDescr
-extractClassOp (IfaceClassOp occName _dm ty) = SimpleDescr (unpackFS $occNameFS occName)
-                                                (Just (BS.pack $ showSDocUnqual (ppr ty)))
+extractClassOp :: DynFlags -> IfaceClassOp -> SimpleDescr
+extractClassOp dflags (IfaceClassOp occName _dm ty) = SimpleDescr (unpackFS $occNameFS occName)
+                                                (Just (BS.pack $ showSDocUnqual dflags (ppr ty)))
                                                 Nothing Nothing True
 
 extractSuperClassNames :: [IfacePredType] -> [String]
@@ -273,10 +294,17 @@ extractSuperClassNames l = catMaybes $ map extractSuperClassName l
 #endif
             extractSuperClassName _                     =   Nothing
 
-extractInstances :: PackModule -> IfaceInst -> [Descr]
-extractInstances pm ifaceInst  =
-    let className   =   showSDocUnqual $ ppr $ ifInstCls ifaceInst
-        dataNames   =   map (\iftc -> showSDocUnqual $ ppr iftc)
+extractInstances :: DynFlags
+    -> PackModule
+#if MIN_VERSION_ghc(7,6,0)
+    -> IfaceClsInst
+#else
+    -> IfaceInst
+#endif
+    -> [Descr]
+extractInstances dflags pm ifaceInst  =
+    let className   =   showSDocUnqual dflags $ ppr $ ifInstCls ifaceInst
+        dataNames   =   map (\iftc -> showSDocUnqual dflags $ ppr iftc)
                             $ map fromJust
                                 $ filter isJust
                                     $ ifInstTys ifaceInst
@@ -290,24 +318,24 @@ extractInstances pm ifaceInst  =
                     ,   dscExported'     =   False})]
 
 
-extractUsages :: Usage -> Maybe (ModuleName, Set String)
+extractUsages :: DynFlags -> Usage -> Maybe (ModuleName, Set String)
 #if MIN_VERSION_Cabal(1,11,0)
-extractUsages (UsagePackageModule usg_mod' _ _) =
+extractUsages _ (UsagePackageModule usg_mod' _ _) =
 #else
-extractUsages (UsagePackageModule usg_mod' _ ) =
+extractUsages _ (UsagePackageModule usg_mod' _ ) =
 #endif
     let name    =   (fromJust . simpleParse . moduleNameString) (moduleName usg_mod')
     in Just (name, Set.fromList [])
 #if MIN_VERSION_Cabal(1,11,0)
-extractUsages (UsageHomeModule usg_mod_name' _ usg_entities' _ _) =
+extractUsages dflags (UsageHomeModule usg_mod_name' _ usg_entities' _ _) =
 #else
-extractUsages (UsageHomeModule usg_mod_name' _ usg_entities' _) =
+extractUsages _ (UsageHomeModule usg_mod_name' _ usg_entities' _) =
 #endif
     let name    =   (fromJust . simpleParse . moduleNameString) usg_mod_name'
-        ids     =   map (showSDocUnqual . ppr . fst) usg_entities'
+        ids     =   map (showSDocUnqual dflags . ppr . fst) usg_entities'
     in Just (name, Set.fromList ids)
 #if MIN_VERSION_ghc(7,4,0)
-extractUsages (UsageFile _ _) = Nothing
+extractUsages _ (UsageFile _ _) = Nothing
 #endif
 
 filterExtras, filterExtras' :: String -> String

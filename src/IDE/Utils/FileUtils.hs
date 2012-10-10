@@ -80,6 +80,7 @@ import qualified Distribution.Text as  T (simpleParse)
 import System.Log.Logger(errorM,warningM,debugM)
 import IDE.Utils.Tool
 import Control.Monad.IO.Class (MonadIO(..), MonadIO)
+import Control.Exception as E (SomeException, catch)
 
 haskellSrcExts :: [String]
 haskellSrcExts = ["hs","lhs","chs","hs.pp","lhs.pp","chs.pp","hsc"]
@@ -122,12 +123,12 @@ findSourceFile' directories modulePath  =
 
 find' :: [FilePath] -> IO (Maybe FilePath)
 find' []            =   return Nothing
-find' (h:t)         =   catch (do
+find' (h:t)         =   E.catch (do
     exists <- doesFileExist h
     if exists
         then return (Just h)
         else find' t)
-        $ \ _ -> return Nothing
+        $ \ (_ :: SomeException) -> return Nothing
 
 -- | The directory where config files reside
 --
@@ -181,7 +182,7 @@ getConfigFilePathForSave fn = do
     return (cd </> fn)
 
 allModules :: FilePath -> IO [ModuleName]
-allModules filePath = catch (do
+allModules filePath = E.catch (do
     exists <- doesDirectoryExist filePath
     if exists
         then do
@@ -202,7 +203,7 @@ allModules filePath = catch (do
             otherModules <- mapM allModules dirs
             return (mbModuleNames ++ concat otherModules)
         else return [])
-            $ \ _ -> return []
+            $ \ (_ :: SomeException) -> return []
 
 allHiFiles :: FilePath -> IO [FilePath]
 allHiFiles = allFilesWithExtensions [".hi"] True []
@@ -214,7 +215,7 @@ allHaskellSourceFiles :: FilePath -> IO [FilePath]
 allHaskellSourceFiles = allFilesWithExtensions [".hs",".lhs"] True []
 
 allFilesWithExtensions :: [String] -> Bool -> [FilePath] -> FilePath -> IO [FilePath]
-allFilesWithExtensions extensions recurseFurther collecting filePath = catch (do
+allFilesWithExtensions extensions recurseFurther collecting filePath = E.catch (do
     exists <- doesDirectoryExist filePath
     if exists
         then do
@@ -231,18 +232,18 @@ allFilesWithExtensions extensions recurseFurther collecting filePath = catch (do
                     else return (choosenFiles ++ collecting)
             return (allFiles)
         else return collecting)
-            $ \ _ -> return collecting
+            $ \ (_ :: SomeException) -> return collecting
 
 
 moduleNameFromFilePath :: FilePath -> IO (Maybe String)
-moduleNameFromFilePath fp = catch (do
+moduleNameFromFilePath fp = E.catch (do
     exists <- doesFileExist fp
     if exists
         then do
             str <-  readFile fp
             moduleNameFromFilePath' fp str
         else return Nothing)
-            $ \ _ -> return Nothing
+            $ \ (_ :: SomeException) -> return Nothing
 
 moduleNameFromFilePath' :: FilePath -> String -> IO (Maybe String)
 moduleNameFromFilePath' fp str = do
@@ -300,24 +301,24 @@ mident
         <?> "midentifier"
 
 findKnownPackages :: FilePath -> IO (Set String)
-findKnownPackages filePath = catch (do
+findKnownPackages filePath = E.catch (do
     paths           <-  getDirectoryContents filePath
     let nameList    =   map dropExtension  $filter (\s -> leksahMetadataSystemFileExtension `isSuffixOf` s) paths
     return (Set.fromList nameList))
-        $ \ _ -> return (Set.empty)
+        $ \ (_ :: SomeException) -> return (Set.empty)
 
 isEmptyDirectory :: FilePath -> IO Bool
-isEmptyDirectory filePath = catch (do
+isEmptyDirectory filePath = E.catch (do
     exists <- doesDirectoryExist filePath
     if exists
         then do
             filesAndDirs <- getDirectoryContents filePath
             return . null $ filter (not . ("." `isPrefixOf`) . takeFileName) filesAndDirs
         else return False)
-        (\_ -> return False)
+        (\ (_ :: SomeException) -> return False)
 
 cabalFileName :: FilePath -> IO (Maybe FilePath)
-cabalFileName filePath = catch (do
+cabalFileName filePath = E.catch (do
     exists <- doesDirectoryExist filePath
     if exists
         then do
@@ -332,7 +333,7 @@ cabalFileName filePath = catch (do
                         warningM "leksah-server" "Multiple cabal files"
                         return Nothing
         else return Nothing)
-        (\_ -> return Nothing)
+        (\ (_ :: SomeException) -> return Nothing)
 
 getCabalUserPackageDir :: IO (Maybe FilePath)
 getCabalUserPackageDir = do
@@ -355,7 +356,7 @@ autoExtractTarFiles filePath = do
 
 autoExtractTarFiles' :: FilePath -> IO ()
 autoExtractTarFiles' filePath =
-    catch (do
+    E.catch (do
         exists <- doesDirectoryExist filePath
         if exists
             then do
@@ -376,7 +377,7 @@ autoExtractTarFiles' filePath =
                 mapM_ autoExtractTarFiles' dirs
                 return ()
             else return ()
-    ) $ \ _ -> return ()
+    ) $ \ (_ :: SomeException) -> return ()
 
 
 getCollectorPath :: MonadIO m => m FilePath
@@ -391,21 +392,21 @@ getCollectorPath = liftIO $ do
             return filePath
 
 getSysLibDir :: IO FilePath
-getSysLibDir = catch (do
+getSysLibDir = E.catch (do
     (!output,_) <- runTool' "ghc" ["--print-libdir"] Nothing
     let libDir = toolline $ head output
         libDir2 = if ord (last libDir) == 13
                     then List.init libDir
                     else libDir
     return (normalise libDir2)
-    ) $ \ _ -> error ("FileUtils>>getSysLibDir failed")
+    ) $ \ (_ :: SomeException) -> error ("FileUtils>>getSysLibDir failed")
 
 getInstalledPackageIds :: IO [PackageIdentifier]
-getInstalledPackageIds = catch (do
+getInstalledPackageIds = E.catch (do
     (!output, _) <- runTool' "ghc-pkg" ["list", "--simple-output"] Nothing
     let names = toolline $ head output
     return (catMaybes (map T.simpleParse (words names)))
-    ) $ \ _ -> error ("FileUtils>>getInstalledPackageIds failed")
+    ) $ \ (_ :: SomeException) -> error ("FileUtils>>getInstalledPackageIds failed")
 
 figureOutHaddockOpts :: IO [String]
 figureOutHaddockOpts = do

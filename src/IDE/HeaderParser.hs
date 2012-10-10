@@ -21,16 +21,30 @@ module IDE.HeaderParser (
 import IDE.Core.CTypes hiding(SrcSpan(..))
 import GHC hiding (ImportDecl)
 import FastString(unpackFS)
-import RdrName(showRdrName)
 import IDE.Utils.GHCUtils
 import Data.Maybe (mapMaybe)
 #if MIN_VERSION_ghc(7,4,1)
-import Outputable(pprPrefixOcc,showSDoc)
+import Outputable(pprPrefixOcc, ppr)
 #else
-import Outputable(pprHsVar,showSDoc)
+import Outputable(pprHsVar, ppr)
+#endif
+#if MIN_VERSION_ghc(7,6,0)
+import Outputable(showSDoc)
+#else
+import qualified Outputable as O
 #endif
 import IDE.Utils.FileUtils (figureOutHaddockOpts)
 import Control.Monad.IO.Class (MonadIO(..))
+
+#if !MIN_VERSION_ghc(7,6,0)
+showSDoc :: DynFlags -> O.SDoc -> String
+showSDoc _ = O.showSDoc
+showSDocUnqual :: DynFlags -> O.SDoc -> String
+showSDocUnqual _ = O.showSDocUnqual
+#endif
+
+showRdrName :: DynFlags -> RdrName -> String
+showRdrName dflags r = showSDoc dflags (ppr r)
 
 parseTheHeader :: FilePath -> IO ServerAnswer
 parseTheHeader filePath = do
@@ -39,7 +53,7 @@ parseTheHeader filePath = do
     parseResult <- liftIO $ myParseHeader filePath text opts
     case parseResult of
         Left str                                      -> return (ServerFailed str)
-        Right (pr@HsModule{ hsmodImports = []})       -> do
+        Right (_, pr@HsModule{ hsmodImports = []})       -> do
             let i = case hsmodDecls pr of
                         decls@(_hd:_tl) -> (foldl (\ a b -> min a (srcSpanStartLine' (getLoc b))) 0 decls) - 1
                         [] -> case hsmodExports pr of
@@ -48,13 +62,13 @@ parseTheHeader filePath = do
                                         Nothing -> 0
                                         Just mn -> srcSpanEndLine' (getLoc mn) + 2
             return (ServerHeader (Right i))
-        Right (_pr@HsModule{ hsmodImports = imports }) -> return (ServerHeader (Left (transformImports imports)))
+        Right (dflags, _pr@HsModule{ hsmodImports = imports }) -> return (ServerHeader (Left (transformImports dflags imports)))
 
-transformImports :: [LImportDecl RdrName] -> [ImportDecl]
-transformImports = map transformImport
+transformImports :: DynFlags -> [LImportDecl RdrName] -> [ImportDecl]
+transformImports dflags = map (transformImport dflags)
 
-transformImport ::  LImportDecl RdrName -> ImportDecl
-transformImport (L srcSpan importDecl) =
+transformImport :: DynFlags -> LImportDecl RdrName -> ImportDecl
+transformImport dflags (L srcSpan importDecl) =
     ImportDecl {
         importLoc = srcSpanToLocation srcSpan,
         importModule = modName,
@@ -73,19 +87,19 @@ transformImport (L srcSpan importDecl) =
                         Just mn -> Just (moduleNameString mn)
         specs =    case ideclHiding importDecl of
                         Nothing -> Nothing
-                        Just (hide, list) -> Just (ImportSpecList hide (mapMaybe transformEntity list))
+                        Just (hide, list) -> Just (ImportSpecList hide (mapMaybe (transformEntity dflags) list))
 
-transformEntity :: LIE RdrName -> Maybe ImportSpec
+transformEntity :: DynFlags -> LIE RdrName -> Maybe ImportSpec
 #if MIN_VERSION_ghc(7,2,0)
-transformEntity (L _ (IEVar name))              = Just (IVar (showSDoc (pprPrefixOcc name)))
+transformEntity dflags (L _ (IEVar name))              = Just (IVar (showSDoc dflags (pprPrefixOcc name)))
 #else
-transformEntity (L _ (IEVar name))              = Just (IVar (showSDoc (pprHsVar name)))
+transformEntity dflags (L _ (IEVar name))              = Just (IVar (showSDoc dflags (pprHsVar name)))
 #endif
-transformEntity (L _ (IEThingAbs name))         = Just (IAbs (showRdrName name))
-transformEntity (L _ (IEThingAll name))         = Just (IThingAll (showRdrName name))	
-transformEntity (L _ (IEThingWith name list))   = Just (IThingWith (showRdrName name)
-                                                        (map showRdrName list))	
-transformEntity  _                              = Nothing
+transformEntity dflags (L _ (IEThingAbs name))         = Just (IAbs (showRdrName dflags name))
+transformEntity dflags (L _ (IEThingAll name))         = Just (IThingAll (showRdrName dflags name))	
+transformEntity dflags (L _ (IEThingWith name list))   = Just (IThingWith (showRdrName dflags name)
+                                                        (map (showRdrName dflags) list))	
+transformEntity _ _                              = Nothing
 
 #if MIN_VERSION_ghc(7,2,0)
 srcSpanToLocation :: SrcSpan -> Location
