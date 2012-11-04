@@ -1,0 +1,7 @@
+./gtk2hs/glib
+./gtk2hs/gio
+./gtk2hs/cairo
+./gtk2hs/pango
+./gtk2hs/gtk -fgtk3
+https://github.com/leksah/ltk
+./
