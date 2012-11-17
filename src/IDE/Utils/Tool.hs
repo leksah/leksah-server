@@ -36,7 +36,9 @@ module IDE.Utils.Tool (
     ProcessHandle,
     getProcessExitCode,
     runInteractiveProcess,
-    runProcess
+    runProcess,
+    readProcessWithExitCode,
+    terminateProcess
 
 --    waitForChildren,
 --    forkChild
@@ -55,13 +57,15 @@ import Data.Maybe (catMaybes)
 import IDE.System.Process
        (proc, waitForProcess, ProcessHandle, createProcess, CreateProcess(..),
        interruptProcessGroup, runCommand, getProcessExitCode,
-       runProcess, runInteractiveProcess)
+       runProcess, runInteractiveProcess, readProcessWithExitCode,
+       terminateProcess)
 import IDE.System.Process.Internals (StdStream(..))
 #else
 import System.Process
        (proc, waitForProcess, ProcessHandle, createProcess, CreateProcess(..),
        interruptProcessGroupOf, runCommand, getProcessExitCode,
-       runProcess, runInteractiveProcess)
+       runProcess, runInteractiveProcess, readProcessWithExitCode,
+       terminateProcess)
 import System.Process.Internals (StdStream(..))
 #endif
 #if MIN_VERSION_base(4,3,0)
