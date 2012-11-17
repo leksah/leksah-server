@@ -44,9 +44,12 @@ library
     if (impl(ghc >= 7.6))
        build-depends: haddock >= 2.7.2 && <2.13
     else
-     if (impl(ghc >= 7.4))
+     if (impl(ghc >= 7.4.2))
        build-depends: haddock >= 2.7.2 && <2.12
      else
+      if (impl(ghc >= 7.4))
+       build-depends: haddock >= 2.7.2 && <2.11
+      else
        if (impl(ghc >= 7.2))
           build-depends: haddock >= 2.7.2 && <2.10
        else
@@ -107,9 +110,12 @@ executable leksah-server
     if (impl(ghc >= 7.6))
        build-depends: haddock >= 2.7.2 && <2.13
     else
-     if (impl(ghc >= 7.4))
+     if (impl(ghc >= 7.4.2))
        build-depends: haddock >= 2.7.2 && <2.12
      else
+      if (impl(ghc >= 7.4))
+       build-depends: haddock >= 2.7.2 && <2.11
+      else
        if (impl(ghc >= 7.2))
           build-depends: haddock >= 2.7.2 && <2.10
        else
