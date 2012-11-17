@@ -192,7 +192,7 @@ interfaceToModuleDescr dflags _dirPath pid interface =
                         (ifaceInstances interface) [] --(ifaceLocals interface)
         imports    = Map.empty --TODO
 
-#if MIN_VERSION_ghc(7,6,0)
+#if MIN_VERSION_haddock(2,11,0)
 getDoc :: Documentation Name -> Maybe NDoc
 getDoc = documentationDoc
 #else
