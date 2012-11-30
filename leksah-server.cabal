@@ -42,10 +42,10 @@ library
                attoparsec-enumerator >=0.3 && <0.4, attoparsec >=0.10.0.3 && <0.11,
                transformers >=0.2.2.0 && <0.4, strict >=0.3.2 && <0.4
     if (impl(ghc >= 7.6))
-       build-depends: haddock >= 2.7.2 && <2.13
+       build-depends: haddock >= 2.7.2 && <2.14
     else
      if (impl(ghc >= 7.4.2))
-       build-depends: haddock >= 2.7.2 && <2.12
+       build-depends: haddock >= 2.11.1 && <2.12
      else
       if (impl(ghc >= 7.4))
        build-depends: haddock >= 2.7.2 && <2.11
@@ -108,10 +108,10 @@ executable leksah-server
                attoparsec-enumerator >=0.3 && <0.4, attoparsec >=0.10.0.3 && <0.11,
                transformers >=0.2.2.0 && <0.4, strict >=0.3.2 && <0.4
     if (impl(ghc >= 7.6))
-       build-depends: haddock >= 2.7.2 && <2.13
+       build-depends: haddock >= 2.7.2 && <2.14
     else
      if (impl(ghc >= 7.4.2))
-       build-depends: haddock >= 2.7.2 && <2.12
+       build-depends: haddock >= 2.11.1 && <2.12
      else
       if (impl(ghc >= 7.4))
        build-depends: haddock >= 2.7.2 && <2.11
