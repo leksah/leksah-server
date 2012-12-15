@@ -43,6 +43,7 @@ module IDE.Utils.FileUtils (
 ,   myCanonicalizePath
 ) where
 
+import Prelude hiding (readFile)
 import System.FilePath
        (splitFileName, dropExtension, takeExtension,
         combine, addExtension, (</>), normalise, splitPath, takeFileName)
@@ -81,6 +82,7 @@ import System.Log.Logger(errorM,warningM,debugM)
 import IDE.Utils.Tool
 import Control.Monad.IO.Class (MonadIO(..), MonadIO)
 import Control.Exception as E (SomeException, catch)
+import System.IO.Strict (readFile)
 
 haskellSrcExts :: [String]
 haskellSrcExts = ["hs","lhs","chs","hs.pp","lhs.pp","chs.pp","hsc"]

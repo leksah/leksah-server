@@ -18,6 +18,7 @@ module IDE.HeaderParser (
 
 ) where
 
+import Prelude hiding (readFile)
 import IDE.Core.CTypes hiding(SrcSpan(..))
 import GHC hiding (ImportDecl)
 import FastString(unpackFS)
@@ -35,6 +36,7 @@ import qualified Outputable as O
 #endif
 import IDE.Utils.FileUtils (figureOutHaddockOpts)
 import Control.Monad.IO.Class (MonadIO(..))
+import System.IO.Strict (readFile)
 
 #if !MIN_VERSION_ghc(7,6,0)
 showSDoc :: DynFlags -> O.SDoc -> String
