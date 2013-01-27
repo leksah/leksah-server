@@ -51,7 +51,7 @@ import Control.Concurrent
         getChanContents, dupChan)
 import Control.Monad (forM_, when, unless)
 import Control.Monad.IO.Class (liftIO, MonadIO)
-import Data.List (stripPrefix)
+import Data.List (isInfixOf, stripPrefix)
 import Data.Maybe (catMaybes)
 #ifdef MIN_VERSION_process_leksah
 import IDE.System.Process
@@ -212,12 +212,14 @@ runInteractiveTool ::
     CommandLineReader ->
     FilePath ->
     [String] ->
+    Maybe FilePath ->
     IO ()
-runInteractiveTool tool clr executable arguments = do
+runInteractiveTool tool clr executable arguments mbDir = do
     (Just inp,Just out,Just err,pid) <- createProcess (proc executable arguments)
         { std_in  = CreatePipe,
           std_out = CreatePipe,
           std_err = CreatePipe,
+          cwd = mbDir,
 #ifdef MIN_VERSION_process_leksah
           new_group = True }
 #else
@@ -564,26 +566,26 @@ newGhci' flags startupOutputHandler = do
     tool <- newToolState
     writeChan (toolCommands tool) $
         ToolCommand (":set prompt " ++ ghciPrompt) "" startupOutputHandler
-    runInteractiveTool tool ghciCommandLineReader "ghci" flags
+    runInteractiveTool tool ghciCommandLineReader "ghci" flags Nothing
     return tool
 
-newGhci :: [String] -> [String] -> (E.Iteratee ToolOutput IO ()) -> IO ToolState
-newGhci buildFlags interactiveFlags startupOutputHandler = do
+newGhci :: FilePath -> Maybe String -> [String] -> [String] -> (E.Iteratee ToolOutput IO ()) -> IO ToolState
+newGhci dir mbExe buildFlags interactiveFlags startupOutputHandler = do
         tool <- newToolState
         writeChan (toolCommands tool) $
             ToolCommand (":set prompt " ++ ghciPrompt) "" startupOutputHandler
         debugM "leksah-server" $ "Working out GHCi options"
         forkIO $ do
-            (out, _) <- runTool "cabal" (["build","--with-ghc=leksahecho"] ++ buildFlags) Nothing
+            (out, _) <- runTool "cabal" (["build","--with-ghc=leksahecho"] ++ buildFlags) (Just dir)
             output <- E.run_ $ out $$ EL.consume
-            case catMaybes $ map (findMake . toolline) output of
+            case filter (matchExe mbExe) . catMaybes $ map (findMake . toolline) output of
                 options:_ -> do
                         let newOptions = filterUnwanted options
                         debugM "leksah-server" $ newOptions
                         debugM "leksah-server" $ "Starting GHCi"
                         debugM "leksah-server" $ unwords (words newOptions ++ ["-fforce-recomp"] ++ interactiveFlags)
                         runInteractiveTool tool ghciCommandLineReader "ghci"
-                            (words newOptions ++ ["-fforce-recomp"] ++ interactiveFlags)
+                            (words newOptions ++ ["-fforce-recomp"] ++ interactiveFlags) (Just dir)
                 _ -> do
                     E.run $ E.enumList 1 output $$ startupOutputHandler
                     putMVar (outputClosed tool) True
@@ -599,7 +601,8 @@ newGhci buildFlags interactiveFlags startupOutputHandler = do
                 case stripPrefix "-O " line of
                     Nothing -> x: filterUnwanted xs
                     Just s  -> filterUnwanted s
-
+        matchExe Nothing = const True
+        matchExe (Just exe) = isInfixOf $ " -o dist/build/" ++ exe ++ "/" ++ exe
 
 executeCommand :: ToolState -> String -> String -> E.Iteratee ToolOutput IO () -> IO ()
 executeCommand tool command rawCommand handler = do
