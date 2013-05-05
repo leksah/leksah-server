@@ -262,7 +262,11 @@ transformToDescrs dflags pm = concatMap transformToDescr
     ,   dscTypeHint'    =   TypeDescr
     ,   dscExported'    =   True}]
 
+#if MIN_VERSION_ghc(7,7,0)
+    transformToDescr ((L loc (TyClD typ@(FamDecl {tcdFam = (FamilyDecl {fdLName = lid})}))), mbComment,_sigList) =
+#else
     transformToDescr ((L loc (TyClD typ@(TyFamily {tcdLName = lid}))), mbComment,_sigList) =
+#endif
         [Real $ RealDescr {
         dscName'        =   getOccString (unLoc lid)
     ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual dflags $ppr typ))
@@ -273,7 +277,9 @@ transformToDescrs dflags pm = concatMap transformToDescr
     ,   dscExported'    =   True}]
 #endif
 
-#if MIN_VERSION_ghc(7,6,0)
+#if MIN_VERSION_ghc(7,7,0)
+    transformToDescr ((L loc (TyClD typ@(SynDecl {tcdLName = lid}))), mbComment,_sigList) =
+#elif MIN_VERSION_ghc(7,6,0)
     transformToDescr ((L loc (TyClD typ@(TyDecl {tcdLName = lid, tcdTyDefn = TySynonym {}}))), mbComment,_sigList) =
 #else
     transformToDescr ((L loc (TyClD typ@(TySynonym lid _ _ _ ))), mbComment, _subCommentList) =
@@ -287,7 +293,9 @@ transformToDescrs dflags pm = concatMap transformToDescr
     ,   dscTypeHint'    =   TypeDescr
     ,   dscExported'    =   True}]
 
-#if MIN_VERSION_ghc(7,6,0)
+#if MIN_VERSION_ghc(7,7,0)
+    transformToDescr ((L loc (TyClD typ@(DataDecl {tcdLName = lid, tcdDataDefn = HsDataDefn {dd_cons=lConDecl, dd_derivs=tcdDerivs'}}))), mbComment,_sigList) =
+#elif MIN_VERSION_ghc(7,6,0)
     transformToDescr ((L loc (TyClD typ@(TyDecl {tcdLName = lid, tcdTyDefn = TyData {td_cons=lConDecl, td_derivs=tcdDerivs'}}))), mbComment,_sigList) =
 #else
     transformToDescr ((L loc (TyClD typ@(TyData DataType _ lid _ _ _ lConDecl tcdDerivs'))), mbComment,_subCommentList) =

@@ -57,22 +57,35 @@ import SrcLoc (mkRealSrcLoc)
 import HscTypes (Ghc(..))
 #endif
 import IDE.Utils.FileUtils (getSysLibDir)
+#if MIN_VERSION_ghc(7,7,0)
+import DynFlags (DumpFlag(..), GeneralFlag(..), gopt_set)
+#endif
 import DynFlags (dopt_set)
 import System.Log.Logger(debugM)
 import Control.Monad.IO.Class (MonadIO(..), MonadIO)
 
+#if !MIN_VERSION_ghc(7,7,0)
 -- this should not be repeated here, why is it necessary?
 instance MonadIO Ghc where
   liftIO ioA = Ghc $ \_ -> ioA
+#endif
 
+#if MIN_VERSION_ghc(7,7,0)
+inGhcIO :: [String] -> [GeneralFlag] -> (DynFlags -> Ghc a) -> IO a
+#else
 inGhcIO :: [String] -> [DynFlag] -> (DynFlags -> Ghc a) -> IO a
+#endif
 inGhcIO flags' udynFlags ghcAct = do
     debugM "leksah-server" $ "inGhcIO called with: " ++ show flags'
     libDir         <-   getSysLibDir
 --    (restFlags, _) <-   parseStaticFlags (map noLoc flags')
     runGhc (Just libDir) $ do
         dynflags  <- getSessionDynFlags
+#if MIN_VERSION_ghc(7,7,0)
+        let dynflags' = foldl (\ flags'' flag' -> gopt_set flags'' flag') dynflags udynFlags
+#else
         let dynflags' = foldl (\ flags'' flag' -> dopt_set flags'' flag') dynflags udynFlags
+#endif
         let dynflags'' = dynflags' {
             hscTarget = HscNothing,
             ghcMode   = CompManager,

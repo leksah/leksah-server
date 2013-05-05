@@ -34,9 +34,11 @@ import Distribution.ModuleName (ModuleName)
 
 import IDE.Core.CTypes
 
+#if !MIN_VERSION_ghc(7,7,0)
 deriving instance Typeable PackageIdentifier
 deriving instance Typeable ModuleName
 deriving instance Typeable PackageName
+#endif
 -----------------------------------------------------------
 
 instance BinaryShared PackModule where

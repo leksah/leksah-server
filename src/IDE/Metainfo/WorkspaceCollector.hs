@@ -396,7 +396,54 @@ transformToDescrs dflags pm = concatMap transformToDescr
     ,   dscTypeHint'    =   VariableDescr
     ,   dscExported'    =   True}]
 
-#if MIN_VERSION_ghc(7,6,0)
+#if MIN_VERSION_ghc(7,7,0)
+    transformToDescr ((L loc (TyClD typ@(ForeignType {tcdLName = lid}))), mbComment,_sigList) =
+        [Real $ RealDescr {
+        dscName'        =   showRdrName dflags (unLoc lid)
+    ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual dflags $ppr typ))
+    ,   dscMbModu'      =   Just pm
+    ,   dscMbLocation'  =   srcSpanToLocation loc
+    ,   dscMbComment'   =   toComment mbComment []
+    ,   dscTypeHint'    =   TypeDescr
+    ,   dscExported'    =   True}]
+
+    transformToDescr ((L loc (TyClD typ@(FamDecl {tcdFam = (FamilyDecl{ fdLName = lid})}))), mbComment,_sigList) =
+        [Real $ RealDescr {
+        dscName'        =   showRdrName dflags (unLoc lid)
+    ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual dflags $ppr typ))
+    ,   dscMbModu'      =   Just pm
+    ,   dscMbLocation'  =   srcSpanToLocation loc
+    ,   dscMbComment'   =   toComment mbComment []
+    ,   dscTypeHint'    =   TypeDescr
+    ,   dscExported'    =   True}]
+
+    transformToDescr ((L loc (TyClD typ@(SynDecl {tcdLName = lid}))), mbComment,_sigList) =
+        [Real $ RealDescr {
+        dscName'        =   showRdrName dflags (unLoc lid)
+    ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual dflags $ppr typ))
+    ,   dscMbModu'      =   Just pm
+    ,   dscMbLocation'  =   srcSpanToLocation loc
+    ,   dscMbComment'   =   toComment mbComment []
+    ,   dscTypeHint'    =   TypeDescr
+    ,   dscExported'    =   True}]
+
+    transformToDescr ((L loc (TyClD typ@(DataDecl {tcdLName = lid, tcdDataDefn = HsDataDefn {dd_cons=lConDecl, dd_derivs=tcdDerivs'}}))), mbComment,_sigList) =
+        [Real $ RealDescr {
+        dscName'        =   name
+    ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual dflags $ppr (uncommentData typ)))
+    ,   dscMbModu'      =   Just pm
+    ,   dscMbLocation'  =   srcSpanToLocation loc
+    ,   dscMbComment'   =   toComment mbComment []
+    ,   dscTypeHint'    =   DataDescr constructors fields
+    ,   dscExported'    =   True}]
+            ++ derivings tcdDerivs'
+        where
+        constructors    =   map (extractConstructor dflags) lConDecl
+        fields          =   nub $ concatMap (extractRecordFields dflags) lConDecl
+        name            =   showRdrName dflags (unLoc lid)
+        derivings Nothing = []
+        derivings (Just l) = map (extractDeriving dflags pm name) l
+#elif MIN_VERSION_ghc(7,6,0)
     transformToDescr ((L loc (TyClD typ@(ForeignType {tcdLName = lid}))), mbComment,_sigList) =
         [Real $ RealDescr {
         dscName'        =   showRdrName dflags (unLoc lid)
@@ -505,7 +552,9 @@ transformToDescrs dflags pm = concatMap transformToDescr
         methods         =   extractMethods dflags tcdSigs' docs
         super           =   []
 
-#if MIN_VERSION_ghc(7,6,0)
+#if MIN_VERSION_ghc(7,7,0)
+    transformToDescr ((L loc (InstD _inst@(ClsInstD typ))), mbComment, _sigList) =
+#elif MIN_VERSION_ghc(7,6,0)
     transformToDescr ((L loc (InstD _inst@(ClsInstD typ _ _ _))), mbComment, _sigList) =
 #else
     transformToDescr ((L loc (InstD _inst@(InstDecl typ _ _ _))), mbComment, _sigList) =
@@ -527,7 +576,10 @@ transformToDescrs dflags pm = concatMap transformToDescr
 
 
 uncommentData :: TyClDecl a -> TyClDecl a
-#if MIN_VERSION_ghc(7,6,0)
+#if MIN_VERSION_ghc(7,7,0)
+uncommentData td@(DataDecl {tcdDataDefn = def@(HsDataDefn{dd_cons = conDecls})}) = td{
+    tcdDataDefn = def{dd_cons = map uncommentDecl conDecls}}
+#elif MIN_VERSION_ghc(7,6,0)
 uncommentData td@(TyDecl {tcdTyDefn = def@(TyData{td_cons = conDecls})}) = td{
     tcdTyDefn = def{td_cons = map uncommentDecl conDecls}}
 #else

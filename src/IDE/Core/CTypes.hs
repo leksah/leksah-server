@@ -536,9 +536,11 @@ instance NFData SimpleDescr where
                     `seq`    rnf (sdComment pd)
                     `seq`    rnf (sdExported pd)
 
+#if !MIN_VERSION_ghc(7,7,0)
 instance NFData PackageIdentifier where
     rnf pd =  rnf (pkgName pd)
                     `seq`    rnf (pkgVersion pd)
+#endif
 
 instance NFData DescrType where  rnf a = seq a ()
 
@@ -557,8 +559,9 @@ instance NFData PackModule where
 instance NFData ModuleName where
     rnf =  rnf . components
 
+#if !MIN_VERSION_ghc(7,7,0)
 instance NFData PackageName where
     rnf (PackageName s) =  rnf s
-
+#endif
 
 
