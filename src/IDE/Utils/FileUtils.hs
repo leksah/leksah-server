@@ -406,9 +406,11 @@ getSysLibDir = E.catch (do
 getInstalledPackageIds :: IO [PackageIdentifier]
 getInstalledPackageIds = E.catch (do
     (!output, _) <- runTool' "ghc-pkg" ["list", "--simple-output"] Nothing
-    let names = toolline $ head output
-    return (catMaybes (map T.simpleParse (words names)))
+    return $ concatMap names output
     ) $ \ (_ :: SomeException) -> error ("FileUtils>>getInstalledPackageIds failed")
+  where
+    names (ToolOutput n) = catMaybes (map T.simpleParse (words n))
+    names _ = []
 
 figureOutHaddockOpts :: IO [String]
 figureOutHaddockOpts = do
