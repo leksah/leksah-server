@@ -601,8 +601,11 @@ newGhci dir mbExe buildFlags interactiveFlags startupOutputHandler = do
                 case stripPrefix "-O " line of
                     Nothing -> x: filterUnwanted xs
                     Just s  -> filterUnwanted s
-        matchExe Nothing = const True
-        matchExe (Just exe) = isInfixOf $ " -o dist/build/" ++ exe ++ "/" ++ exe
+
+        matchExe Nothing _ = True
+        matchExe (Just exe) s = matchExe' exe (words s)
+        matchExe' exe opts =["-o","dist/build/" ++ exe ++ "/" ++ exe] `isInfixOf` opts
+                            || ["-o","dist\\build\\" ++ exe ++ "\\" ++ exe ++ ".exe"] `isInfixOf` opts
 
 executeCommand :: ToolState -> String -> String -> E.Iteratee ToolOutput IO () -> IO ()
 executeCommand tool command rawCommand handler = do
