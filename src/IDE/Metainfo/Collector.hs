@@ -23,7 +23,6 @@ import System.Console.GetOpt
 import System.Environment (getArgs)
 import Control.Monad (when)
 import Data.Version (showVersion)
-import Paths_leksah_server (getDataDir, version)
 import IDE.Utils.FileUtils
 import IDE.Utils.Utils
 import IDE.Utils.GHCUtils
@@ -34,7 +33,7 @@ import Prelude hiding(catch)
 import Control.Monad (liftM)
 import qualified Data.Set as Set (member)
 import IDE.Core.CTypes hiding (Extension)
-import IDE.Metainfo.SourceDB (buildSourceForPackageDB)
+import IDE.Metainfo.SourceDB (buildSourceForPackageDB, getDataDir, version)
 import Data.Time
 import Control.Exception
        (catch, SomeException)

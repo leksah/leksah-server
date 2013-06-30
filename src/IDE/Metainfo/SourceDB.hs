@@ -19,6 +19,8 @@ module IDE.Metainfo.SourceDB (
 ,   sourceForPackage
 ,   parseSourceForPackageDB
 ,   getSourcesMap
+,   getDataDir
+,   P.version
 
 ) where
 
@@ -53,9 +55,13 @@ import qualified Text.ParserCombinators.Parsec.Token as P
 #endif
 import Data.Maybe (catMaybes)
 import IDE.Core.CTypes (packageIdentifierFromString)
-import Paths_leksah_server
+import qualified Paths_leksah_server as P (getDataDir, version)
 import System.Log.Logger(errorM,debugM)
 import System.IO.Strict as S (readFile)
+import System.Environment.Executable (getExecutablePath)
+import System.FilePath
+       (takeDirectory, (</>), takeFileName)
+import System.Directory (doesDirectoryExist)
 
 -- ---------------------------------------------------------------------
 -- Function to map packages to file paths
@@ -235,5 +241,14 @@ cabalMinimalP =
             cabalMinimalP
     <?> "cabal minimal"
 
+getDataDir :: IO FilePath
+getDataDir = do
+    exePath <- getExecutablePath
+    if takeFileName exePath `elem` ["leksah-server.exe", "leksah.exe"]
+        then do
+            let dataDir = (takeDirectory $ takeDirectory exePath) </> "leksah"
+            exists <- doesDirectoryExist dataDir
+            if exists then return dataDir else P.getDataDir
+        else P.getDataDir
 
 
