@@ -138,6 +138,9 @@ executable leksah-server
     else
         build-depends: unix >=2.3.1.0 && <2.8
 
+    if os(osx)
+        ghc-options: -optl-headerpad_max_install_names
+
     if flag(curl) || os(osx)
         cpp-options: -DUSE_CURL
 
