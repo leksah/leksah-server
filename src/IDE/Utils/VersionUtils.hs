@@ -16,6 +16,7 @@
 module IDE.Utils.VersionUtils (
     getHaddockVersion
 ,   getGhcVersion
+,   getGhcInfo
 ) where
 
 import IDE.Utils.Tool (toolline, runTool')
@@ -34,6 +35,12 @@ getGhcVersion = E.catch (do
     debugM "leksah-server" $ "Got GHC Version " ++ vers2
     return vers2
     ) $ \ (_ :: SomeException) -> error ("FileUtils>>getGhcVersion failed")
+
+getGhcInfo :: IO String
+getGhcInfo = E.catch (do
+    (!output,_) <- runTool' "ghc" ["--info"] Nothing
+    return . unlines $ map toolline output
+    ) $ \ (_ :: SomeException) -> error ("FileUtils>>getGhcInfo failed")
 
 getHaddockVersion :: IO String
 getHaddockVersion = E.catch (do
