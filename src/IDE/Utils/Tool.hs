@@ -52,7 +52,7 @@ import Control.Concurrent
 import Control.Monad (forM_, when, unless)
 import Control.Monad.IO.Class (liftIO, MonadIO)
 import Data.List (isInfixOf, stripPrefix)
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, maybeToList)
 #ifdef MIN_VERSION_process_leksah
 import IDE.System.Process
        (proc, waitForProcess, ProcessHandle, createProcess, CreateProcess(..),
@@ -569,43 +569,14 @@ newGhci' flags startupOutputHandler = do
     runInteractiveTool tool ghciCommandLineReader "ghci" flags Nothing
     return tool
 
-newGhci :: FilePath -> Maybe String -> [String] -> [String] -> (E.Iteratee ToolOutput IO ()) -> IO ToolState
-newGhci dir mbExe buildFlags interactiveFlags startupOutputHandler = do
+newGhci :: FilePath -> Maybe String -> [String] -> (E.Iteratee ToolOutput IO ()) -> IO ToolState
+newGhci dir mbExe interactiveFlags startupOutputHandler = do
         tool <- newToolState
         writeChan (toolCommands tool) $
-            ToolCommand (":set prompt " ++ ghciPrompt) "" startupOutputHandler
-        debugM "leksah-server" $ "Working out GHCi options"
-        forkIO $ do
-            (out, _) <- runTool "cabal" (["build","--with-ghc=leksahecho"] ++ buildFlags) (Just dir)
-            output <- E.run_ $ out $$ EL.consume
-            case filter (matchExe mbExe) . catMaybes $ map (findMake . toolline) output of
-                options:_ -> do
-                        let newOptions = filterUnwanted options
-                        debugM "leksah-server" $ newOptions
-                        debugM "leksah-server" $ "Starting GHCi"
-                        debugM "leksah-server" $ unwords (words newOptions ++ ["-fforce-recomp"] ++ interactiveFlags)
-                        runInteractiveTool tool ghciCommandLineReader "ghci"
-                            (words newOptions ++ ["-fforce-recomp"] ++ interactiveFlags) (Just dir)
-                _ -> do
-                    E.run $ E.enumList 1 output $$ startupOutputHandler
-                    putMVar (outputClosed tool) True
+            ToolCommand (":set " ++ unwords interactiveFlags ++ "\n:set prompt " ++ ghciPrompt) "" startupOutputHandler
+        runInteractiveTool tool ghciCommandLineReader "cabal"
+            ("repl" : maybeToList mbExe) (Just dir)
         return tool
-    where
-        findMake [] = Nothing
-        findMake line@(_:xs) =
-                case stripPrefix "--make " line of
-                    Nothing -> findMake xs
-                    s -> s
-        filterUnwanted [] = []
-        filterUnwanted line@(x:xs) =
-                case stripPrefix "-O " line of
-                    Nothing -> x: filterUnwanted xs
-                    Just s  -> filterUnwanted s
-
-        matchExe Nothing _ = True
-        matchExe (Just exe) s = matchExe' exe (words s)
-        matchExe' exe opts =["-o","dist/build/" ++ exe ++ "/" ++ exe] `isInfixOf` opts
-                            || ["-o","dist\\build\\" ++ exe ++ "\\" ++ exe ++ ".exe"] `isInfixOf` opts
 
 executeCommand :: ToolState -> String -> String -> E.Iteratee ToolOutput IO () -> IO ()
 executeCommand tool command rawCommand handler = do
