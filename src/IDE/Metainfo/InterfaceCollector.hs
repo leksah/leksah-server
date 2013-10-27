@@ -236,7 +236,11 @@ extractIdentifierDescr dflags package modules decl
                             IfOpenDataTyCon ->  DataDescr [] []
 #endif
                     in [Real (descr{dscTypeHint' = d})]
+#if MIN_VERSION_ghc(7,6,0)
+            (IfaceClass {ifCtxt = context, ifSigs = ifSigs'} )
+#else
             (IfaceClass context _ _ _ _ ifSigs' _ )
+#endif
                         ->  let
                                 classOpsID          =   map (extractClassOp dflags) ifSigs'
                                 superclasses        =   extractSuperClassNames context

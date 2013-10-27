@@ -191,9 +191,13 @@ collectModule' sourcePath destPath writeAscii packId opts moduleName' = gcatch (
                             dscName'        =   "Parse Error"
                         ,   dscMbTypeStr'   =   Nothing
                         ,   dscMbModu'      =   Just (PM packId moduleName')
+#if MIN_VERSION_ghc(7,7,0)
+                        ,   dscMbLocation'  =   srcSpanToLocation $ errMsgSpan errMsg
+#else
                         ,   dscMbLocation'  =   case errMsgSpans errMsg of
                                                     (sp:_) -> srcSpanToLocation sp
                                                     [] -> Nothing
+#endif
                         ,   dscMbComment'   =   Just (BS.pack $ show errMsg)
                         ,   dscTypeHint'    =   ErrorDescr
                         ,   dscExported'    =   False}]}
