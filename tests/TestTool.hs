@@ -30,8 +30,8 @@ import System.Process (interruptProcessGroupOf, getProcessExitCode)
 import Test.HUnit
        ((@=?), (@?=), putTextToHandle, Counts(..), runTestTT, assertBool,
         runTestText, (~:), Testable(..), Test(..))
-import System.IO (hPutStr, stdout, hPutStrLn, stderr)
-import qualified Data.Enumerator.List as EL (consume)
+import System.IO (hPutStr, stdout, hPutStrLn, stderr, hFlush)
+import qualified Data.Conduit.List as EL (consume)
 import Control.Concurrent
        (threadDelay, forkIO, takeMVar, putMVar, newEmptyMVar)
 import Control.Monad.IO.Class (liftIO)
@@ -228,7 +228,7 @@ main = do
         ["BlankLine", o]    -> hPutStrLn (h o) ""
         ["Hello", o]        -> hPutStrLn (h o) "Hello World"
         ["ErrAndOut"]       -> hPutStrLn stderr "Error" >> hPutStrLn stdout "Output"
-        ["Unterminated", o] -> hPutStr (h o) "Unterminated"
+        ["Unterminated", o] -> hPutStr (h o) "Unterminated" >> hFlush (h o)
         _  -> exitFailure
  where
     h "StdErr" = stderr
