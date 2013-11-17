@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -XRecordWildCards -XCPP -XBangPatterns -fno-warn-orphans #-}
 -----------------------------------------------------------------------------
 --
@@ -67,19 +68,20 @@ import System.Process
        terminateProcess)
 import System.Process.Internals (StdStream(..))
 #endif
-import qualified Data.Text as T (Text, unpack, pack)
+import qualified Data.Text as T (null, lines, any, unpack, pack)
 import Control.DeepSeq
 import System.Log.Logger (debugM)
 import System.Exit (ExitCode(..))
 import System.IO
-       (hClose, hFlush, hPutStrLn, Handle, hSetBuffering, BufferMode(..))
-import Control.Applicative ((<|>), Alternative, liftA2, liftA)
+       (hClose, hFlush, Handle, hSetBuffering, BufferMode(..))
+import Control.Applicative
+       ((<$>), (<|>), Alternative, liftA2, liftA)
 import Data.Conduit as C
        ((=$), ($$), ($=))
 import qualified Data.Conduit as C
 import qualified Data.Conduit.Text as CT (decode, utf8)
 import qualified Data.Conduit.List as CL
-       (consume, concatMap, concatMapAccumM, sourceList, sequence)
+       (consume, concatMap, concatMapAccumM, sequence)
 import qualified Data.Conduit.Binary as CB
 import Data.Conduit.Attoparsec (sinkParser)
 import qualified Data.Attoparsec.Text as AP
@@ -87,11 +89,14 @@ import qualified Data.Attoparsec.Text as AP
         endOfLine, digit, manyTill, takeWhile1, char)
 import Data.Attoparsec.Text ((<?>))
 import Data.Char (isDigit)
+import Data.Text (replace, Text)
+import Data.Monoid ((<>))
+import Data.Text.IO (hPutStrLn)
 
-data ToolOutput = ToolInput String
-                | ToolError String
-                | ToolOutput String
-                | ToolPrompt String
+data ToolOutput = ToolInput Text
+                | ToolError Text
+                | ToolOutput Text
+                | ToolPrompt Text
                 | ToolExit ExitCode deriving(Eq, Show)
 
 instance NFData ExitCode where
@@ -105,7 +110,7 @@ instance  NFData ToolOutput where
     rnf (ToolPrompt s) = rnf s
     rnf (ToolExit code) = rnf code
 
-data ToolCommand = ToolCommand String String (C.Sink ToolOutput IO ())
+data ToolCommand = ToolCommand Text Text (C.Sink ToolOutput IO ())
 data ToolState = ToolState {
     toolProcessMVar :: MVar ProcessHandle,
     outputClosed :: MVar Bool,
@@ -120,19 +125,19 @@ data RawToolOutput = RawToolOutput ToolOutput
                    | ToolOutClosed
                    | ToolErrClosed deriving(Eq, Show)
 
-toolline :: ToolOutput -> String
+toolline :: ToolOutput -> Text
 toolline (ToolInput l)  = l
 toolline (ToolOutput l) = l
 toolline (ToolError l)  = l
 toolline (ToolPrompt l)  = l
 toolline (ToolExit _code) = ""
 
-quoteArg :: String -> String
-quoteArg s | ' ' `elem` s = "\"" ++ (escapeQuotes s) ++ "\""
-quoteArg s                = s
+quoteArg :: Text -> Text
+quoteArg s | T.any (==' ') s = "\"" <> (escapeQuotes s) <> "\""
+quoteArg s                   = s
 
-escapeQuotes :: String -> String
-escapeQuotes = foldr (\c s -> if c == '"' then '\\':c:s else c:s) ""
+escapeQuotes :: Text -> Text
+escapeQuotes = replace "\"" "\\\""
 
 #ifdef MIN_VERSION_process_leksah
 interruptProcessGroupOf :: ProcessHandle -> IO ()
@@ -171,23 +176,6 @@ newToolState = do
     toolCommandsRead <- dupChan toolCommands
     currentToolCommand <- newEmptyMVar
     return ToolState{..}
-
---dropToFirst :: Monad m => (a -> Bool) -> E.Iteratee a m ()
---dropToFirst p = E.continue loop where
---    loop (Chunks xs) = case dropWhile p xs of
---        []    -> E.continue loop
---        _:xs' -> E.yield () (Chunks xs')
---    loop EOF = E.yield () EOF
---
---isolateToFirst :: Monad m => (a -> Bool) -> Enumeratee a a m b
---isolateToFirst p (E.Continue k) = E.continue loop where
---    loop (Chunks []) = E.continue loop
---    loop (Chunks xs) =
---        case span p xs of
---            (_, [])    -> k (Chunks xs) >>== isolateToFirst p
---            (s1, t:s2) -> k (Chunks (s1++[t])) >>== (\step -> E.yield step (Chunks s2))
---    loop EOF = k EOF >>== (\step -> E.yield step EOF)
---isolateToFirst p step = dropToFirst p >> return step
 
 isolateToFirst p = loop
       where
@@ -230,11 +218,12 @@ runInteractiveTool tool clr executable arguments mbDir = do
         liftIO $ debugM "leksah-server" $ "No More Commands"
         return ()
     processCommand ((command@(ToolCommand commandString rawCommandString handler)):remainingCommands) inp = do
-        liftIO $ debugM "leksah-server" $ "Command " ++ commandString
-        liftIO $ putMVar (currentToolCommand tool) command
-        liftIO $ hPutStrLn inp commandString
-        liftIO $ hFlush inp
-        (mapM (C.yield . ToolInput) (lines rawCommandString) >> isolateCommandOutput) =$ handler
+        liftIO $ do
+            debugM "leksah-server" $ "Command " ++ T.unpack commandString
+            putMVar (currentToolCommand tool) command
+            hPutStrLn inp commandString
+            hFlush inp
+        (mapM (C.yield . ToolInput) (T.lines rawCommandString) >> isolateCommandOutput) =$ handler
         processCommand remainingCommands inp
 
     outputSequence :: Handle -> C.Conduit RawToolOutput IO ToolOutput
@@ -275,33 +264,33 @@ newInteractiveTool getOutput' executable arguments = do
     return tool
 -}
 
-ghciPrompt :: String
+ghciPrompt :: Text
 ghciPrompt = "3KM2KWR7LZZbHdXfHUOA5YBBsJVYoCQnKX"
 
 data CommandLineReader = CommandLineReader {
-    parseInitialPrompt :: AP.Parser String,
-    parseFollowingPrompt :: AP.Parser String,
-    errorSyncCommand :: Maybe (Int -> String),
-    parseExpectedError :: AP.Parser (String, Int),
-    outputSyncCommand :: Maybe (Int -> String),
-    isExpectedOutput :: Int -> String -> Bool
+    parseInitialPrompt :: AP.Parser Text,
+    parseFollowingPrompt :: AP.Parser Text,
+    errorSyncCommand :: Maybe (Int -> Text),
+    parseExpectedError :: AP.Parser (Text, Int),
+    outputSyncCommand :: Maybe (Int -> Text),
+    isExpectedOutput :: Int -> Text -> Bool
     }
 
-ghciParseInitialPrompt :: AP.Parser String
+ghciParseInitialPrompt :: AP.Parser Text
 ghciParseInitialPrompt = (do
-        ((AP.string $ T.pack "Prelude") <|> (AP.string $ T.pack "*"))
+        ((AP.string "Prelude") <|> (AP.string "*"))
         AP.skipWhile (\c -> c /= '>' && c/= '\n')
-        AP.string $ T.pack "> "
+        AP.string "> "
         return "")
     <?> "ghciParseInitialPrompt"
 
-ghciParseFollowingPrompt :: AP.Parser String
+ghciParseFollowingPrompt :: AP.Parser Text
 ghciParseFollowingPrompt = (do
-        AP.satisfy (/='\n') `AP.manyTill` (AP.string $ T.pack $ ghciPrompt))
+        T.pack <$> AP.satisfy (/='\n') `AP.manyTill` (AP.string ghciPrompt))
     <?> "ghciParseFollowingPrompt"
 
-marker :: Int -> String
-marker n = "kMAKWRALZZbHdXfHUOAAYBB" ++ show n
+marker :: Int -> Text
+marker n = "kMAKWRALZZbHdXfHUOAAYBB" <> (T.pack $ show n)
 
 parseMarker :: AP.Parser Int
 parseMarker = (do
@@ -333,22 +322,22 @@ manyTill' :: Alternative f => f a -> f b -> f ([a], b)
 manyTill' p end = scan
     where scan = liftA (\b -> ([], b)) end <|> liftA2 (\a (as, b) -> (a:as, b)) p scan
 
-ghciParseExpectedError :: AP.Parser (String, Int)
+ghciParseExpectedError :: AP.Parser (Text, Int)
 ghciParseExpectedError = (do
-       AP.satisfy (/='\n') `manyTill'` (do
-        AP.string $ T.pack "\n<interactive>:"
+      (\(a, b) -> (T.pack a, b)) <$> AP.satisfy (/='\n') `manyTill'` (do
+        AP.string "\n<interactive>:"
         AP.takeWhile1 isDigit
-        AP.string $ T.pack ":"
+        AP.string ":"
         ghciParseExpectedErrorCols
-        AP.string $ T.pack ": Not in scope: "
+        AP.string ": Not in scope: "
         (AP.char '`' <|> AP.char '‛')
         result <- parseMarker
         (AP.char '\'' <|> AP.char '’')
-        AP.string $ T.pack "\n"
+        AP.string "\n"
         return result))
     <?> "ghciParseExpectedError"
 
-ghciIsExpectedOutput :: Int -> String -> Bool
+ghciIsExpectedOutput :: Int -> Text -> Bool
 ghciIsExpectedOutput n =
     (==) (marker n)
 
@@ -358,7 +347,7 @@ ghciCommandLineReader    = CommandLineReader {
     parseFollowingPrompt = ghciParseFollowingPrompt,
     errorSyncCommand     = Just $ \n -> marker n,
     parseExpectedError   = ghciParseExpectedError,
-    outputSyncCommand    = Just $ \n -> ":set prompt \"" ++ marker n ++ "\\n\"\n:set prompt " ++ ghciPrompt,
+    outputSyncCommand    = Just $ \n -> ":set prompt \"" <> marker n <> "\\n\"\n:set prompt " <> ghciPrompt,
     isExpectedOutput     = ghciIsExpectedOutput
     }
 
@@ -372,7 +361,7 @@ noInputCommandLineReader = CommandLineReader {
     isExpectedOutput = \_ _ -> False
     }
 
-parseError :: AP.Parser (String, Int) -> AP.Parser (Either (String, Int) T.Text)
+parseError :: AP.Parser (Text, Int) -> AP.Parser (Either (Text, Int) Text)
 parseError expectedErrorParser = (do
         expected <- expectedErrorParser
         return $ Left expected)
@@ -420,11 +409,11 @@ getOutput clr inp out err pid = do
                             debugM "leksah-server" $ show x
                             case x of
                                 Left (line, counter) -> do
-                                    unless (null line) $ putMVar mvar $ RawToolOutput $ ToolError line
+                                    unless (T.null line) $ putMVar mvar $ RawToolOutput $ ToolError line
                                     putMVar foundExpectedError counter
-                                Right line   -> putMVar mvar $ RawToolOutput $ ToolError (T.unpack line)
+                                Right line   -> putMVar mvar $ RawToolOutput $ ToolError line
 
-    outputSequence :: AP.Parser ToolOutput -> AP.Parser ToolOutput -> C.Conduit T.Text IO ToolOutput
+    outputSequence :: AP.Parser ToolOutput -> AP.Parser ToolOutput -> C.Conduit Text IO ToolOutput
     outputSequence i1 i2 = loop
       where
         loop = C.await >>= maybe (return ()) (\x -> C.leftover x >> (sinkParser i1) >>= check)
@@ -439,7 +428,7 @@ getOutput clr inp out err pid = do
                 <|> (do
                     line <- AP.takeWhile (/= '\n')
                     (AP.endOfInput <|> AP.endOfLine)
-                    return . ToolOutput $ T.unpack line)
+                    return $ ToolOutput line)
                 <?> "parseLines")
             parseInitialLines = parseLines (parseInitialPrompt clr)
             parseFollowinglines = parseLines (parseFollowingPrompt clr)
@@ -461,7 +450,7 @@ getOutput clr inp out err pid = do
                                     loop (counter+1) errSynced line
                                 (_, False, Just syncCmd) -> do
                                     liftIO $ do
-                                        debugM "leksah-server" $ "sendErrors - Sync " ++ syncCmd counter
+                                        debugM "leksah-server" $ "sendErrors - Sync " ++ (T.unpack $ syncCmd counter)
                                         hPutStrLn inp $ syncCmd counter
                                         hFlush inp
                                         waitForError counter
@@ -496,7 +485,7 @@ newGhci' :: [String] -> (C.Sink ToolOutput IO ()) -> IO ToolState
 newGhci' flags startupOutputHandler = do
     tool <- newToolState
     writeChan (toolCommands tool) $
-        ToolCommand (":set prompt " ++ ghciPrompt) "" startupOutputHandler
+        ToolCommand (":set prompt " <> ghciPrompt) "" startupOutputHandler
     runInteractiveTool tool ghciCommandLineReader "ghci" flags Nothing
     return tool
 
@@ -504,14 +493,14 @@ newGhci :: FilePath -> Maybe String -> [String] -> (C.Sink ToolOutput IO ()) -> 
 newGhci dir mbExe interactiveFlags startupOutputHandler = do
         tool <- newToolState
         writeChan (toolCommands tool) $
-            ToolCommand (":set " ++ unwords interactiveFlags ++ "\n:set prompt " ++ ghciPrompt) "" startupOutputHandler
+            ToolCommand (":set " <> T.pack (unwords interactiveFlags) <> "\n:set prompt " <> ghciPrompt) "" startupOutputHandler
         runInteractiveTool tool ghciCommandLineReader "cabal"
             ("repl" : maybeToList mbExe) (Just dir)
         return tool
 
 executeCommand :: ToolState -> String -> String -> C.Sink ToolOutput IO () -> IO ()
 executeCommand tool command rawCommand handler = do
-    writeChan (toolCommands tool) $ ToolCommand command rawCommand handler
+    writeChan (toolCommands tool) $ ToolCommand (T.pack command) (T.pack rawCommand) handler
 
 executeGhciCommand :: ToolState -> String -> C.Sink ToolOutput IO () -> IO ()
 executeGhciCommand tool command handler = do

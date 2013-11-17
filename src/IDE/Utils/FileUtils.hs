@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -XScopedTypeVariables -XBangPatterns #-}
 -----------------------------------------------------------------------------
 --
@@ -50,7 +51,6 @@ import System.FilePath
 import Distribution.ModuleName (toFilePath, ModuleName)
 import Control.Monad (foldM, filterM)
 import Data.Maybe (catMaybes)
-import qualified Data.List as  List (init, elem)
 import Distribution.Simple.PreProcess.Unlit (unlit)
 import System.Directory
        (canonicalizePath, doesDirectoryExist, doesFileExist,
@@ -83,6 +83,10 @@ import IDE.Utils.Tool
 import Control.Monad.IO.Class (MonadIO(..), MonadIO)
 import Control.Exception as E (SomeException, catch)
 import System.IO.Strict (readFile)
+import qualified Data.Text as T
+       (stripPrefix, isSuffixOf, take, length, unpack, init, last,
+        words)
+import Data.Monoid ((<>))
 
 haskellSrcExts :: [String]
 haskellSrcExts = ["hs","lhs","chs","hs.pp","lhs.pp","chs.pp","hsc"]
@@ -227,7 +231,7 @@ allFilesWithExtensions extensions recurseFurther collecting filePath = E.catch (
             dirs    <-  filterM (\f -> doesDirectoryExist f) filesAndDirs'
             files   <-  filterM (\f -> doesFileExist f) filesAndDirs'
             let choosenFiles =   filter (\f -> let ext = takeExtension f in
-                                                    List.elem ext extensions) files
+                                                    elem ext extensions) files
             allFiles <-
                 if recurseFurther || (not recurseFurther && null choosenFiles)
                     then foldM (allFilesWithExtensions extensions recurseFurther) (choosenFiles ++ collecting) dirs
@@ -340,8 +344,8 @@ cabalFileName filePath = E.catch (do
 getCabalUserPackageDir :: IO (Maybe FilePath)
 getCabalUserPackageDir = do
     (!output,_) <- runTool' "cabal" ["help"] Nothing
-    case stripPrefix "  " (toolline $ last output) of
-        Just s | "config" `isSuffixOf` s -> return $ Just $ take (length s - 6) s ++ "packages"
+    case T.stripPrefix "  " (toolline $ last output) of
+        Just s | "config" `T.isSuffixOf` s -> return . Just . T.unpack $ T.take (T.length s - 6) s <> "packages"
         _ -> return Nothing
 
 autoExtractCabalTarFiles :: FilePath -> IO ()
@@ -397,10 +401,10 @@ getSysLibDir :: IO FilePath
 getSysLibDir = E.catch (do
     (!output,_) <- runTool' "ghc" ["--print-libdir"] Nothing
     let libDir = toolline $ head output
-        libDir2 = if ord (last libDir) == 13
-                    then List.init libDir
+        libDir2 = if ord (T.last libDir) == 13
+                    then T.init libDir
                     else libDir
-    return (normalise libDir2)
+    return . normalise $ T.unpack libDir2
     ) $ \ (_ :: SomeException) -> error ("FileUtils>>getSysLibDir failed")
 
 getInstalledPackageIds :: IO [PackageIdentifier]
@@ -409,13 +413,13 @@ getInstalledPackageIds = E.catch (do
     return $ concatMap names output
     ) $ \ (_ :: SomeException) -> error ("FileUtils>>getInstalledPackageIds failed")
   where
-    names (ToolOutput n) = catMaybes (map T.simpleParse (words n))
+    names (ToolOutput n) = catMaybes (map (T.simpleParse . T.unpack) (T.words n))
     names _ = []
 
 figureOutHaddockOpts :: IO [String]
 figureOutHaddockOpts = do
     (!output,_) <- runTool' "cabal" (["haddock","--with-haddock=leksahecho","--executables"]) Nothing
-    let opts = concatMap (words . toolline) output
+    let opts = concatMap (words . T.unpack . toolline) output
     let res = filterOptGhc opts
     debugM "leksah-server" ("figureOutHaddockOpts " ++ show res)
     return res
@@ -429,7 +433,7 @@ figureOutGhcOpts :: IO [String]
 figureOutGhcOpts = do
     debugM "leksah-server" "figureOutGhcOpts"
     (!output,_) <- runTool' "cabal" ["build","--with-ghc=leksahecho"] Nothing
-    let res = case catMaybes $ map (findMake . toolline) output of
+    let res = case catMaybes $ map (findMake . T.unpack . toolline) output of
                 options:_ -> words options
                 _         -> []
     debugM "leksah-server" $ ("figureOutGhcOpts " ++ show res)

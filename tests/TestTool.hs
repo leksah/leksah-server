@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP, OverloadedStrings #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  Main
@@ -135,7 +135,9 @@ tests = test [
             sendTest t $ output `check` [
                 ToolInput "jfkdfjdkl",
                 ToolError "",
-#if __GLASGOW_HASKELL__ > 702
+#if __GLASGOW_HASKELL__ > 706
+                ToolError "<interactive>:22:1: Not in scope: ‛jfkdfjdkl’",
+#elif __GLASGOW_HASKELL__ > 702
                 ToolError "<interactive>:22:1: Not in scope: `jfkdfjdkl'",
 #else
                 ToolError "<interactive>:1:1: Not in scope: `jfkdfjdkl'",
@@ -159,7 +161,9 @@ tests = test [
                 ToolInput "",
                 ToolInput "jfkdfjdkl",
                 ToolError "",
-#if __GLASGOW_HASKELL__ > 702
+#if __GLASGOW_HASKELL__ > 706
+                ToolError "<interactive>:35:1: Not in scope: ‛jfkdfjdkl’",
+#elif __GLASGOW_HASKELL__ > 702
                 ToolError "<interactive>:37:1: Not in scope: `jfkdfjdkl'",
 #else
                 ToolError "<interactive>:1:1: Not in scope: `jfkdfjdkl'",

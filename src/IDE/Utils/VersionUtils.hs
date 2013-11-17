@@ -21,35 +21,35 @@ module IDE.Utils.VersionUtils (
 
 import IDE.Utils.Tool (toolline, runTool')
 import Data.Char (ord)
-import qualified Data.List as List (init)
 import System.Log.Logger (debugM)
 import Control.Exception as E (SomeException, catch)
+import qualified Data.Text as T (unlines, unpack, init, last)
 
 getGhcVersion :: IO FilePath
 getGhcVersion = E.catch (do
     (!output,_) <- runTool' "ghc" ["--numeric-version"] Nothing
     let vers = toolline $ head output
-        vers2 = if ord (last vers) == 13
-                    then List.init vers
+        vers2 = if ord (T.last vers) == 13
+                    then T.init vers
                     else vers
-    debugM "leksah-server" $ "Got GHC Version " ++ vers2
-    return vers2
+    debugM "leksah-server" $ "Got GHC Version " ++ T.unpack vers2
+    return $ T.unpack vers2
     ) $ \ (_ :: SomeException) -> error ("FileUtils>>getGhcVersion failed")
 
 getGhcInfo :: IO String
 getGhcInfo = E.catch (do
     (!output,_) <- runTool' "ghc" ["--info"] Nothing
-    return . unlines $ map toolline output
+    return . T.unpack . T.unlines $ map toolline output
     ) $ \ (_ :: SomeException) -> error ("FileUtils>>getGhcInfo failed")
 
 getHaddockVersion :: IO String
 getHaddockVersion = E.catch (do
     (!output,_) <- runTool' "haddock" ["--version"] Nothing
     let vers = toolline $ head output
-        vers2 = if ord (last vers) == 13
-                    then List.init vers
+        vers2 = if ord (T.last vers) == 13
+                    then T.init vers
                     else vers
-    return vers2
+    return $ T.unpack vers2
     ) $ \ (_ :: SomeException) -> error ("FileUtils>>getHaddockVersion failed")
 
 

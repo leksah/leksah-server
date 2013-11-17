@@ -91,9 +91,9 @@ library
         IDE.Metainfo.SourceCollectorH
         IDE.Metainfo.SourceDB Paths_leksah_server
     if (impl(ghc >= 6.12))
-       ghc-options: -Wall -fno-warn-unused-do-bind -ferror-spans
+       ghc-options: -O2 -Wall -fno-warn-unused-do-bind -ferror-spans
     else
-       ghc-options: -Wall -ferror-spans
+       ghc-options: -O2 -Wall -ferror-spans
     ghc-prof-options: -auto-all -prof
 
 executable leksah-server
@@ -165,9 +165,9 @@ executable leksah-server
         ghc-options: -rtsopts
 
     if impl(ghc >= 6.12)
-        ghc-options: -Wall -fno-warn-unused-do-bind -ferror-spans
+        ghc-options: -O2 -Wall -fno-warn-unused-do-bind -ferror-spans
     else
-        ghc-options: -Wall -ferror-spans
+        ghc-options: -O2 -Wall -ferror-spans
     ghc-prof-options: -auto-all -prof
 
 executable leksahecho
