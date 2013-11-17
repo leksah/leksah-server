@@ -68,7 +68,7 @@ import System.Process
        terminateProcess)
 import System.Process.Internals (StdStream(..))
 #endif
-import qualified Data.Text as T (null, lines, any, unpack, pack)
+import qualified Data.Text as T (null, lines, any, unpack, pack, filter)
 import Control.DeepSeq
 import System.Log.Logger (debugM)
 import System.Exit (ExitCode(..))
@@ -81,7 +81,7 @@ import Data.Conduit as C
 import qualified Data.Conduit as C
 import qualified Data.Conduit.Text as CT (decode, utf8)
 import qualified Data.Conduit.List as CL
-       (consume, concatMap, concatMapAccumM, sequence)
+       (consume, concatMap, concatMapAccumM, sequence, map)
 import qualified Data.Conduit.Binary as CB
 import Data.Conduit.Attoparsec (sinkParser)
 import qualified Data.Attoparsec.Text as AP
@@ -401,6 +401,7 @@ getOutput clr inp out err pid = do
     readError :: MVar RawToolOutput -> Handle -> MVar Int -> IO ()
     readError mvar errors foundExpectedError = do
         CB.sourceHandle errors $= CT.decode CT.utf8
+                    $= CL.map (T.filter (/= '\r'))
                     $= (CL.sequence (sinkParser (parseError $ parseExpectedError clr)))
                     $$ sendErrors
         hClose errors
@@ -433,6 +434,7 @@ getOutput clr inp out err pid = do
             parseInitialLines = parseLines (parseInitialPrompt clr)
             parseFollowinglines = parseLines (parseFollowingPrompt clr)
         CB.sourceHandle output $= CT.decode CT.utf8
+                    $= CL.map (T.filter (/= '\r'))
                     $= (outputSequence (parseInitialLines) (parseFollowinglines))
                     $$ sendErrors
         hClose output
