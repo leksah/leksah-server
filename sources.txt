@@ -1,3 +1,2 @@
-darcs:http://code.haskell.org/gtk2hs
 https://github.com/leksah/ltk
 ./
