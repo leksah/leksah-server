@@ -38,6 +38,7 @@ module IDE.Utils.FileUtils (
 ,   autoExtractCabalTarFiles
 ,   autoExtractTarFiles
 ,   getInstalledPackageIds
+,   getSourcePackageIds
 ,   figureOutGhcOpts
 ,   figureOutHaddockOpts
 ,   allFilesWithExtensions
@@ -84,9 +85,10 @@ import Control.Monad.IO.Class (MonadIO(..), MonadIO)
 import Control.Exception as E (SomeException, catch)
 import System.IO.Strict (readFile)
 import qualified Data.Text as T
-       (stripPrefix, isSuffixOf, take, length, unpack, init, last,
+       (map, stripPrefix, isSuffixOf, take, length, unpack, init, last,
         words)
 import Data.Monoid ((<>))
+import Control.Applicative ((<$>))
 
 haskellSrcExts :: [String]
 haskellSrcExts = ["hs","lhs","chs","hs.pp","lhs.pp","chs.pp","hsc"]
@@ -328,16 +330,14 @@ cabalFileName filePath = E.catch (do
     exists <- doesDirectoryExist filePath
     if exists
         then do
-            filesAndDirs <- getDirectoryContents filePath
+            filesAndDirs <- map (filePath </>) <$> getDirectoryContents filePath
             files <-  filterM (\f -> doesFileExist f) filesAndDirs
-            let cabalFiles =   filter (\f -> let ext = takeExtension f in ext == ".cabal") files
-            if null cabalFiles
-                then return Nothing
-                else if length cabalFiles == 1
-                    then return (Just $head cabalFiles)
-                    else do
-                        warningM "leksah-server" "Multiple cabal files"
-                        return Nothing
+            case filter (\f -> let ext = takeExtension f in ext == ".cabal") files of
+                [f] -> return (Just f)
+                []  -> return Nothing
+                _   -> do
+                    warningM "leksah-server" "Multiple cabal files"
+                    return Nothing
         else return Nothing)
         (\ (_ :: SomeException) -> return Nothing)
 
@@ -415,6 +415,17 @@ getInstalledPackageIds = E.catch (do
   where
     names (ToolOutput n) = catMaybes (map (T.simpleParse . T.unpack) (T.words n))
     names _ = []
+
+getSourcePackageIds :: IO [PackageIdentifier]
+getSourcePackageIds = E.catch (do
+    (!output, _) <- runTool' "ghc-pkg" ["list", "--simple-output"] Nothing
+    return . catMaybes $ map names output
+    ) $ \ (_ :: SomeException) -> error ("FileUtils>>getInstalledPackageIds failed")
+  where
+    names (ToolOutput n) = T.simpleParse . T.unpack $ T.map replaceSpace n
+    names _ = Nothing
+    replaceSpace ' ' = '-'
+    replaceSpace c = c
 
 figureOutHaddockOpts :: IO [String]
 figureOutHaddockOpts = do
