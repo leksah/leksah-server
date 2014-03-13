@@ -22,7 +22,7 @@ import IDE.Utils.VersionUtils (getHaddockVersion, getGhcVersion, getGhcInfo)
 main :: IO ()
 main = do
     args <- getArgs
-    appendFile "/Users/hamish/lecho.log" $ show args ++ "/n"
+--    appendFile "/Users/hamish/lecho.log" $ show args ++ "/n"
     if elem  "--version" args
         then putStrLn =<<  getHaddockVersion
         else if elem  "--ghc-version" args
