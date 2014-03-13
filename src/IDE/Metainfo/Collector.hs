@@ -29,7 +29,10 @@ import IDE.Utils.GHCUtils
 import IDE.StrippedPrefs
 import IDE.Metainfo.WorkspaceCollector
 import Data.Maybe(catMaybes, fromJust, mapMaybe, isJust)
+#if MIN_VERSION_ghc(7,8,0)
+#else
 import Prelude hiding(catch)
+#endif
 import Control.Monad (liftM)
 import qualified Data.Set as Set (member)
 import IDE.Core.CTypes hiding (Extension)

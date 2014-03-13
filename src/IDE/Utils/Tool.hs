@@ -177,6 +177,7 @@ newToolState = do
     currentToolCommand <- newEmptyMVar
     return ToolState{..}
 
+isolateToFirst :: Monad m => (o -> Bool) -> C.ConduitM o o m ()
 isolateToFirst p = loop
       where
         loop = C.await >>= maybe (return ()) (\x -> C.yield x >> when (p x) loop)
@@ -387,7 +388,7 @@ getOutput clr inp out err pid = do
     return $ enumOutput mvar
   where
     enumOutput :: MonadIO m => MVar RawToolOutput -> C.Source m RawToolOutput
-    enumOutput mvar = loop (0::Int) where
+    enumOutput mvar = loop (0:: Int) where
         loop closed | closed < 2 = do
             v <- liftIO $ takeMVar mvar
             nowClosed <- if (v == ToolOutClosed) || (v == ToolErrClosed)

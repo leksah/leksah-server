@@ -54,7 +54,6 @@ import IDE.Metainfo.WorkspaceCollector
        (srcSpanToLocation, uncommentDecl, uncommentData, sortByLoc)
 #endif
 
-import Name (getOccString,getSrcSpan)
 import PackageConfig (PackageConfig)
 import Distribution.Verbosity (verbose)
 import qualified Distribution.InstalledPackageInfo as IPI

@@ -27,12 +27,12 @@ import Distribution.Text (simpleParse,display)
 import Control.Monad (liftM)
 import Data.Maybe (fromJust)
 import Data.Binary.Shared (BinaryShared(..))
-import Data.Typeable (Typeable(..))
 import Distribution.Package (PackageName(..),PackageIdentifier(..))
 import Data.Version (Version(..))
 import Distribution.ModuleName (ModuleName)
 
 import IDE.Core.CTypes
+import Data.Typeable (Typeable)
 
 #if !MIN_VERSION_ghc(7,7,0)
 deriving instance Typeable PackageIdentifier

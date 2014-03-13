@@ -58,11 +58,11 @@ import HscTypes (Ghc(..))
 #endif
 import IDE.Utils.FileUtils (getSysLibDir)
 #if MIN_VERSION_ghc(7,7,0)
-import DynFlags (DumpFlag(..), GeneralFlag(..), gopt_set)
+import DynFlags (dopt_set, DumpFlag(..), gopt_set,GeneralFlag(..))
 #endif
 import DynFlags (dopt_set)
 import System.Log.Logger(debugM)
-import Control.Monad.IO.Class (MonadIO(..), MonadIO)
+import Control.Monad.IO.Class (MonadIO(..))
 
 #if !MIN_VERSION_ghc(7,7,0)
 -- this should not be repeated here, why is it necessary?

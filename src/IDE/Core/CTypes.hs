@@ -63,27 +63,30 @@ module IDE.Core.CTypes (
 
 ) where
 
-import Data.Typeable (Typeable(..))
+import Data.Typeable (Typeable)
 import Data.Map (Map)
 import Data.Set (Set)
 import Default (Default(..))
 import MyMissing (nonEmptyLines)
+#if MIN_VERSION_ghc(7,6,0)
 import Distribution.Package
-       (PackageName(..), PackageIdentifier(..))
+       (PackageIdentifier(..))
+#else
+import Distribution.Package
+       (PackageIdentifier(..),PackageName(..))
+#endif
 import Distribution.ModuleName (components, ModuleName)
 import Data.ByteString.Char8 (ByteString)
 import Distribution.Text (simpleParse, display)
 import qualified Data.ByteString.Char8 as  BS (unpack, empty)
-import qualified Data.Map as Map (lookup,keysSet,splitLookup, insertWith,empty,elems,union,toList)
-import qualified Data.Set as Set (toList)
+import qualified Data.Map as Map (lookup,keysSet,splitLookup, insertWith,empty,elems,union)
 import Text.PrettyPrint as PP
 import Text.PrinterParser
 import Data.Char (isAlpha)
 import Control.DeepSeq (NFData(..))
-import qualified Data.ByteString.Char8 as BS (ByteString)
-import Data.Version (Version(..))
 import PackageConfig (PackageConfig)
 import qualified Distribution.InstalledPackageInfo as IPI
+import Distribution.Package(PackageName(..))
 
 -- ---------------------------------------------------------------------
 --  | Information about the system, extraced from .hi and source files
@@ -410,26 +413,27 @@ data ImportDecl = ImportDecl
     }
   deriving (Eq,Ord,Read,Show)
 
-instance Pretty ImportDecl where
-	pretty (ImportDecl _ mod' qual _ _ mbName mbSpecs) =
-		mySep [text "import",
-		       if qual then text "qualified" else empty,
-		       pretty mod',
-		       maybePP (\m' -> text "as" <+> pretty m') mbName,
-		       maybePP exports mbSpecs]
-	    where
-		exports (ImportSpecList b specList) =
-			if b then text "hiding" <+> specs else specs
-		    where specs = parenList . map pretty $ specList
-		
+instance Pretty ImportDecl
+  where
+    pretty (ImportDecl _ mod' qual _ _ mbName mbSpecs) =
+        mySep [text "import",
+               if qual then text "qualified" else empty,
+               pretty mod',
+               maybePP (\m' -> text "as" <+> pretty m') mbName,
+               maybePP exports mbSpecs]
+      where
+        exports (ImportSpecList b specList) =
+            if b then text "hiding" <+> specs else specs
+                where specs = parenList . map pretty $ specList
+
 parenList :: [Doc] -> Doc
-parenList = PP.parens . fsep . PP.punctuate PP.comma		
-		
+parenList = PP.parens . fsep . PP.punctuate PP.comma
+
 mySep :: [Doc] -> Doc
 mySep [x]    = x
 mySep (x:xs) = x <+> fsep xs
-mySep []     = error "Internal error: mySep"		
-		
+mySep []     = error "Internal error: mySep"
+
 -- | An explicit import specification list.
 data ImportSpecList
     = ImportSpecList Bool [ImportSpec]
@@ -455,12 +459,12 @@ data ImportSpec
 newtype VName = VName String
 
 instance Pretty ImportSpec where
-	pretty (IVar name)                = pretty (VName name)
-	pretty (IAbs name)                = pretty name
-	pretty (IThingAll name)           = pretty name <> text "(..)"
-	pretty (IThingWith name nameList) =
-		pretty name <> (parenList (map (pretty.VName) nameList))
-		
+    pretty (IVar name)                = pretty (VName name)
+    pretty (IAbs name)                = pretty name
+    pretty (IThingAll name)           = pretty name <> text "(..)"
+    pretty (IThingWith name nameList) =
+    	pretty name <> (parenList (map (pretty.VName) nameList))
+    	
 instance Pretty VName  where
     pretty (VName str) = if isOperator str then PP.parens (PP.text str) else (PP.text str)
 
@@ -471,7 +475,7 @@ isOperator ('$':c:_) =  not (isAlpha c)    -- Don't treat $d as an operator
 isOperator (':':c:_) =  not (isAlpha c)    -- Don't treat :T as an operator
 isOperator ('_':_)   =  False              -- Not an operator
 isOperator (c:_)     =  not (isAlpha c)    -- Starts with non-alpha
-isOperator _         =  False		
+isOperator _         =  False    	
 
 -- ---------------------------------------------------------------------
 -- NFData instances for forcing evaluation

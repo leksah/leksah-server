@@ -253,6 +253,10 @@ extractIdentifierDescr dflags package modules decl
 #endif
             (IfaceForeign {})
                         ->  [Real $ descr]
+#if MIN_VERSION_ghc(7,8,0)
+            (IfacePatSyn {})
+                        ->  [Real $ descr]
+#endif
 
 extractConstructors :: DynFlags -> OccName -> [IfaceConDecl] -> [SimpleDescr]
 extractConstructors dflags name decls = map (\decl -> SimpleDescr (unpackFS $occNameFS (ifConOcc decl))
@@ -282,10 +286,10 @@ extractType :: DynFlags -> IfaceType -> Maybe ByteString
 extractType dflags it = Just ((BS.pack . filterExtras . showSDocUnqual dflags . ppr) it)
 
 extractFieldNames :: OccName -> String
-extractFieldNames occName = unpackFS $occNameFS occName
+extractFieldNames occName' = unpackFS $occNameFS occName'
 
 extractClassOp :: DynFlags -> IfaceClassOp -> SimpleDescr
-extractClassOp dflags (IfaceClassOp occName _dm ty) = SimpleDescr (unpackFS $occNameFS occName)
+extractClassOp dflags (IfaceClassOp occName' _dm ty) = SimpleDescr (unpackFS $occNameFS occName')
                                                 (Just (BS.pack $ showSDocUnqual dflags (ppr ty)))
                                                 Nothing Nothing True
 

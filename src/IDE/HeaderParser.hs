@@ -111,11 +111,11 @@ srcSpanToLocation (RealSrcSpan span')
 srcSpanToLocation _ = error "srcSpanToLocation: unhelpful span"
 
 srcSpanStartLine' :: SrcSpan -> Int
-srcSpanStartLine' (RealSrcSpan span) = srcSpanStartLine span
+srcSpanStartLine' (RealSrcSpan span') = srcSpanStartLine span'
 srcSpanStartLine' _ = error "srcSpanStartLine': unhelpful span"
 
 srcSpanEndLine' :: SrcSpan -> Int
-srcSpanEndLine' (RealSrcSpan span) = srcSpanEndLine span
+srcSpanEndLine' (RealSrcSpan span') = srcSpanEndLine span'
 srcSpanEndLine' _ = error "srcSpanEndLine': unhelpful span"
 #else
 srcSpanToLocation :: SrcSpan -> Location

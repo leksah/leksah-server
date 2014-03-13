@@ -42,7 +42,7 @@ import qualified Data.Map as Map
        (fromListWith, fromList, keys, lookup)
 import Data.List (delete, nub)
 import Distribution.Text (display)
-import Control.Exception (SomeException,catch)
+import Control.Exception (SomeException)
 #if defined(USE_LIBCURL)
 import Network.Curl (curlGetString_, CurlCode(..))
 import Control.Monad (when)
