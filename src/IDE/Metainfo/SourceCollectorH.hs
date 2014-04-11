@@ -212,7 +212,7 @@ extractDescrs dflags pm _ifaceDeclMap ifaceExportItems' ifaceInstances' _ifaceLo
         transformToDescrs dflags pm exportedDeclInfo ++ map (toDescrInst dflags pm) ifaceInstances'
     where
         exportedDeclInfo                               =  mapMaybe toDeclInfo  ifaceExportItems'
-#if MIN_VERSION_ghc(7,6,0)
+#if MIN_VERSION_ghc(7,8,0)
         toDeclInfo (ExportDecl decl mbDoc subDocs _ _ _)   =
                                         Just(decl,getDoc $ fst mbDoc,map (\ (a,b) -> (a,getDoc $ fst b)) subDocs)
 #else
