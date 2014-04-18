@@ -27,9 +27,10 @@ install:
   - cabal install Cabal
   - cabal install gtk2hs-buildtools
   - cabal install ./ vendor/ltk --enable-tests --only-dependencies
+  - cabal install vendor/ltk
 
 script:
-  - cabal configure ./ vendor/ltk --enable-tests -v2
+  - cabal configure --enable-tests -v2
   - cabal build
   - cabal test
   - cabal check
