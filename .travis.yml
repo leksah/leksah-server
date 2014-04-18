@@ -16,10 +16,10 @@ before_install:
     if [ $GHCVER = "head" ] || [ $GHCVER = "7.8.2" ]; then
       $CABAL install happy alex
     fi
-  - $CABAL install Cabal
+  - $CABAL install Cabal cabal-install
   - $CABAL install gtk2hs-buildtools
 install:
-  - $CABAL install cabal-install cabal-meta cabal-src
+  - $CABAL install cabal-meta cabal-src
 script:
   - cabal-meta install --enable-tests --force-reinstalls
 notifications:
