@@ -19,7 +19,7 @@ before_install:
   - $CABAL install Cabal
   - $CABAL install gtk2hs-buildtools
 install:
-  - $CABAL install cabal-meta cabal-src
+  - $CABAL install cabal-install cabal-meta cabal-src
 script:
   - cabal-meta install --enable-tests --force-reinstalls
 notifications:
