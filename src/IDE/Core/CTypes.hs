@@ -76,9 +76,15 @@ import Distribution.Package
        (PackageIdentifier(..),PackageName(..))
 #endif
 import Distribution.ModuleName (components, ModuleName)
+#if !MIN_VERSION_bytestring(0,10,0)
 import Data.ByteString.Char8 (ByteString)
+#endif
+#if !MIN_VERSION_bytestring(0,10,0)
+import Data.Version (Version(..))
+#endif
 import Distribution.Text (simpleParse, display)
-import qualified Data.ByteString.Char8 as  BS (unpack, empty)
+import qualified Data.ByteString.Char8 as BS (unpack, empty)
+import qualified Data.ByteString.Char8 as BS (ByteString)
 import qualified Data.Map as Map (lookup,keysSet,splitLookup, insertWith,empty,elems,union)
 import Text.PrettyPrint as PP
 import Text.PrinterParser

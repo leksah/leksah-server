@@ -16,12 +16,16 @@ before_install:
     if [ $GHCVER = "head" ] || [ $GHCVER = "7.8.2" ]; then
       $CABAL install happy alex
     fi
-  - $CABAL install Cabal cabal-install --constraint='HTTP>=4000.2.12'
+  - $CABAL install Cabal
   - $CABAL install gtk2hs-buildtools
+  - mkdir vendor
+  - cd vendor
+  - git clone https://github.com/leksah/ltk.git
+  - cd ..
 install:
-  - $CABAL install cabal-meta cabal-src
+  - $CABAL install ./ vendor/ltk --enable-tests --force-reinstalls
 script:
-  - cabal-meta install --enable-tests --force-reinstalls
+  - $CABAL test
 notifications:
   irc:
     channels: "irc.freenode.net#leksah"
