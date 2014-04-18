@@ -100,11 +100,7 @@ metadataVersion :: Integer
 metadataVersion = 7
 
 getThisPackage :: PackageConfig -> PackageIdentifier
-#if MIN_VERSION_Cabal(1,8,0)
 getThisPackage    =   IPI.sourcePackageId
-#else
-getThisPackage    =   IPI.package
-#endif
 
 data RetrieveStrategy = RetrieveThenBuild | BuildThenRetrieve | NeverRetrieve
     deriving (Show, Read, Eq, Ord, Enum, Bounded)
