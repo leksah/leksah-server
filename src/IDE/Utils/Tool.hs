@@ -331,7 +331,7 @@ ghciParseExpectedError = (do
         AP.string ":"
         ghciParseExpectedErrorCols
         AP.string ": Not in scope: "
-        (AP.char '`' <|> AP.char '‛')
+        (AP.char '`' <|> AP.char '‛' <|> AP.char '‘')
         result <- parseMarker
         (AP.char '\'' <|> AP.char '’')
         AP.string "\n"
