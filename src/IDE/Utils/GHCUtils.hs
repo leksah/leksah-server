@@ -20,16 +20,8 @@ module IDE.Utils.GHCUtils (
 ,   myParseHeader
 ) where
 
-#if MIN_VERSION_Cabal(1,8,0)
-#else
-import UniqFM (eltsUFM)
-#endif
 import Distribution.Simple (withinRange,PackageIdentifier(..),Dependency(..))
-#if MIN_VERSION_Cabal(1,8,0)
 import qualified Distribution.InstalledPackageInfo as IPI  (sourcePackageId)
-#else
-import qualified Distribution.InstalledPackageInfo as IPI  (package)
-#endif
 import GHC
 import DriverPipeline(preprocess)
 import StringBuffer (StringBuffer(..),hGetStringBuffer)
@@ -123,21 +115,13 @@ getInstalledPackageInfos = do
 #endif
     pkgInfos        <-  case pkgDatabase dflags1 of
                             Nothing -> return []
-#if MIN_VERSION_Cabal(1,8,0)
                             Just fm -> return fm
-#else
-                            Just fm -> return (eltsUFM fm)
-#endif
     return pkgInfos
 
 findFittingPackages :: [Dependency] -> Ghc [PackageIdentifier]
 findFittingPackages dependencyList = do
     knownPackages   <-  getInstalledPackageInfos
-#if MIN_VERSION_Cabal(1,8,0)
     let packages    =   map IPI.sourcePackageId knownPackages
-#else
-    let packages    =   map IPI.package knownPackages
-#endif
     return (concatMap (fittingKnown packages) dependencyList)
     where
     fittingKnown packages (Dependency dname versionRange) =

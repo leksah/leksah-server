@@ -86,11 +86,7 @@ collectPackageFromHI  packageConfig = inGhcIO [] [] $ \ dflags -> do
     hiddenIfaceInfos    <-  getIFaceInfos (getThisPackage packageConfig)
                                             (IPI.hiddenModules packageConfig) session
     let pd = extractInfo dflags exportedIfaceInfos hiddenIfaceInfos (getThisPackage packageConfig)
-#if MIN_VERSION_Cabal(1,8,0)
                                             [] -- TODO 6.12 (IPI.depends $ packageConfigToInstalledPackageInfo packageConfig))
-#else
-				            (depends packageConfig)
-#endif
     deepseq pd (return pd)
 
 
@@ -194,17 +190,8 @@ extractIdentifierDescr dflags package modules decl
                 ,   dscExported'       =   True
                 }
         in case decl of
-#if MIN_VERSION_Cabal(1,8,0)
-            (IfaceId _ _ _ _)
-#else
-            (IfaceId _ _ _)
-#endif
-                -> map Real [descr]
-#if MIN_VERSION_Cabal(1,11,0)
+            (IfaceId {}) -> map Real [descr]
             (IfaceData {ifName=name, ifCons=ifCons'})
-#else
-            (IfaceData name _ _ ifCons' _ _ _ _)
-#endif
                 -> let d = case ifCons' of
                             IfDataTyCon _decls
                                 ->  let
@@ -327,18 +314,10 @@ extractInstances dflags pm ifaceInst  =
 
 
 extractUsages :: DynFlags -> Usage -> Maybe (ModuleName, Set String)
-#if MIN_VERSION_Cabal(1,11,0)
-extractUsages _ (UsagePackageModule usg_mod' _ _) =
-#else
-extractUsages _ (UsagePackageModule usg_mod' _ ) =
-#endif
+extractUsages _ (UsagePackageModule {usg_mod = usg_mod'}) =
     let name    =   (fromJust . simpleParse . moduleNameString) (moduleName usg_mod')
     in Just (name, Set.fromList [])
-#if MIN_VERSION_Cabal(1,11,0)
-extractUsages dflags (UsageHomeModule usg_mod_name' _ usg_entities' _ _) =
-#else
-extractUsages dflags (UsageHomeModule usg_mod_name' _ usg_entities' _) =
-#endif
+extractUsages dflags (UsageHomeModule {usg_mod_name = usg_mod_name', usg_entities = usg_entities'}) =
     let name    =   (fromJust . simpleParse . moduleNameString) usg_mod_name'
         ids     =   map (showSDocUnqual dflags . ppr . fst) usg_entities'
     in Just (name, Set.fromList ids)

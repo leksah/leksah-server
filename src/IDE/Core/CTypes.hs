@@ -77,8 +77,11 @@ import Distribution.Package
 #endif
 import Distribution.ModuleName (components, ModuleName)
 import Data.ByteString.Char8 (ByteString)
+#if !MIN_VERSION_bytestring(0,10,0)
+import Data.Version (Version(..))
+#endif
 import Distribution.Text (simpleParse, display)
-import qualified Data.ByteString.Char8 as  BS (unpack, empty)
+import qualified Data.ByteString.Char8 as BS (unpack, empty)
 import qualified Data.Map as Map (lookup,keysSet,splitLookup, insertWith,empty,elems,union)
 import Text.PrettyPrint as PP
 import Text.PrinterParser
@@ -86,7 +89,9 @@ import Data.Char (isAlpha)
 import Control.DeepSeq (NFData(..))
 import PackageConfig (PackageConfig)
 import qualified Distribution.InstalledPackageInfo as IPI
+#if !MIN_VERSION_ghc(7,7,0)
 import Distribution.Package(PackageName(..))
+#endif
 
 -- ---------------------------------------------------------------------
 --  | Information about the system, extraced from .hi and source files
@@ -100,11 +105,7 @@ metadataVersion :: Integer
 metadataVersion = 7
 
 getThisPackage :: PackageConfig -> PackageIdentifier
-#if MIN_VERSION_Cabal(1,8,0)
 getThisPackage    =   IPI.sourcePackageId
-#else
-getThisPackage    =   IPI.package
-#endif
 
 data RetrieveStrategy = RetrieveThenBuild | BuildThenRetrieve | NeverRetrieve
     deriving (Show, Read, Eq, Ord, Enum, Bounded)
@@ -549,7 +550,7 @@ instance NFData PackageIdentifier where
 instance NFData DescrType where  rnf a = seq a ()
 
 #if !MIN_VERSION_bytestring(0,10,0)
-instance NFData BS.ByteString where  rnf b = seq b ()
+instance NFData ByteString where  rnf b = seq b ()
 #endif
 
 #if !MIN_VERSION_deepseq(1,3,0)
