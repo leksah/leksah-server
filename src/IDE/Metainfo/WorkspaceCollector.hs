@@ -57,7 +57,7 @@ import IDE.Core.CTypes hiding (SrcSpan(..))
 import Data.ByteString.Char8 (ByteString)
 import DriverPipeline (preprocess)
 import StringBuffer(hGetStringBuffer)
-import Data.List(partition,sortBy,nub,find)
+import Data.List(partition,sortBy,nub,find,intercalate)
 import Data.Ord(comparing)
 import GHC.Exception
 #if !MIN_VERSION_ghc(7,6,0)
@@ -180,7 +180,7 @@ collectModule' sourcePath destPath writeAscii packId opts moduleName' = gcatch (
                                             Nothing -> moduleDescr
                                             Just md  -> mergeWithInterfaceDescr moduleDescr md
                     E.catch (writeExtractedModule destPath writeAscii moduleDescr')
-                        (\ (_::IOException) -> errorM "leksah-server" ("Can't write extracted package " ++ destPath))
+                        (\ (_:: IOException) -> errorM "leksah-server" ("Can't write extracted package " ++ destPath))
                 Left errMsg -> do
                     errorM "leksah-server" $ "Failed to parse " ++ sourcePath ++ " " ++ show errMsg
                     let moduleDescr =  ModuleDescr {
@@ -202,7 +202,7 @@ collectModule' sourcePath destPath writeAscii packId opts moduleName' = gcatch (
                         ,   dscTypeHint'    =   ErrorDescr
                         ,   dscExported'    =   False}]}
                     E.catch (deepseq moduleDescr $ writeExtractedModule destPath writeAscii moduleDescr)
-                        (\ (_::IOException) -> errorM "leksah-server" ("Can't write extracted module " ++ destPath))
+                        (\ (_:: IOException) -> errorM "leksah-server" ("Can't write extracted module " ++ destPath))
     ) (\ (e :: SomeException) -> errorM "leksah-server" ("Can't extract module " ++ destPath ++ " " ++ show e))
 
 
@@ -557,12 +557,27 @@ transformToDescrs dflags pm = concatMap transformToDescr
         super           =   []
 
 #if MIN_VERSION_ghc(7,7,0)
-    transformToDescr ((L loc (InstD _inst@(ClsInstD typ))), mbComment, _sigList) =
+    transformToDescr ((L loc (InstD inst)), mbComment, _sigList) =
+        let typp = case inst of
+                     ClsInstD t -> ppr t
+                     DataFamInstD t -> ppr t
+                     TyFamInstD t -> ppr t
+            (instn,nameI,other) =   case words (showSDocUnqual dflags typp) of
+                                        instn':nameI':tl -> (instn',nameI',takeWhile (/= "where") tl)
+                                        _ -> ("","",[])
+        in
+            [Real $ RealDescr {
+            dscName'        =   instn ++ " " ++ nameI
+        ,   dscMbTypeStr'   =   Just (BS.pack (instn ++ " " ++ nameI ++ " " ++ (intercalate " " other)))
+        ,   dscMbModu'      =   Just pm
+        ,   dscMbLocation'  =   srcSpanToLocation loc
+        ,   dscMbComment'   =   toComment mbComment []
+        ,   dscTypeHint'    =   InstanceDescr other
+        ,   dscExported'    =   True}]
+            where
+
 #elif MIN_VERSION_ghc(7,6,0)
     transformToDescr ((L loc (InstD _inst@(ClsInstD typ _ _ _))), mbComment, _sigList) =
-#else
-    transformToDescr ((L loc (InstD _inst@(InstDecl typ _ _ _))), mbComment, _sigList) =
-#endif
         [Real $ RealDescr {
         dscName'        =   name
     ,   dscMbTypeStr'   =   Just (BS.pack ("instance " ++ (showSDocUnqual dflags $ppr typ)))
@@ -575,6 +590,21 @@ transformToDescrs dflags pm = concatMap transformToDescr
         (name,other)           =   case words (showSDocUnqual dflags $ppr typ) of
                                 [] -> ("",[])
                                 hd:tl -> (hd,tl)
+#else
+    transformToDescr ((L loc (InstD _inst@(InstDecl typ _ _ _))), mbComment, _sigList) =
+        [Real $ RealDescr {
+        dscName'        =   name
+    ,   dscMbTypeStr'   =   Just (BS.pack ("instance " ++ (showSDocUnqual dflags $ppr typ)))
+    ,   dscMbModu'      =   Just pm
+    ,   dscMbLocation'  =   srcSpanToLocation loc
+    ,   dscMbComment'   =   toComment mbComment []
+    ,   dscTypeHint'    =   InstanceDescr other
+    ,   dscExported'    =   True}]
+        where
+        (name,other)           =   case words (showSDocUnqual dflags $ppr typ) of
+                                [] -> ("",[])
+                                hd:tl -> (hd,tl)
+#endif
 
     transformToDescr (_, _mbComment, _sigList) = []
 
