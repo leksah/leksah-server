@@ -33,7 +33,6 @@ script:
   - cabal configure --enable-tests -v2
   - cabal build
   - cabal test
-  - cabal check
   - cabal sdist
 
 notifications:
