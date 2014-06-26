@@ -148,7 +148,7 @@ runTool' :: FilePath -> [String] -> Maybe FilePath -> IO ([ToolOutput], ProcessH
 runTool' fp args mbDir = do
     debugM "leksah-server" $ "Start: " ++ show (fp, args)
     (out,pid) <- runTool fp args mbDir
-    output <- C.runResourceT $ out $$ CL.consume
+    output <- out $$ CL.consume
     waitForProcess pid
     debugM "leksah-server" $ "End: " ++ show (fp, args)
     return (output,pid)
