@@ -56,7 +56,7 @@ import DynFlags (dopt_set)
 import System.Log.Logger(debugM)
 import Control.Monad.IO.Class (MonadIO(..))
 
-#if !MIN_VERSION_ghc(7,7,0)
+#if !MIN_VERSION_ghc(7,7,0) || MIN_VERSION_transformers(0,4,0)
 -- this should not be repeated here, why is it necessary?
 instance MonadIO Ghc where
   liftIO ioA = Ghc $ \_ -> ioA
