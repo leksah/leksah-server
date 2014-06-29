@@ -82,6 +82,8 @@ import Control.Monad (when)
 import GHC.Show(showSpace)
 #endif
 import Control.Exception as E
+import Control.Applicative ((<$>), (<|>))
+import Debug.Trace (trace)
 
 type NDecl = LHsDecl RdrName
 myDocEmpty :: NDoc
@@ -218,12 +220,15 @@ writeExtractedModule filePath writeAscii md =
 extractModDescr :: DynFlags -> PackageIdentifier -> ModuleName -> FilePath -> HsModule RdrName -> ModuleDescr
 extractModDescr dflags packId moduleName' sourcePath hsMod = ModuleDescr {
         mdModuleId          =   PM packId moduleName'
-    ,   mdMbSourcePath      =   Just sourcePath
+    ,   mdMbSourcePath      =   trace ("extractModDescr " ++ (show . modFile $ hsmodName hsMod)) $ modFile $ hsmodName hsMod
     ,   mdReferences        =   Map.empty -- imports
     ,   mdIdDescriptions    =   descrs'}
     where
         descrs = extractDescrs dflags (PM packId moduleName') (hsmodDecls hsMod)
         descrs' = fixExports dflags (hsmodExports hsMod) descrs
+        modFile (Just (L loc _)) =
+            (locationFile <$> srcSpanToLocation loc) <|> Just sourcePath
+        modFile _ = Just sourcePath
 
 -----------------------------------------------------------------------------------
 -- Add exported hint
@@ -719,14 +724,14 @@ sigToByteString dflags ((sig,_):_) = Just (BS.pack (showSDocUnqual dflags $ppr s
 srcSpanToLocation :: SrcSpan -> Maybe Location
 #if MIN_VERSION_ghc(7,2,0)
 srcSpanToLocation (RealSrcSpan span')
-    =   Just (Location (srcSpanStartLine span') (srcSpanStartCol span')
+    =   Just (Location (unpackFS $ srcSpanFile span') (srcSpanStartLine span') (srcSpanStartCol span')
                  (srcSpanEndLine span') (srcSpanEndCol span'))
 srcSpanToLocation _ = Nothing
 #else
 srcSpanToLocation span' | not (isGoodSrcSpan span')
     =   Nothing
 srcSpanToLocation span'
-    =   Just (Location (srcSpanStartLine span') (srcSpanStartCol span')
+    =   Just (Location (unpackFS $ srcSpanFile span') (srcSpanStartLine span') (srcSpanStartCol span')
                  (srcSpanEndLine span') (srcSpanEndCol span'))
 #endif
 

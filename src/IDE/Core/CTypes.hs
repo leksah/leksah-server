@@ -98,7 +98,7 @@ import Distribution.Package(PackageName(..))
 --
 
 leksahVersion, configDirName :: String
-leksahVersion = "0.13"
+leksahVersion = "0.14"
 configDirName = ".leksah-" ++ leksahVersion
 
 metadataVersion :: Integer
@@ -380,8 +380,9 @@ data SrcSpan = SrcSpan
   deriving (Eq,Ord,Show)
 
 data Location           =   Location {
-    locationSLine       ::   Int
-,   locationSCol	    ::   Int
+    locationFile        ::   FilePath
+,   locationSLine       ::   Int
+,   locationSCol        ::   Int
 ,   locationELine       ::   Int
 ,   locationECol        ::   Int
 }   deriving (Show,Eq,Ord,Read,Typeable)

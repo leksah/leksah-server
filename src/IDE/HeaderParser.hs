@@ -106,7 +106,7 @@ transformEntity _ _                              = Nothing
 #if MIN_VERSION_ghc(7,2,0)
 srcSpanToLocation :: SrcSpan -> Location
 srcSpanToLocation (RealSrcSpan span')
-    =   Location (srcSpanStartLine span') (srcSpanStartCol span')
+    =   Location (unpackFS $ srcSpanFile span') (srcSpanStartLine span') (srcSpanStartCol span')
                  (srcSpanEndLine span') (srcSpanEndCol span')
 srcSpanToLocation _ = error "srcSpanToLocation: unhelpful span"
 
@@ -122,7 +122,7 @@ srcSpanToLocation :: SrcSpan -> Location
 srcSpanToLocation span' | not (isGoodSrcSpan span')
     =   error "srcSpanToLocation: unhelpful span"
 srcSpanToLocation span'
-    =   Location (srcSpanStartLine span') (srcSpanStartCol span')
+    =   Location (unpackFS $ srcSpanFile span') (srcSpanStartLine span') (srcSpanStartCol span')
                  (srcSpanEndLine span') (srcSpanEndCol span')
 
 srcSpanStartLine' :: SrcSpan -> Int

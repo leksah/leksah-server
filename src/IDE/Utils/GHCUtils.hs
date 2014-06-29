@@ -43,16 +43,19 @@ import Data.Foldable (maximumBy)
 import qualified Parser as P (parseModule,parseHeader)
 import HscStats (ppSourceStats)
 #if MIN_VERSION_ghc(7,2,0)
+#if !MIN_VERSION_ghc(7,7,0)
 import GhcMonad (Ghc(..))
+#endif
 import SrcLoc (mkRealSrcLoc)
 #else
 import HscTypes (Ghc(..))
 #endif
 import IDE.Utils.FileUtils (getSysLibDir)
 #if MIN_VERSION_ghc(7,7,0)
-import DynFlags (dopt_set, DumpFlag(..), gopt_set,GeneralFlag(..))
-#endif
+import DynFlags (DumpFlag(..), gopt_set)
+#else
 import DynFlags (dopt_set)
+#endif
 import System.Log.Logger(debugM)
 import Control.Monad.IO.Class (MonadIO(..))
 

@@ -24,7 +24,7 @@ module IDE.Metainfo.SourceCollectorH (
 import IDE.Core.CTypes
        (getThisPackage, PackageDescr(..), TypeDescr(..), RealDescr(..),
         Descr(..), ModuleDescr(..), PackModule(..), SimpleDescr(..),
-        packageIdentifierToString)
+        packageIdentifierToString, Location(..), RealDescr(..))
 
 #ifdef MIN_VERSION_haddock_leksah
 import Haddock.Types
@@ -44,7 +44,7 @@ import MyMissing
 import Data.Map (Map)
 import qualified Data.Map as Map (empty)
 
-import Data.List (nub)
+import Data.List (nub, isSuffixOf)
 import qualified Data.ByteString.Char8 as BS (pack)
 #if MIN_VERSION_ghc(6,12,1)
 import IDE.Metainfo.WorkspaceCollector
@@ -61,7 +61,7 @@ import IDE.StrippedPrefs (getUnpackDirectory, Prefs(..))
 import IDE.Metainfo.SourceDB (sourceForPackage, getSourcesMap)
 import MonadUtils (liftIO)
 import System.Directory (setCurrentDirectory, doesDirectoryExist,createDirectory)
-import System.FilePath ((<.>), dropFileName, (</>))
+import System.FilePath ((<.>), dropFileName, (</>), splitDirectories, dropExtension)
 import Data.Maybe(mapMaybe)
 import IDE.Utils.GHCUtils (inGhcIO)
 import qualified Control.Exception as NewException (SomeException, catch)
@@ -70,6 +70,7 @@ import Control.Monad (unless)
 import IDE.Utils.FileUtils (figureOutGhcOpts, myCanonicalizePath)
 import Distribution.Package(PackageIdentifier)
 import GHC hiding(Id,Failed,Succeeded,ModuleName)
+import Distribution.ModuleName (components)
 import System.Log.Logger (warningM, debugM)
 import Control.DeepSeq (deepseq)
 import Data.ByteString.Char8 (ByteString)
@@ -183,9 +184,17 @@ interfaceToModuleDescr dflags _dirPath pid interface =
     ,   mdReferences        =   imports
     ,   mdIdDescriptions    =   descrs}
     where
-        filepath   = ifaceOrigFilename interface
+        -- ifaceOrigFilename points at the hs output file (not chs file)
+        -- So if possible we look up one of the things in the module and
+        -- get the file it is located in.
+        filepath   = head $
+            [locationFile loc | Real RealDescr{dscMbLocation' = Just loc,
+                dscMbModu' = Just dscMod} <- descrs, dscMod == PM pid modName,
+                filenameMatchesModule (locationFile loc)]
+            ++ [ifaceOrigFilename interface]
         modName    = forceJust ((simpleParse . moduleNameString . moduleName . ifaceMod) interface)
                         "Can't parse module name"
+        filenameMatchesModule fn = components modName `isSuffixOf` splitDirectories (dropExtension fn)
         descrs     = extractDescrs dflags (PM pid modName)
                         (ifaceDeclMap interface) (ifaceExportItems interface)
                         (ifaceInstances interface) [] --(ifaceLocals interface)

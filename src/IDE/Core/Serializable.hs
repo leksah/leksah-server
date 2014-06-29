@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 {-# OPTIONS_GHC
     -XScopedTypeVariables
     -XStandaloneDeriving
@@ -32,7 +33,9 @@ import Data.Version (Version(..))
 import Distribution.ModuleName (ModuleName)
 
 import IDE.Core.CTypes
+#if !MIN_VERSION_ghc(7,7,0)
 import Data.Typeable (Typeable)
+#endif
 
 #if !MIN_VERSION_ghc(7,7,0)
 deriving instance Typeable PackageIdentifier
@@ -221,16 +224,18 @@ instance BinaryShared SimpleDescr where
                 return (SimpleDescr sdName' sdType' sdLocation' sdComment' sdExported')
 
 instance BinaryShared Location where
-    put (Location locationSLine' locationSCol' locationELine' locationECol')
-        = do    put locationSLine'
-                put locationSCol'
-                put locationELine'
-                put locationECol'
-    get = do    locationSLine'       <-  get
-                locationSCol'        <-  get
-                locationELine'       <-  get
-                locationECol'        <-  get
-                return (Location locationSLine' locationSCol' locationELine' locationECol')
+    put Location{..}
+        = do    put locationFile
+                put locationSLine
+                put locationSCol
+                put locationELine
+                put locationECol
+    get = do    locationFile        <-  get
+                locationSLine       <-  get
+                locationSCol        <-  get
+                locationELine       <-  get
+                locationECol        <-  get
+                return Location{..}
 
 
 instance BinaryShared ModuleName where
