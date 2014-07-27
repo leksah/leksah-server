@@ -32,8 +32,9 @@ import Control.Exception as E
 
 import Data.Word
 import System.Log.Logger (infoM)
+import Data.Text (Text)
 
-data UserAndGroup = UserAndGroup String String | UserWithDefaultGroup String
+data UserAndGroup = UserAndGroup Text Text | UserWithDefaultGroup Text
 
 -- | Set the user and group for the process. If the group is Nothing, then use the users default group.
 -- This is especially useful when you are root and want to become a user.

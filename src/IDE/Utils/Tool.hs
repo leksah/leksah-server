@@ -68,7 +68,8 @@ import System.Process
        terminateProcess)
 import System.Process.Internals (StdStream(..))
 #endif
-import qualified Data.Text as T (null, lines, any, unpack, pack, filter)
+import qualified Data.Text as T
+       (unlines, unwords, null, lines, any, unpack, pack, filter)
 import Control.DeepSeq
 import System.Log.Logger (debugM)
 import System.Exit (ExitCode(..))
@@ -144,7 +145,7 @@ interruptProcessGroupOf :: ProcessHandle -> IO ()
 interruptProcessGroupOf = interruptProcessGroup
 #endif
 
-runTool' :: FilePath -> [String] -> Maybe FilePath -> IO ([ToolOutput], ProcessHandle)
+runTool' :: FilePath -> [Text] -> Maybe FilePath -> IO ([ToolOutput], ProcessHandle)
 runTool' fp args mbDir = do
     debugM "leksah-server" $ "Start: " ++ show (fp, args)
     (out,pid) <- runTool fp args mbDir
@@ -153,9 +154,9 @@ runTool' fp args mbDir = do
     debugM "leksah-server" $ "End: " ++ show (fp, args)
     return (output,pid)
 
-runTool :: MonadIO m => FilePath -> [String] -> Maybe FilePath -> IO (C.Source m ToolOutput, ProcessHandle)
+runTool :: MonadIO m => FilePath -> [Text] -> Maybe FilePath -> IO (C.Source m ToolOutput, ProcessHandle)
 runTool executable arguments mbDir = do
-    (Just inp,Just out,Just err,pid) <- createProcess (proc executable arguments)
+    (Just inp,Just out,Just err,pid) <- createProcess (proc executable (map T.unpack arguments))
         { std_in  = CreatePipe,
           std_out = CreatePipe,
           std_err = CreatePipe,
@@ -186,11 +187,11 @@ runInteractiveTool ::
     ToolState ->
     CommandLineReader ->
     FilePath ->
-    [String] ->
+    [Text] ->
     Maybe FilePath ->
     IO ()
 runInteractiveTool tool clr executable arguments mbDir = do
-    (Just inp,Just out,Just err,pid) <- createProcess (proc executable arguments)
+    (Just inp,Just out,Just err,pid) <- createProcess (proc executable (map T.unpack arguments))
         { std_in  = CreatePipe,
           std_out = CreatePipe,
           std_err = CreatePipe,
@@ -258,7 +259,7 @@ runInteractiveTool tool clr executable arguments mbDir = do
             return (s, [])
 
 {-
-newInteractiveTool :: (Handle -> Handle -> Handle -> ProcessHandle -> IO [RawToolOutput]) -> FilePath -> [String] -> IO ToolState
+newInteractiveTool :: (Handle -> Handle -> Handle -> ProcessHandle -> IO [RawToolOutput]) -> FilePath -> [Text] -> IO ToolState
 newInteractiveTool getOutput' executable arguments = do
     tool <- newToolState
     runInteractiveTool tool getOutput' executable arguments
@@ -484,7 +485,7 @@ getOutputNoPrompt inp out err pid = do
     output <- getOutput noInputCommandLineReader inp out err pid
     return $ output $= CL.concatMap fromRawOutput
 
-newGhci' :: [String] -> (C.Sink ToolOutput IO ()) -> IO ToolState
+newGhci' :: [Text] -> (C.Sink ToolOutput IO ()) -> IO ToolState
 newGhci' flags startupOutputHandler = do
     tool <- newToolState
     writeChan (toolCommands tool) $
@@ -492,27 +493,27 @@ newGhci' flags startupOutputHandler = do
     runInteractiveTool tool ghciCommandLineReader "ghci" flags Nothing
     return tool
 
-newGhci :: FilePath -> Maybe String -> [String] -> (C.Sink ToolOutput IO ()) -> IO ToolState
+newGhci :: FilePath -> Maybe Text -> [Text] -> (C.Sink ToolOutput IO ()) -> IO ToolState
 newGhci dir mbExe interactiveFlags startupOutputHandler = do
         tool <- newToolState
         writeChan (toolCommands tool) $
-            ToolCommand (":set " <> T.pack (unwords interactiveFlags) <> "\n:set prompt " <> ghciPrompt) "" startupOutputHandler
+            ToolCommand (":set " <> T.unwords interactiveFlags <> "\n:set prompt " <> ghciPrompt) "" startupOutputHandler
         runInteractiveTool tool ghciCommandLineReader "cabal"
             ("repl" : maybeToList mbExe) (Just dir)
         return tool
 
-executeCommand :: ToolState -> String -> String -> C.Sink ToolOutput IO () -> IO ()
+executeCommand :: ToolState -> Text -> Text -> C.Sink ToolOutput IO () -> IO ()
 executeCommand tool command rawCommand handler = do
-    writeChan (toolCommands tool) $ ToolCommand (T.pack command) (T.pack rawCommand) handler
+    writeChan (toolCommands tool) $ ToolCommand command rawCommand handler
 
-executeGhciCommand :: ToolState -> String -> C.Sink ToolOutput IO () -> IO ()
+executeGhciCommand :: ToolState -> Text -> C.Sink ToolOutput IO () -> IO ()
 executeGhciCommand tool command handler = do
-    if '\n' `elem` command
+    if '\n' `elem` T.unpack command
         then executeCommand tool safeCommand command handler
         else executeCommand tool command command handler
     where
-        filteredLines = (filter safeLine (lines command))
-        safeCommand = ":cmd (return " ++ show (":{\n" ++ unlines filteredLines ++ "\n:}") ++ ")"
+        filteredLines = (filter safeLine (T.lines command))
+        safeCommand = ":cmd (return " <> T.pack (show $ ":{\n" <> T.unlines filteredLines <> "\n:}") <> ")"
         safeLine ":{" = False
         safeLine ":}" = False
         safeLine _ = True

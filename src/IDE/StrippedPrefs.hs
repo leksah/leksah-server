@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.StrippedPrefs
@@ -31,6 +32,7 @@ import System.FilePath
 import System.Directory (getHomeDirectory)
 import Control.Monad (liftM)
 import IDE.Core.CTypes (RetrieveStrategy(..))
+import Data.Text (Text)
 
 --
 -- | Preferences is a data structure to hold configuration data
@@ -38,7 +40,7 @@ import IDE.Core.CTypes (RetrieveStrategy(..))
 data Prefs = Prefs {
         sourceDirectories   ::   [FilePath]
     ,   unpackDirectory     ::   Maybe FilePath
-    ,   retrieveURL         ::   String
+    ,   retrieveURL         ::   Text
     ,   retrieveStrategy    ::   RetrieveStrategy
     ,   serverPort          ::   Int
     ,   endWithLastConn     ::   Bool

@@ -1,4 +1,5 @@
-{-# OPTIONS_GHC -XScopedTypeVariables -fno-warn-type-defaults #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.Metainfo.PackageCollector
@@ -58,6 +59,9 @@ import System.Process (system)
 import Control.Monad.IO.Class (MonadIO, MonadIO(..))
 import qualified Control.Exception as E (SomeException, catch)
 import IDE.Utils.Tool (runTool')
+import Data.Monoid ((<>))
+import qualified Data.Text as T (unpack)
+import Data.Text (Text)
 
 collectPackage :: Bool -> Prefs -> Int -> (PackageConfig,Int) -> IO PackageCollectStats
 collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
@@ -77,11 +81,11 @@ collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
                     success <- retrieve packageName
                     if success
                         then do
-                            debugM "leksah-server" $ "collectPackage: retreived = " ++ packageName
+                            debugM "leksah-server" . T.unpack $ "collectPackage: retreived = " <> packageName
                             liftIO $ writePackagePath (dropFileName fpSource) packageName
                             return (stat {withSource=True, retrieved= True, mbError=Nothing})
                         else do
-                            debugM "leksah-server" $ "collectPackage: Can't retreive = " ++ packageName
+                            debugM "leksah-server" . T.unpack $ "collectPackage: Can't retreive = " <> packageName
                             runCabalConfigure fpSource
                             packageDescrHi <- collectPackageFromHI packageConfig
                             mbPackageDescrPair <- packageFromSource fpSource packageConfig
@@ -104,7 +108,7 @@ collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
                                 success  <- retrieve packageName
                                 if success
                                     then do
-                                        debugM "leksah-server" $ "collectPackage: retreived = " ++ packageName
+                                        debugM "leksah-server" . T.unpack $ "collectPackage: retreived = " <> packageName
                                         liftIO $ writePackagePath (dropFileName fpSource) packageName
                                         return (stat {withSource=True, retrieved= True, mbError=Nothing})
                                     else do
@@ -123,13 +127,13 @@ collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
                                     writeExtractedPackage False packageDescrHi
                                     return bstat{modulesTotal = Just (length (pdModules packageDescrHi))}
     where
-        retrieve :: String -> IO Bool
+        retrieve :: Text -> IO Bool
         retrieve packString = do
             collectorPath   <- liftIO $ getCollectorPath
             setCurrentDirectory collectorPath
-            let fullUrl  = retrieveURL prefs ++ "/metadata-" ++ leksahVersion ++ "/" ++ packString ++ leksahMetadataSystemFileExtension
-                filePath = collectorPath </> packString <.> leksahMetadataSystemFileExtension
-            debugM "leksah-server" $ "collectPackage: before retreiving = " ++ fullUrl
+            let fullUrl  = T.unpack (retrieveURL prefs) <> "/metadata-" <> leksahVersion <> "/" <> T.unpack packString <> leksahMetadataSystemFileExtension
+                filePath = collectorPath </> T.unpack packString <.> leksahMetadataSystemFileExtension
+            debugM "leksah-server" $ "collectPackage: before retreiving = " <> fullUrl
 #if defined(USE_LIBCURL)
             E.catch (do
                 (code, string) <- curlGetString_ fullUrl []
@@ -143,7 +147,7 @@ collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
 #endif
                 (\(e :: SomeException) ->
                     debugM "leksah-server" $ "collectPackage: Error when calling wget " ++ show e)
-            debugM "leksah-server" $ "collectPackage: after retreiving = " ++ packString -- ++ " result = " ++ res
+            debugM "leksah-server" . T.unpack $ "collectPackage: after retreiving = " <> packString -- ++ " result = " ++ res
             exist <- doesFileExist filePath
             return exist
         writeMerged packageDescrS packageDescrHi fpSource packageName = do
@@ -161,16 +165,16 @@ collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
 writeExtractedPackage :: MonadIO m => Bool -> PackageDescr -> m ()
 writeExtractedPackage writeAscii pd = do
     collectorPath   <- liftIO $ getCollectorPath
-    let filePath    =  collectorPath </> packageIdentifierToString (pdPackage pd) <.>
+    let filePath    =  collectorPath </> T.unpack (packageIdentifierToString $ pdPackage pd) <.>
                             leksahMetadataSystemFileExtension
     if writeAscii
         then liftIO $ writeFile (filePath ++ "dpg") (show pd)
         else liftIO $ encodeFileSer filePath (metadataVersion, pd)
 
-writePackagePath :: MonadIO m => FilePath -> String -> m ()
+writePackagePath :: MonadIO m => FilePath -> Text -> m ()
 writePackagePath fp packageName = do
     collectorPath   <- liftIO $ getCollectorPath
-    let filePath    =  collectorPath </> packageName <.> leksahMetadataPathFileExtension
+    let filePath    =  collectorPath </> T.unpack packageName <.> leksahMetadataPathFileExtension
     liftIO $ writeFile filePath fp
 
 --------------Merging of .hi and .hs parsing / parsing and typechecking results
@@ -205,7 +209,7 @@ mergeModuleDescr hiDescr srcDescr = ModuleDescr {
 mergeDescrs :: [Descr] -> [Descr] -> [Descr]
 mergeDescrs hiList srcList =  concatMap mergeIt allNames
     where
-        mergeIt :: String -> [Descr]
+        mergeIt :: Text -> [Descr]
         mergeIt pm = case (Map.lookup pm hiDict, Map.lookup pm srcDict) of
                         (Just mdhi, Nothing) -> mdhi
                         (Nothing, Just mdsrc) -> mdsrc
@@ -271,7 +275,7 @@ mergeTypeDescr descrHi _                                                        
 mergeSimpleDescrs :: [SimpleDescr] -> [SimpleDescr] -> [SimpleDescr]
 mergeSimpleDescrs hiList srcList =  map mergeIt allNames
     where
-        mergeIt :: String -> SimpleDescr
+        mergeIt :: Text -> SimpleDescr
         mergeIt pm = case mergeMbDescr (Map.lookup pm hiDict) (Map.lookup pm srcDict) of
                         Just mdhi -> mdhi
                         Nothing   -> error "Collector>>mergeSimpleDescrs: impossible"

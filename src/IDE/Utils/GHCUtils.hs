@@ -1,4 +1,6 @@
-{-# OPTIONS_GHC -XCPP -fno-warn-orphans #-}
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.Utils.GHCUtils
@@ -58,6 +60,9 @@ import DynFlags (dopt_set)
 #endif
 import System.Log.Logger(debugM)
 import Control.Monad.IO.Class (MonadIO(..))
+import Data.Text (Text)
+import qualified Data.Text as T (pack, unpack)
+import Data.Monoid ((<>))
 
 #if !MIN_VERSION_ghc(7,7,0)
 -- this should not be repeated here, why is it necessary?
@@ -66,9 +71,9 @@ instance MonadIO Ghc where
 #endif
 
 #if MIN_VERSION_ghc(7,7,0)
-inGhcIO :: [String] -> [GeneralFlag] -> (DynFlags -> Ghc a) -> IO a
+inGhcIO :: [Text] -> [GeneralFlag] -> (DynFlags -> Ghc a) -> IO a
 #else
-inGhcIO :: [String] -> [DynFlag] -> (DynFlags -> Ghc a) -> IO a
+inGhcIO :: [Text] -> [DynFlag] -> (DynFlags -> Ghc a) -> IO a
 #endif
 inGhcIO flags' udynFlags ghcAct = do
     debugM "leksah-server" $ "inGhcIO called with: " ++ show flags'
@@ -86,7 +91,7 @@ inGhcIO flags' udynFlags ghcAct = do
             ghcMode   = CompManager,
             ghcLink   = NoLink
             }
-        dynflags''' <- parseGhcFlags dynflags'' (map noLoc flags') flags'
+        dynflags''' <- parseGhcFlags dynflags'' (map (noLoc . T.unpack) flags') flags'
         res <- defaultCleanupHandler dynflags''' $ do
             setSessionDynFlags dynflags'''
             ghcAct dynflags'''
@@ -94,7 +99,7 @@ inGhcIO flags' udynFlags ghcAct = do
         return res
     where
         parseGhcFlags :: DynFlags -> [Located String]
-                  -> [String] -> Ghc DynFlags
+                  -> [Text] -> Ghc DynFlags
         parseGhcFlags dynflags flags_ _origFlags = do
         (dynflags', rest, _) <- parseDynamicFlags dynflags flags_
         if not (null rest)
@@ -158,11 +163,7 @@ myParseModule dflags src_filename maybe_src_buf
       let loc  = mkSrcLoc (mkFastString src_filename) 1 0
 #endif
 
-#if MIN_VERSION_ghc(7,0,1)
       case unP P.parseModule (mkPState dflags buf' loc) of {
-#else
-      case unP P.parseModule (mkPState buf' loc dflags) of {
-#endif
 
 #if MIN_VERSION_ghc(7,6,0)
         PFailed span' err -> return (Left (mkPlainErrMsg dflags span' err));
@@ -195,7 +196,7 @@ myParseModule dflags src_filename maybe_src_buf
 	-- ToDo: free the string buffer later.
       }}
 
-myParseHeader :: FilePath -> String -> [String] -> IO (Either String (DynFlags, HsModule RdrName))
+myParseHeader :: FilePath -> String -> [Text] -> IO (Either Text (DynFlags, HsModule RdrName))
 myParseHeader fp _str opts = inGhcIO (opts++["-cpp"]) [] $ \ _dynFlags -> do
     session   <- getSession
 #if MIN_VERSION_ghc(7,2,0)
@@ -209,7 +210,7 @@ myParseHeader fp _str opts = inGhcIO (opts++["-cpp"]) [] $ \ _dynFlags -> do
         case parseResult of
             Right (L _ mod') -> return (Right (dynFlags', mod'))
             Left errMsg         -> do
-                let str =  "Failed to parse " ++ show errMsg
+                let str =  "Failed to parse " <> T.pack (show errMsg)
                 return (Left str)
 
  ---------------------------------------------------------------------

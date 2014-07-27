@@ -1,4 +1,5 @@
-{-# OPTIONS_GHC -XScopedTypeVariables -XBangPatterns #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.Metainfo.SourceCollectorH
@@ -40,20 +41,14 @@ import InstEnv (ClsInst(..))
 #else
 import InstEnv (Instance(..))
 #endif
-import MyMissing
+import MyMissing (forceJust)
 import Data.Map (Map)
 import qualified Data.Map as Map (empty)
 
 import Data.List (nub, isSuffixOf)
 import qualified Data.ByteString.Char8 as BS (pack)
-#if MIN_VERSION_ghc(6,12,1)
 import IDE.Metainfo.WorkspaceCollector
        (srcSpanToLocation, uncommentDecl, uncommentData, printHsDoc, sortByLoc)
-#else
-import IDE.Metainfo.WorkspaceCollector
-       (srcSpanToLocation, uncommentDecl, uncommentData, sortByLoc)
-#endif
-
 import PackageConfig (PackageConfig)
 import Distribution.Verbosity (verbose)
 import qualified Distribution.InstalledPackageInfo as IPI
@@ -75,13 +70,16 @@ import System.Log.Logger (warningM, debugM)
 import Control.DeepSeq (deepseq)
 import Data.ByteString.Char8 (ByteString)
 #if MIN_VERSION_ghc(7,6,0)
-import Outputable hiding(trace)
+import Outputable hiding(trace, (<>))
 #else
-import Outputable hiding(trace, showSDoc, showSDocUnqual)
+import Outputable hiding(trace, (<>), showSDoc, showSDocUnqual)
 import qualified Outputable as O
 #endif
 import GHC.Show(showSpace)
 import Name
+import Data.Text (Text)
+import qualified Data.Text as T (unpack, pack)
+import Data.Monoid ((<>))
 
 #ifdef MIN_VERSION_haddock_leksah
 #else
@@ -94,16 +92,12 @@ isEmptyDoc :: NDoc -> Bool
 isEmptyDoc DocEmpty  = True
 isEmptyDoc _         = False
 
-#if MIN_VERSION_ghc(6,12,1)
 type MyLDocDecl = LDocDecl
-#else
-type MyLDocDecl = LDocDecl Name
-#endif
 
 #if !MIN_VERSION_ghc(7,6,0)
-showSDoc :: DynFlags -> SDoc -> String
+showSDoc :: DynFlags -> SDoc -> Text
 showSDoc _ = O.showSDoc
-showSDocUnqual :: DynFlags -> SDoc -> String
+showSDocUnqual :: DynFlags -> SDoc -> Text
 showSDocUnqual _ = O.showSDocUnqual
 #endif
 
@@ -111,13 +105,13 @@ show' :: Outputable alpha => DynFlags -> alpha  -> String
 show' dflags = showSDoc dflags . ppr
 
 data PackageCollectStats = PackageCollectStats {
-    packageString       :: String,
+    packageString       :: Text,
     modulesTotal        :: Maybe Int,
     withSource          :: Bool,
     retrieved           :: Bool,
-    mbError             :: Maybe String}
+    mbError             :: Maybe Text}
 
-findSourceForPackage :: Prefs -> PackageConfig -> IO (Either String FilePath)
+findSourceForPackage :: Prefs -> PackageConfig -> IO (Either Text FilePath)
 findSourceForPackage prefs packageConfig = do
     sourceMap <- liftIO $ getSourcesMap prefs
     case sourceForPackage (getThisPackage packageConfig) sourceMap of
@@ -131,12 +125,13 @@ findSourceForPackage prefs packageConfig = do
                     unless exists $ createDirectory fpUnpack
                     setCurrentDirectory fpUnpack
                     runTool' "cabal" (["unpack",packageName]) Nothing
-                    success <- doesDirectoryExist (fpUnpack </> packageName)
+                    success <- doesDirectoryExist (fpUnpack </> packageName')
                     if not success
                         then return (Left "Failed to download and unpack source")
-                        else return (Right (fpUnpack </> packageName </>  takeWhile (/= '-') packageName <.> "cabal"))
+                        else return (Right (fpUnpack </> packageName' </>  takeWhile (/= '-') packageName' <.> "cabal"))
     where
         packageName = packageIdentifierToString (getThisPackage packageConfig)
+        packageName' = T.unpack packageName
 
 
 packageFromSource :: FilePath -> PackageConfig -> IO (Maybe PackageDescr, PackageCollectStats)
@@ -152,7 +147,7 @@ packageFromSource cabalPath packageConfig = do
         handler (e :: NewException.SomeException) = do
             warningM "leksah-server" ("Ghc failed to process: " ++ show e)
             return (Nothing, PackageCollectStats packageName Nothing False False
-                                            (Just ("Ghc failed to process: " ++ show e)))
+                                            (Just ("Ghc failed to process: " <> T.pack (show e))))
         inner ghcFlags = inGhcIO ghcFlags [Opt_Haddock] $ \ dflags -> do
 #if MIN_VERSION_haddock(2,8,0)
             (interfaces,_) <- processModules verbose (exportedMods ++ hiddenMods) [] []
@@ -211,7 +206,6 @@ getDoc = id
 #if MIN_VERSION_ghc(7,4,1)
 type DeclInfo = [LHsDecl Name]
 #endif
-#if MIN_VERSION_ghc(6,12,1)
 #if MIN_VERSION_ghc(7,6,0)
 extractDescrs :: DynFlags -> PackModule -> Map Name DeclInfo -> [ExportItem Name] -> [ClsInst] -> [Name] -> [Descr]
 #else
@@ -227,18 +221,6 @@ extractDescrs dflags pm _ifaceDeclMap ifaceExportItems' ifaceInstances' _ifaceLo
         toDeclInfo (ExportGroup _ _ _)                 = Nothing
         toDeclInfo (ExportDoc _)                       = Nothing
         toDeclInfo (ExportModule _)                    = Nothing
-#else
-extractDescrs :: DynFlags -> PackModule -> Map Name DeclInfo -> [ExportItem Name] -> [Instance] -> [Name] -> [Descr]
-extractDescrs dflags pm _ifaceDeclMap ifaceExportItems' ifaceInstances' _ifaceLocals =
-        transformToDescrs dflags pm exportedDeclInfo ++ map (toDescrInst dflags pm) ifaceInstances'
-    where
-        exportedDeclInfo                               =  mapMaybe toDeclInfo  ifaceExportItems'
-        toDeclInfo (ExportDecl decl mbDoc subDocs _)   = Just(decl,mbDoc,subDocs)
-        toDeclInfo (ExportNoDecl _ _)                  = Nothing
-        toDeclInfo (ExportGroup _ _ _)                 = Nothing
-        toDeclInfo (ExportDoc _)                       = Nothing
-        toDeclInfo (ExportModule _)                    = Nothing
-#endif
 
 transformToDescrs :: DynFlags -> PackModule -> [(LHsDecl Name, Maybe NDoc, [(Name, Maybe NDoc)])] -> [Descr]
 transformToDescrs dflags pm = concatMap transformToDescr
@@ -249,8 +231,8 @@ transformToDescrs dflags pm = concatMap transformToDescr
     transformToDescr ((L loc (SigD (TypeSig name typ))), mbComment,_subCommentList) =
 #endif
         [Real $ RealDescr {
-        dscName'        =   getOccString (unLoc name)
-    ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual dflags $ppr typ))
+        dscName'        =   T.pack . getOccString $ unLoc name
+    ,   dscMbTypeStr'   =   Just . BS.pack . showSDocUnqual dflags $ ppr typ
     ,   dscMbModu'      =   Just pm
     ,   dscMbLocation'  =   srcSpanToLocation loc
     ,   dscMbComment'   =   toComment dflags mbComment []
@@ -262,8 +244,8 @@ transformToDescrs dflags pm = concatMap transformToDescr
 #if MIN_VERSION_ghc(7,6,0)
     transformToDescr ((L loc (TyClD typ@(ForeignType {tcdLName = lid}))), mbComment,_sigList) =
         [Real $ RealDescr {
-        dscName'        =   getOccString (unLoc lid)
-    ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual dflags $ppr typ))
+        dscName'        =   T.pack . getOccString $ unLoc lid
+    ,   dscMbTypeStr'   =   Just . BS.pack . showSDocUnqual dflags $ ppr typ
     ,   dscMbModu'      =   Just pm
     ,   dscMbLocation'  =   srcSpanToLocation loc
     ,   dscMbComment'   =   toComment dflags mbComment []
@@ -276,8 +258,8 @@ transformToDescrs dflags pm = concatMap transformToDescr
     transformToDescr ((L loc (TyClD typ@(TyFamily {tcdLName = lid}))), mbComment,_sigList) =
 #endif
         [Real $ RealDescr {
-        dscName'        =   getOccString (unLoc lid)
-    ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual dflags $ppr typ))
+        dscName'        =   T.pack . getOccString $ unLoc lid
+    ,   dscMbTypeStr'   =   Just . BS.pack . showSDocUnqual dflags $ ppr typ
     ,   dscMbModu'      =   Just pm
     ,   dscMbLocation'  =   srcSpanToLocation loc
     ,   dscMbComment'   =   toComment dflags mbComment []
@@ -293,8 +275,8 @@ transformToDescrs dflags pm = concatMap transformToDescr
     transformToDescr ((L loc (TyClD typ@(TySynonym lid _ _ _ ))), mbComment, _subCommentList) =
 #endif
         [Real $ RealDescr {
-        dscName'        =   getOccString (unLoc lid)
-    ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual dflags $ppr typ))
+        dscName'        =   T.pack . getOccString $ unLoc lid
+    ,   dscMbTypeStr'   =   Just . BS.pack . showSDocUnqual dflags $ ppr typ
     ,   dscMbModu'      =   Just pm
     ,   dscMbLocation'  =   srcSpanToLocation loc
     ,   dscMbComment'   =   toComment dflags mbComment []
@@ -309,8 +291,8 @@ transformToDescrs dflags pm = concatMap transformToDescr
     transformToDescr ((L loc (TyClD typ@(TyData DataType _ lid _ _ _ lConDecl tcdDerivs'))), mbComment,_subCommentList) =
 #endif
         [Real $ RealDescr {
-        dscName'        =   name
-    ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual dflags $ppr (uncommentData typ)))
+        dscName'        =   T.pack name
+    ,   dscMbTypeStr'   =   Just . BS.pack . showSDocUnqual dflags . ppr $ uncommentData typ
     ,   dscMbModu'      =   Just pm
     ,   dscMbLocation'  =   srcSpanToLocation loc
     ,   dscMbComment'   =   toComment dflags mbComment []
@@ -328,7 +310,7 @@ transformToDescrs dflags pm = concatMap transformToDescr
     transformToDescr ((L loc (TyClD typ@(TyData NewType _ tcdLName' _ _ _ lConDecl tcdDerivs'))), mbComment,_subCommentList) =
         [Real $ RealDescr {
         dscName'        =   name
-    ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual dflags $ppr (uncommentData typ)))
+    ,   dscMbTypeStr'   =   Just . BS.pack . showSDocUnqual dflags . ppr $ uncommentData typ
     ,   dscMbModu'      =   Just pm
     ,   dscMbLocation'  =   srcSpanToLocation loc
     ,   dscMbComment'   =   toComment dflags mbComment []
@@ -348,8 +330,8 @@ transformToDescrs dflags pm = concatMap transformToDescr
 
     transformToDescr ((L loc (TyClD cl@(ClassDecl{tcdLName=tcdLName', tcdSigs=tcdSigs', tcdDocs=docs}))), mbComment,_subCommentList) =
         [Real $ RealDescr {
-        dscName'        =   getOccString (unLoc tcdLName')
-    ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual dflags $ppr cl{tcdMeths = emptyLHsBinds}))
+        dscName'        =   T.pack . getOccString $ unLoc tcdLName'
+    ,   dscMbTypeStr'   =   Just . BS.pack . showSDocUnqual dflags $ ppr cl{tcdMeths = emptyLHsBinds}
     ,   dscMbModu'      =   Just pm
     ,   dscMbLocation'  =   srcSpanToLocation loc
     ,   dscMbComment'   =   toComment dflags mbComment []
@@ -369,12 +351,12 @@ toDescrInst :: DynFlags -> PackModule -> Instance -> Descr
 toDescrInst dflags pm inst@(Instance is_cls' _is_tcs _is_tvs is_tys' _is_dfun _is_flag) =
 #endif
         Real $ RealDescr {
-        dscName'        =   getOccString is_cls'
-    ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual dflags $ppr inst))
+        dscName'        =   T.pack $ getOccString is_cls'
+    ,   dscMbTypeStr'   =   Just . BS.pack . showSDocUnqual dflags $ ppr inst
     ,   dscMbModu'      =   Just pm
     ,   dscMbLocation'  =   srcSpanToLocation (getSrcSpan inst)
     ,   dscMbComment'   =   Nothing
-    ,   dscTypeHint'    =   InstanceDescr (map (showSDocUnqual dflags . ppr) is_tys')
+    ,   dscTypeHint'    =   InstanceDescr (map (T.pack . showSDocUnqual dflags . ppr) is_tys')
     ,   dscExported'    =   True}
 
 extractMethods :: DynFlags -> [LSig Name] -> [MyLDocDecl] -> [SimpleDescr]
@@ -389,8 +371,8 @@ extractMethod dflags ((L loc (SigD ts@(TypeSig [name] _typ))), mbDoc) =
 extractMethod dflags ((L loc (SigD ts@(TypeSig name _typ))), mbDoc) =
 #endif
     Just $ SimpleDescr
-        (getOccString (unLoc name))
-        (Just (BS.pack (showSDocUnqual dflags $ ppr ts)))
+        (T.pack . getOccString $ unLoc name)
+        (Just . BS.pack . showSDocUnqual dflags $ ppr ts)
         (srcSpanToLocation loc)
         (toComment dflags mbDoc [])
         True
@@ -399,12 +381,12 @@ extractMethod _dflags (_, _mbDoc) = Nothing
 extractConstructor :: DynFlags -> LConDecl Name -> SimpleDescr
 extractConstructor dflags decl@(L loc (ConDecl {con_name = name, con_doc = doc})) =
     SimpleDescr
-        (getOccString (unLoc name))
-        (Just (BS.pack (showSDocUnqual dflags $ppr (uncommentDecl decl))))
+        (T.pack . getOccString $ unLoc name)
+        (Just . BS.pack . showSDocUnqual dflags . ppr $uncommentDecl decl)
         (srcSpanToLocation loc)
         (case doc of
             Nothing -> Nothing
-            Just (L _ d) -> Just (BS.pack (printHsDoc d)))
+            Just (L _ d) -> Just . BS.pack . T.unpack $ printHsDoc d)
         True
 
 extractRecordFields :: DynFlags -> LConDecl Name -> [SimpleDescr]
@@ -413,18 +395,18 @@ extractRecordFields dflags (L _ _decl@(ConDecl {con_details=(RecCon flds)})) =
     where
     extractRecordFields' _field@(ConDeclField (L loc name) typ doc) =
         SimpleDescr
-            (getOccString name)
+            (T.pack $ getOccString name)
             (Just (BS.pack (showSDocUnqual dflags $ ppr typ)))
             (srcSpanToLocation loc)
             (case doc of
                 Nothing -> Nothing
-                Just (L _ d) -> Just (BS.pack (printHsDoc d)))
+                Just (L _ d) -> Just . BS.pack . T.unpack $ printHsDoc d)
             True
 extractRecordFields _ _ = []
 
 toComment :: DynFlags -> Maybe NDoc -> [NDoc] -> Maybe ByteString
-toComment dflags (Just c) _    =  Just (BS.pack (printHsDoc' dflags c))
-toComment dflags Nothing (c:_) =  Just (BS.pack (printHsDoc' dflags c))
+toComment dflags (Just c) _    =  Just . BS.pack . T.unpack $ printHsDoc' dflags c
+toComment dflags Nothing (c:_) =  Just . BS.pack . T.unpack $ printHsDoc' dflags c
 toComment _ Nothing []         =  Nothing
 
 
@@ -436,8 +418,8 @@ collectParseInfoForDecl (l,st) ((Just (L loc (TyClD (ClassDecl _ lid _ _ _ _ _ _
     =   addLocationAndComment (l,st) (unLoc lid) loc mbComment' [Class] []
 --}
 
-printHsDoc' :: DynFlags -> HsDoc Name  -> String
-printHsDoc' dflags d = show (PPDoc dflags d)
+printHsDoc' :: DynFlags -> HsDoc Name  -> Text
+printHsDoc' dflags d = T.pack . show $ PPDoc dflags d
 
 data PPDoc alpha = PPDoc DynFlags (HsDoc alpha)
 

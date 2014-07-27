@@ -33,6 +33,9 @@ import Data.Version (Version(..))
 import Distribution.ModuleName (ModuleName)
 
 import IDE.Core.CTypes
+import Control.Applicative ((<$>))
+import Data.Text (Text)
+import qualified Data.Text as T (pack, unpack)
 #if !MIN_VERSION_ghc(7,7,0)
 import Data.Typeable (Typeable)
 #endif
@@ -43,6 +46,12 @@ deriving instance Typeable ModuleName
 deriving instance Typeable PackageName
 #endif
 -----------------------------------------------------------
+
+instance BinaryShared Text where
+    put = put . T.unpack
+    get = T.pack <$> get
+    putShared x = putShared (x . T.pack) . T.unpack
+    getShared x = T.pack <$> getShared (T.unpack <$> x)
 
 instance BinaryShared PackModule where
     put =   putShared (\ (PM pack' modu') -> do

@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables, PatternGuards #-}
+{-# LANGUAGE ScopedTypeVariables, PatternGuards, OverloadedStrings #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.Metainfo.WorkspaceCollector
@@ -36,9 +36,9 @@ import GHC hiding(Id,Failed,Succeeded,ModuleName)
 import HscTypes hiding (liftIO)
 #endif
 #if MIN_VERSION_ghc(7,6,0)
-import Outputable hiding(trace)
+import Outputable hiding(trace, (<>))
 #else
-import Outputable hiding(trace, showSDoc, showSDocUnqual)
+import Outputable hiding(trace, (<>), showSDoc, showSDocUnqual)
 import qualified Outputable as O
 #endif
 import ErrUtils
@@ -57,7 +57,7 @@ import IDE.Core.CTypes hiding (SrcSpan(..))
 import Data.ByteString.Char8 (ByteString)
 import DriverPipeline (preprocess)
 import StringBuffer(hGetStringBuffer)
-import Data.List(partition,sortBy,nub,find,intercalate)
+import Data.List(partition,sortBy,nub,find)
 import Data.Ord(comparing)
 import GHC.Exception
 #if !MIN_VERSION_ghc(7,6,0)
@@ -74,57 +74,46 @@ import Module (stringToPackageId)
 import PrelNames
 import System.Log.Logger
 import Control.DeepSeq (deepseq)
-#if MIN_VERSION_ghc(6,12,1)
 import FastString(mkFastString,appendFS,nullFS,unpackFS)
 import Control.Monad.IO.Class (MonadIO, MonadIO(..))
 import Control.Monad (when)
-#else
-import GHC.Show(showSpace)
-#endif
 import Control.Exception as E
 import Control.Applicative ((<$>), (<|>))
 import Debug.Trace (trace)
+import Data.Text (Text)
+import qualified Data.Text as T (intercalate, words, unpack, pack)
+import Data.Monoid ((<>))
 
 type NDecl = LHsDecl RdrName
 myDocEmpty :: NDoc
 myDocAppend :: NDoc -> NDoc -> NDoc
 isEmptyDoc :: NDoc -> Bool
 
-#if MIN_VERSION_ghc(6,12,1)
 type NDoc  = HsDocString
 type MyLDocDecl = LDocDecl
 
 myDocEmpty=HsDocString(mkFastString "")
 myDocAppend (HsDocString l) (HsDocString r) = HsDocString (appendFS l r)
 isEmptyDoc (HsDocString fs) = nullFS fs
-#else
-type NDoc       = HsDoc RdrName
-type MyLDocDecl = LDocDecl RdrName
 
-myDocEmpty           = DocEmpty
-myDocAppend          = docAppend
-isEmptyDoc DocEmpty  = True
-isEmptyDoc _         = False
-
-#endif
 type NSig  = Located (Sig RdrName)
 
 #if !MIN_VERSION_ghc(7,6,0)
-showSDoc :: DynFlags -> SDoc -> String
+showSDoc :: DynFlags -> SDoc -> Text
 showSDoc _ = O.showSDoc
-showSDocUnqual :: DynFlags -> SDoc -> String
+showSDocUnqual :: DynFlags -> SDoc -> Text
 showSDocUnqual _ = O.showSDocUnqual
 #endif
 
-showRdrName :: DynFlags -> RdrName -> String
-showRdrName dflags r = showSDoc dflags (ppr r)
+showRdrName :: DynFlags -> RdrName -> Text
+showRdrName dflags r = T.pack . showSDoc dflags $ ppr r
 
 -- | Test
-collectWorkspace :: PackageIdentifier ->  [(String,FilePath)] -> Bool -> Bool -> FilePath -> IO()
+collectWorkspace :: PackageIdentifier ->  [(Text,FilePath)] -> Bool -> Bool -> FilePath -> IO()
 collectWorkspace packId moduleList forceRebuild writeAscii dir = do
     debugM "leksah-server" $ "collectWorkspace called with modules " ++ show moduleList ++ " in folder " ++ dir
     collectorPath <- liftIO $ getCollectorPath
-    let packageCollectorPath = collectorPath </> packageIdentifierToString packId
+    let packageCollectorPath = collectorPath </> T.unpack (packageIdentifierToString packId)
     when forceRebuild $ do
         exists <- doesDirectoryExist packageCollectorPath
         when exists $ removeDirectoryRecursive packageCollectorPath
@@ -138,12 +127,12 @@ collectWorkspace packId moduleList forceRebuild writeAscii dir = do
     mapM_ (collectModule packageCollectorPath writeAscii packId opts1) moduleList
     debugM "leksah-server" $ "after collect modules"
 
-collectModule :: FilePath -> Bool -> PackageIdentifier -> [String] -> (String,FilePath) -> IO()
+collectModule :: FilePath -> Bool -> PackageIdentifier -> [Text] -> (Text,FilePath) -> IO()
 collectModule collectorPackagePath writeAscii packId opts (modId,sourcePath) = do
     existCollectorFile <- doesFileExist collectorModulePath
     existSourceFile    <- doesFileExist sourcePath
     case mbModuleName of
-        Nothing -> errorM "leksah-server" ("Can't parse module name " ++ modId)
+        Nothing -> errorM "leksah-server" (T.unpack $ "Can't parse module name " <> modId)
         Just moduleName' ->
             if existSourceFile
             then do
@@ -158,11 +147,11 @@ collectModule collectorPackagePath writeAscii packId opts (modId,sourcePath) = d
                             else return ()
             else errorM "leksah-server" ("source file not found " ++ sourcePath)
     where
-        collectorModulePath = collectorPackagePath </> modId <.> leksahMetadataWorkspaceFileExtension
-        mbModuleName = simpleParse modId
+        collectorModulePath = collectorPackagePath </> T.unpack modId <.> leksahMetadataWorkspaceFileExtension
+        mbModuleName = simpleParse $ T.unpack modId
 
 
-collectModule' :: FilePath -> FilePath -> Bool -> PackageIdentifier -> [String] -> ModuleName -> IO()
+collectModule' :: FilePath -> FilePath -> Bool -> PackageIdentifier -> [Text] -> ModuleName -> IO()
 collectModule' sourcePath destPath writeAscii packId opts moduleName' = gcatch (
     inGhcIO (opts++["-cpp"]) [Opt_Haddock] $ \ dynFlags -> do
         session         <-  getSession
@@ -567,13 +556,13 @@ transformToDescrs dflags pm = concatMap transformToDescr
                      ClsInstD t -> ppr t
                      DataFamInstD t -> ppr t
                      TyFamInstD t -> ppr t
-            (instn,nameI,other) =   case words (showSDocUnqual dflags typp) of
+            (instn,nameI,other) =   case T.words . T.pack $ showSDocUnqual dflags typp of
                                         instn':nameI':tl -> (instn',nameI',takeWhile (/= "where") tl)
                                         _ -> ("","",[])
         in
             [Real $ RealDescr {
-            dscName'        =   instn ++ " " ++ nameI
-        ,   dscMbTypeStr'   =   Just (BS.pack (instn ++ " " ++ nameI ++ " " ++ (intercalate " " other)))
+            dscName'        =   instn <> " " <> nameI
+        ,   dscMbTypeStr'   =   Just (BS.pack . T.unpack $ instn <> " " <> nameI <> " " <> (T.intercalate " " other))
         ,   dscMbModu'      =   Just pm
         ,   dscMbLocation'  =   srcSpanToLocation loc
         ,   dscMbComment'   =   toComment mbComment []
@@ -654,18 +643,18 @@ mergeIdDescrs d1 d2 = dres ++ reexported
                                         Just d -> dscMbTypeStr d}
         addType _ d                     = d
 
-extractDeriving :: OutputableBndr alpha => DynFlags -> PackModule -> String -> LHsType alpha -> Descr
+extractDeriving :: OutputableBndr alpha => DynFlags -> PackModule -> Text -> LHsType alpha -> Descr
 extractDeriving dflags pm name (L loc typ) =
         Real $ RealDescr {
         dscName'        =   className
-    ,   dscMbTypeStr'   =   Just (BS.pack ("instance " ++ (className ++ " " ++ name)))
+    ,   dscMbTypeStr'   =   Just (BS.pack . T.unpack $ "instance " <> className <> " " <> name)
     ,   dscMbModu'      =   Just pm
     ,   dscMbLocation'  =   srcSpanToLocation loc
     ,   dscMbComment'   =   toComment (Nothing :: Maybe NDoc) []
-    ,   dscTypeHint'    =   InstanceDescr (words name)
+    ,   dscTypeHint'    =   InstanceDescr (T.words name)
     ,   dscExported'    =   True}
         where
-        className       =   showSDocUnqual dflags $ ppr typ
+        className       =   T.pack . showSDocUnqual dflags $ ppr typ
 
 extractMethods :: DynFlags -> [LSig RdrName] -> [MyLDocDecl] -> [SimpleDescr]
 extractMethods dflags sigs docs =
@@ -679,8 +668,8 @@ extractMethod dflags ((L loc (SigD ts@(TypeSig [name] _typ))), mbDoc) =
 extractMethod dflags ((L loc (SigD ts@(TypeSig name _typ))), mbDoc) =
 #endif
     Just $ SimpleDescr
-        ((showSDoc dflags . ppr) (unLoc name))
-        (Just (BS.pack (showSDocUnqual dflags $ ppr ts)))
+        (T.pack . showSDoc dflags . ppr $ unLoc name)
+        (Just . BS.pack . showSDocUnqual dflags $ ppr ts)
         (srcSpanToLocation loc)
         (toComment mbDoc [])
         True
@@ -689,12 +678,12 @@ extractMethod _ (_, _mbDoc) = Nothing
 extractConstructor :: DynFlags -> Located (ConDecl RdrName) -> SimpleDescr
 extractConstructor dflags decl@(L loc (ConDecl {con_name = name, con_doc = doc})) =
     SimpleDescr
-        ((showSDoc dflags . ppr) (unLoc name))
-        (Just (BS.pack (showSDocUnqual dflags $ppr (uncommentDecl decl))))
+        (T.pack . showSDoc dflags . ppr $ unLoc name)
+        (Just . BS.pack . showSDocUnqual dflags . ppr $ uncommentDecl decl)
         (srcSpanToLocation loc)
         (case doc of
             Nothing -> Nothing
-            Just (L _ d) -> Just (BS.pack (printHsDoc d)))
+            Just (L _ d) -> Just . BS.pack . T.unpack $ printHsDoc d)
         True
 
 extractRecordFields :: DynFlags -> Located (ConDecl RdrName) -> [SimpleDescr]
@@ -703,12 +692,12 @@ extractRecordFields dflags (L _ _decl@(ConDecl {con_details = RecCon flds})) =
     where
     extractRecordFields' _field@(ConDeclField (L loc name) typ doc) =
         SimpleDescr
-            ((showSDoc dflags . ppr) name)
-            (Just (BS.pack (showSDocUnqual dflags $ ppr typ)))
+            (T.pack . showSDoc dflags $ ppr name)
+            (Just . BS.pack . showSDocUnqual dflags $ ppr typ)
             (srcSpanToLocation loc)
             (case doc of
                 Nothing -> Nothing
-                Just (L _ d) -> Just (BS.pack (printHsDoc d)))
+                Just (L _ d) -> Just . BS.pack . T.unpack $ printHsDoc d)
             True
 extractRecordFields _ _ = []
 
@@ -736,8 +725,8 @@ srcSpanToLocation span'
 #endif
 
 toComment :: Maybe (NDoc) -> [NDoc] -> Maybe ByteString
-toComment (Just c) _    =  Just (BS.pack (printHsDoc c))
-toComment Nothing (c:_) =  Just (BS.pack (printHsDoc c))
+toComment (Just c) _    =  Just . BS.pack . T.unpack $ printHsDoc c
+toComment Nothing (c:_) =  Just . BS.pack . T.unpack $ printHsDoc c
 toComment Nothing []    =  Nothing
 
 
@@ -748,42 +737,9 @@ collectParseInfoForDecl (l,st) ((Just (L loc (TyClD (TyFamily _ lid _ _)))), mbC
 collectParseInfoForDecl (l,st) ((Just (L loc (TyClD (ClassDecl _ lid _ _ _ _ _ _ )))), mbComment')
     =   addLocationAndComment (l,st) (unLoc lid) loc mbComment' [Class] []
 --}
-#if MIN_VERSION_ghc(6,12,1)
-printHsDoc :: NDoc  -> String
-printHsDoc (HsDocString fs) = unpackFS fs
+printHsDoc :: NDoc  -> Text
+printHsDoc (HsDocString fs) = T.pack $ unpackFS fs
 
-#else
-printHsDoc :: NDoc  -> String
-printHsDoc d = show (PPDoc d)
-
--- Okay, I need to reconstruct the document comments, but for now:
---instance Outputable (DocDecl name) where
---  ppr _ = text "<**>"
-
-
-newtype PPDoc alpha = PPDoc (HsDoc alpha)
-
-instance Outputable alpha => Show (PPDoc alpha)  where
-    showsPrec _ (PPDoc DocEmpty)                 =   id
-    showsPrec _ (PPDoc (DocAppend l r))          =   shows (PPDoc l)  . shows (PPDoc r)
-    showsPrec _ (PPDoc (DocString str))          =   showString str
-    showsPrec _ (PPDoc (DocParagraph d))         =   shows (PPDoc d) . showChar '\n'
-    showsPrec _ (PPDoc (DocIdentifier l))        =   foldr (\i _f -> showChar '\'' .
-                                                     ((showString . showSDoc .  ppr) i) . showChar '\'') id l
-    showsPrec _ (PPDoc (DocModule str))          =   showChar '"' . showString str . showChar '"'
-    showsPrec _ (PPDoc (DocEmphasis doc))        =   showChar '/' . shows (PPDoc doc)  . showChar '/'
-    showsPrec _ (PPDoc (DocMonospaced doc))      =   showChar '@' . shows (PPDoc doc) . showChar '@'
-    showsPrec _ (PPDoc (DocUnorderedList l))     =
-        foldr (\s r -> showString "* " . shows (PPDoc s) . showChar '\n' . r) id l
-    showsPrec _ (PPDoc (DocOrderedList l))       =
-        foldr (\(i,n) _f -> shows n . showSpace .  shows (PPDoc i)) id (zip l [1 .. length l])
-    showsPrec _ (PPDoc (DocDefList li))          =
-        foldr (\(l,r) f -> showString "[@" . shows (PPDoc l) . showString "[@ " . shows (PPDoc r) . f) id li
-    showsPrec _ (PPDoc (DocCodeBlock doc))      =   showChar '@' . shows (PPDoc doc) . showChar '@'
-    showsPrec _ (PPDoc (DocURL str))            =   showChar '<' . showString str . showChar '>'
-    showsPrec _ (PPDoc (DocAName str))          =   showChar '#' . showString str . showChar '#'
-    showsPrec _ (PPDoc _)                       =   id
-#endif
 ---------------------------------------------------------------------------------
 -- Now the interface file stuff
 

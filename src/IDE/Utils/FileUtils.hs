@@ -1,5 +1,6 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# OPTIONS_GHC -XScopedTypeVariables -XBangPatterns #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.Utils.FileUtils
@@ -85,16 +86,17 @@ import Control.Monad.IO.Class (MonadIO(..), MonadIO)
 import Control.Exception as E (SomeException, catch)
 import System.IO.Strict (readFile)
 import qualified Data.Text as T
-       (map, stripPrefix, isSuffixOf, take, length, unpack, init, last,
-        words)
+       (pack, map, stripPrefix, isSuffixOf, take, length, unpack, init,
+        last, words)
 import Data.Monoid ((<>))
 import Control.Applicative ((<$>))
+import Data.Text (Text)
 
-haskellSrcExts :: [String]
+haskellSrcExts :: [FilePath]
 haskellSrcExts = ["hs","lhs","chs","hs.pp","lhs.pp","chs.pp","hsc"]
 
 -- | canonicalizePath without crashing
-myCanonicalizePath :: String -> IO String
+myCanonicalizePath :: FilePath -> IO FilePath
 myCanonicalizePath fp = do
     exists <- doesFileExist fp
     if exists
@@ -111,7 +113,7 @@ isSubPath fp1 fp2 =
     in res
 
 findSourceFile :: [FilePath]
-    -> [String]
+    -> [FilePath]
     -> ModuleName
     -> IO (Maybe FilePath)
 findSourceFile directories exts modId  =
@@ -122,7 +124,7 @@ findSourceFile directories exts modId  =
     in  find' allPossibles
 
 findSourceFile' :: [FilePath]
-    -> String
+    -> FilePath
     -> IO (Maybe FilePath)
 findSourceFile' directories modulePath  =
     let allPathes       =   map (\ d -> d </> modulePath) directories
@@ -160,13 +162,13 @@ getConfigDirForLoad = do
         then return (Just filePath)
         else return Nothing
 
-hasSavedConfigFile :: String -> IO Bool
+hasSavedConfigFile :: FilePath -> IO Bool
 hasSavedConfigFile fn = do
     savedConfigFile <- getConfigFilePathForSave fn
     doesFileExist savedConfigFile
 
 
-getConfigFilePathForLoad :: String -> Maybe FilePath -> FilePath -> IO FilePath
+getConfigFilePathForLoad :: FilePath -> Maybe FilePath -> FilePath -> IO FilePath
 getConfigFilePathForLoad fn mbFilePath dataDir = do
     mbCd <- case mbFilePath of
                 Just p -> return (Just p)
@@ -184,7 +186,7 @@ getConfigFilePathForLoad fn mbFilePath dataDir = do
                 then return (dataDir </> "data" </> fn)
                 else error $"Config file not found: " ++ fn
 
-getConfigFilePathForSave :: String -> IO FilePath
+getConfigFilePathForSave :: FilePath -> IO FilePath
 getConfigFilePathForSave fn = do
     cd <- getConfigDir
     return (cd </> fn)
@@ -206,7 +208,7 @@ allModules filePath = E.catch (do
             let mbModuleNames = catMaybes $
                                     map (\n -> case n of
                                                     Nothing -> Nothing
-                                                    Just s -> simpleParse s)
+                                                    Just s -> simpleParse $ T.unpack s)
                                         mbModuleStrs
             otherModules <- mapM allModules dirs
             return (mbModuleNames ++ concat otherModules)
@@ -222,7 +224,7 @@ allCabalFiles = allFilesWithExtensions [".cabal"] False []
 allHaskellSourceFiles :: FilePath -> IO [FilePath]
 allHaskellSourceFiles = allFilesWithExtensions [".hs",".lhs"] True []
 
-allFilesWithExtensions :: [String] -> Bool -> [FilePath] -> FilePath -> IO [FilePath]
+allFilesWithExtensions :: [FilePath] -> Bool -> [FilePath] -> FilePath -> IO [FilePath]
 allFilesWithExtensions extensions recurseFurther collecting filePath = E.catch (do
     exists <- doesDirectoryExist filePath
     if exists
@@ -243,7 +245,7 @@ allFilesWithExtensions extensions recurseFurther collecting filePath = E.catch (
             $ \ (_ :: SomeException) -> return collecting
 
 
-moduleNameFromFilePath :: FilePath -> IO (Maybe String)
+moduleNameFromFilePath :: FilePath -> IO (Maybe Text)
 moduleNameFromFilePath fp = E.catch (do
     exists <- doesFileExist fp
     if exists
@@ -253,7 +255,7 @@ moduleNameFromFilePath fp = E.catch (do
         else return Nothing)
             $ \ (_ :: SomeException) -> return Nothing
 
-moduleNameFromFilePath' :: FilePath -> String -> IO (Maybe String)
+moduleNameFromFilePath' :: FilePath -> FilePath -> IO (Maybe Text)
 moduleNameFromFilePath' fp str = do
     let unlitRes = if takeExtension fp == ".lhs"
                     then unlit fp str
@@ -278,10 +280,10 @@ lexeme = P.lexeme lexer
 whiteSpace :: CharParser st ()
 whiteSpace = P.whiteSpace lexer
 
-symbol :: String -> CharParser st String
-symbol = P.symbol lexer
+symbol :: Text -> CharParser st Text
+symbol = (T.pack <$>) . P.symbol lexer . T.unpack
 
-moduleNameParser :: CharParser () String
+moduleNameParser :: CharParser () Text
 moduleNameParser = do
     whiteSpace
     many skipPreproc
@@ -300,18 +302,19 @@ skipPreproc = do
         return ())
     <?> "preproc"
 
-mident :: GenParser Char st String
+mident :: GenParser Char st Text
 mident
         = do{ c <- P.identStart haskellDef
             ; cs <- many (alphaNum <|> oneOf "_'.")
-            ; return (c:cs)
+            ; return (T.pack (c:cs))
             }
         <?> "midentifier"
 
-findKnownPackages :: FilePath -> IO (Set String)
+findKnownPackages :: FilePath -> IO (Set Text)
 findKnownPackages filePath = E.catch (do
     paths           <-  getDirectoryContents filePath
-    let nameList    =   map dropExtension  $filter (\s -> leksahMetadataSystemFileExtension `isSuffixOf` s) paths
+    let nameList    =   map (T.pack . dropExtension) $
+            filter (\s -> leksahMetadataSystemFileExtension `isSuffixOf` s) paths
     return (Set.fromList nameList))
         $ \ (_ :: SomeException) -> return (Set.empty)
 
@@ -427,20 +430,20 @@ getSourcePackageIds = E.catch (do
     replaceSpace ' ' = '-'
     replaceSpace c = c
 
-figureOutHaddockOpts :: IO [String]
+figureOutHaddockOpts :: IO [Text]
 figureOutHaddockOpts = do
     (!output,_) <- runTool' "cabal" (["haddock","--with-haddock=leksahecho","--executables"]) Nothing
     let opts = concatMap (words . T.unpack . toolline) output
     let res = filterOptGhc opts
     debugM "leksah-server" ("figureOutHaddockOpts " ++ show res)
-    return res
+    return $ map T.pack res
     where
         filterOptGhc []    = []
         filterOptGhc (s:r) = case stripPrefix "--optghc=" s of
                                     Nothing -> filterOptGhc r
                                     Just s'  -> s' : filterOptGhc r
 
-figureOutGhcOpts :: IO [String]
+figureOutGhcOpts :: IO [Text]
 figureOutGhcOpts = do
     debugM "leksah-server" "figureOutGhcOpts"
     (!output,_) <- runTool' "cabal" ["build","--with-ghc=leksahecho"] Nothing
@@ -448,7 +451,7 @@ figureOutGhcOpts = do
                 options:_ -> words options
                 _         -> []
     debugM "leksah-server" $ ("figureOutGhcOpts " ++ show res)
-    return res
+    return $ map T.pack res
     where
         findMake [] = Nothing
         findMake line@(_:xs) =

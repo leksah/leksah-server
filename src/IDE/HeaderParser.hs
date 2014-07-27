@@ -37,6 +37,8 @@ import qualified Outputable as O
 import IDE.Utils.FileUtils (figureOutHaddockOpts)
 import Control.Monad.IO.Class (MonadIO(..))
 import System.IO.Strict (readFile)
+import qualified Data.Text as T (pack)
+import Control.Applicative ((<$>))
 
 #if !MIN_VERSION_ghc(7,6,0)
 showSDoc :: DynFlags -> O.SDoc -> String
@@ -73,11 +75,11 @@ transformImport :: DynFlags -> LImportDecl RdrName -> ImportDecl
 transformImport dflags (L srcSpan importDecl) =
     ImportDecl {
         importLoc = srcSpanToLocation srcSpan,
-        importModule = modName,
+        importModule = T.pack modName,
         importQualified = ideclQualified importDecl,
         importSrc = ideclSource importDecl,
-        importPkg = pkgQual,
-        importAs  = impAs,
+        importPkg = T.pack <$> pkgQual,
+        importAs  = T.pack <$> impAs,
         importSpecs = specs}
     where
         modName =  moduleNameString $ unLoc $ ideclName importDecl
@@ -93,14 +95,14 @@ transformImport dflags (L srcSpan importDecl) =
 
 transformEntity :: DynFlags -> LIE RdrName -> Maybe ImportSpec
 #if MIN_VERSION_ghc(7,2,0)
-transformEntity dflags (L _ (IEVar name))              = Just (IVar (showSDoc dflags (pprPrefixOcc name)))
+transformEntity dflags (L _ (IEVar name))              = Just (IVar (T.pack $ showSDoc dflags (pprPrefixOcc name)))
 #else
-transformEntity dflags (L _ (IEVar name))              = Just (IVar (showSDoc dflags (pprHsVar name)))
+transformEntity dflags (L _ (IEVar name))              = Just (IVar (T.pack $ showSDoc dflags (pprHsVar name)))
 #endif
-transformEntity dflags (L _ (IEThingAbs name))         = Just (IAbs (showRdrName dflags name))
-transformEntity dflags (L _ (IEThingAll name))         = Just (IThingAll (showRdrName dflags name))	
-transformEntity dflags (L _ (IEThingWith name list))   = Just (IThingWith (showRdrName dflags name)
-                                                        (map (showRdrName dflags) list))	
+transformEntity dflags (L _ (IEThingAbs name))         = Just (IAbs (T.pack $ showRdrName dflags name))
+transformEntity dflags (L _ (IEThingAll name))         = Just (IThingAll (T.pack $ showRdrName dflags name))	
+transformEntity dflags (L _ (IEThingWith name list))   = Just (IThingWith (T.pack $ showRdrName dflags name)
+                                                        (map (T.pack . showRdrName dflags) list))	
 transformEntity _ _                              = Nothing
 
 #if MIN_VERSION_ghc(7,2,0)

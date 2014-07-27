@@ -1,4 +1,4 @@
-
+{-# LANGUAGE OverloadedStrings #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.Metainfo.SourceDB
@@ -62,6 +62,10 @@ import System.Environment.Executable (getExecutablePath)
 import System.FilePath
        (takeDirectory, (</>), takeFileName)
 import System.Directory (doesDirectoryExist)
+import Data.Text (Text)
+import qualified Data.Text as T (unpack, pack)
+import Control.Applicative ((<$>))
+import Data.Monoid ((<>))
 
 -- ---------------------------------------------------------------------
 -- Function to map packages to file paths
@@ -106,16 +110,16 @@ buildSourceForPackageDB prefs = do
     filePath        <-  getConfigFilePathForSave standardSourcesFilename
     writeFile filePath  (PP.render (showSourceForPackageDB pdToFiles))
 
-showSourceForPackageDB  :: Map String [FilePath] -> PP.Doc
+showSourceForPackageDB  :: Map Text [FilePath] -> PP.Doc
 showSourceForPackageDB aMap = PP.vcat (map showIt (Map.toList aMap))
     where
-    showIt :: (String,[FilePath]) -> PP.Doc
+    showIt :: (Text,[FilePath]) -> PP.Doc
     showIt (pd,list) =  (foldl' (\l n -> l PP.$$ (PP.text $ show n)) label list)
                              PP.<>  PP.char '\n'
-        where label  =  PP.text pd PP.<> PP.colon
+        where label  =  PP.text (T.unpack pd) PP.<> PP.colon
 
 -- Strict version
-parseFromFile :: Parser a -> String -> IO (Either ParseError a)
+parseFromFile :: Parser a -> FilePath -> IO (Either ParseError a)
 parseFromFile p f = do
     input <- S.readFile f
     return $ parse p f input
@@ -155,8 +159,8 @@ lexer = P.makeTokenParser packageStyle
 whiteSpace :: CharParser st ()
 whiteSpace = P.whiteSpace lexer
 
-symbol :: String -> CharParser st String
-symbol = P.symbol lexer
+symbol :: Text -> CharParser st Text
+symbol = (T.pack <$>) . P.symbol lexer . T.unpack
 
 sourceForPackageParser :: CharParser () (Map PackageIdentifier [FilePath])
 sourceForPackageParser = do
@@ -181,7 +185,7 @@ packageDescriptionParser = try (do
     whiteSpace
     str <- many (noneOf ":")
     char ':'
-    return (packageIdentifierFromString str))
+    return (packageIdentifierFromString (T.pack str)))
     <?> "packageDescriptionParser"
 
 filePathParser :: CharParser () FilePath
@@ -193,7 +197,7 @@ filePathParser = try (do
     return (str))
     <?> "filePathParser"
 
-parseCabal :: FilePath -> IO (Maybe String)
+parseCabal :: FilePath -> IO (Maybe Text)
 parseCabal fn = do
     --putStrLn $ "Now parsing minimal " ++ fn
     res   <- parseFromFile cabalMinimalParser fn
@@ -202,39 +206,39 @@ parseCabal fn = do
             errorM "leksah-server" $"Error reading cabal file " ++ show fn ++ " " ++ show pe
             return Nothing
         Right r ->  do
-            debugM "leksah-server" r
+            debugM "leksah-server" (T.unpack r)
             return (Just r)
 
 
-cabalMinimalParser :: CharParser () String
+cabalMinimalParser :: CharParser () Text
 cabalMinimalParser = do
     r1 <- cabalMinimalP
     r2 <- cabalMinimalP
     case r1 of
         Left v -> do
             case r2 of
-                Right n -> return (n ++ "-" ++ v)
+                Right n -> return (n <> "-" <> v)
                 Left _ -> unexpected "Illegal cabal"
         Right n -> do
             case r2 of
-                Left v -> return (n ++ "-" ++ v)
+                Left v -> return (n <> "-" <> v)
                 Right _ -> unexpected "Illegal cabal"
 
-cabalMinimalP :: CharParser () (Either String String)
+cabalMinimalP :: CharParser () (Either Text Text)
 cabalMinimalP =
     do  try $(symbol "name:" <|> symbol "Name:")
         whiteSpace
         name       <-  (many $noneOf " \n")
         (many $noneOf "\n")
         char '\n'
-        return (Right name)
+        return . Right $ T.pack name
     <|> do
             try $(symbol "version:" <|> symbol "Version:")
             whiteSpace
             versionString    <-  (many $noneOf " \n")
             (many $noneOf "\n")
             char '\n'
-            return (Left versionString)
+            return . Left $ T.pack versionString
     <|> do
             many $noneOf "\n"
             char '\n'

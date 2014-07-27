@@ -1,5 +1,9 @@
-{-# OPTIONS_GHC -XFlexibleInstances -XDeriveDataTypeable -XExistentialQuantification
-    -XMultiParamTypeClasses -XFlexibleContexts -fno-warn-orphans #-}
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.Core.CTypes
@@ -83,12 +87,17 @@ import Data.Version (Version(..))
 import Distribution.Text (simpleParse, display)
 import qualified Data.ByteString.Char8 as BS (unpack, empty)
 import qualified Data.Map as Map (lookup,keysSet,splitLookup, insertWith,empty,elems,union)
-import Text.PrettyPrint as PP
 import Text.PrinterParser
 import Data.Char (isAlpha)
 import Control.DeepSeq (NFData(..))
 import PackageConfig (PackageConfig)
 import qualified Distribution.InstalledPackageInfo as IPI
+import Data.Text (Text)
+import Data.Monoid ((<>))
+import Text.PrettyPrint (fsep, Doc, (<+>), empty, text)
+import qualified Text.PrettyPrint as PP
+       (text, comma, punctuate, parens)
+import qualified Data.Text as T (pack, tail, span, unpack)
 #if !MIN_VERSION_ghc(7,7,0)
 import Distribution.Package(PackageName(..))
 #endif
@@ -97,9 +106,9 @@ import Distribution.Package(PackageName(..))
 --  | Information about the system, extraced from .hi and source files
 --
 
-leksahVersion, configDirName :: String
+leksahVersion, configDirName :: FilePath
 leksahVersion = "0.14"
-configDirName = ".leksah-" ++ leksahVersion
+configDirName = ".leksah-" <> leksahVersion
 
 metadataVersion :: Integer
 metadataVersion = 7
@@ -119,13 +128,13 @@ data ServerCommand =
             wcRebuild :: Bool,
             wcPackage :: PackageIdentifier,
             wcPath    :: FilePath,
-            wcModList :: [(String,FilePath)]}
+            wcModList :: [(Text,FilePath)]}
     |   ParseHeaderCommand {
             hcFilePath :: FilePath}
     deriving (Eq,Ord,Show,Read)
 
 data ServerAnswer = ServerOK
-    | ServerFailed String
+    | ServerFailed Text
     | ServerHeader (Either [ImportDecl] Int)
     deriving (Eq,Ord,Show,Read)
 
@@ -134,15 +143,15 @@ data PackScope  alpha       =   SymbolTable alpha => PackScope (Map PackageIdent
 data GenScope           =   forall alpha. SymbolTable alpha  => GenScopeC (PackScope alpha)
 
 class SymbolTable alpha  where
-    symLookup       :: String  -> alpha -> [Descr]
-    symbols         :: alpha -> Set String
-    symSplitLookup  :: String  -> alpha -> (alpha , Maybe [Descr], alpha)
-    symInsert       :: String  -> [Descr] -> alpha -> alpha
+    symLookup       :: Text  -> alpha -> [Descr]
+    symbols         :: alpha -> Set Text
+    symSplitLookup  :: Text  -> alpha -> (alpha , Maybe [Descr], alpha)
+    symInsert       :: Text  -> [Descr] -> alpha -> alpha
     symEmpty        :: alpha
     symElems        :: alpha -> [[Descr]]
     symUnion        :: alpha -> alpha -> alpha
 
-instance SymbolTable (Map String [Descr]) where
+instance SymbolTable (Map Text [Descr]) where
     symLookup str smap  = case str `Map.lookup` smap of
                                 Just dl -> dl
                                 Nothing -> []
@@ -166,7 +175,7 @@ instance Default PackageDescr where
 newtype Present alpha       =   Present alpha
 
 instance Show (Present PackageDescr) where
-    show (Present pd)   =   (packageIdentifierToString . pdPackage) pd
+    show (Present pd)   =   T.unpack $ (packageIdentifierToString . pdPackage) pd
 
 instance Eq PackageDescr where
     (== ) a b            =   pdPackage a == pdPackage b
@@ -177,7 +186,7 @@ instance Ord PackageDescr where
 data ModuleDescr        =   ModuleDescr {
         mdModuleId          ::   PackModule
     ,   mdMbSourcePath      ::   (Maybe FilePath)                  -- unqualified
-    ,   mdReferences        ::   (Map ModuleName (Set String)) -- imports
+    ,   mdReferences        ::   (Map ModuleName (Set Text)) -- imports
     ,   mdIdDescriptions    ::   [Descr]
 } deriving (Show,Typeable)
 
@@ -197,7 +206,7 @@ data Descr =  Real RealDescr | Reexported ReexportedDescr
         deriving (Show,Read,Typeable,Eq,Ord)
 
 data RealDescr          =   RealDescr {
-        dscName'        ::   String
+        dscName'        ::   Text
     ,   dscMbTypeStr'   ::   Maybe ByteString
     ,   dscMbModu'      ::   Maybe PackModule
     ,   dscMbLocation'  ::   Maybe Location
@@ -218,7 +227,7 @@ isReexported :: Descr -> Bool
 isReexported (Reexported _)     =   True
 isReexported _                  =   False
 
-dscName :: Descr -> String
+dscName :: Descr -> Text
 dscName (Reexported d)          = dscName (dsrDescr d)
 dscName (Real d)                = dscName' d
 
@@ -259,9 +268,9 @@ data TypeDescr   =
     |   DataDescr [SimpleDescr] [SimpleDescr] -- ^ first constructors, then fields
     |   TypeDescr
     |   NewtypeDescr SimpleDescr (Maybe SimpleDescr) -- ^ first constructors, then maybe field
-    |   ClassDescr  [String] [SimpleDescr] -- ^ first super, then methods
+    |   ClassDescr  [Text] [SimpleDescr] -- ^ first super, then methods
     |   MethodDescr Descr -- ^ classDescr
-    |   InstanceDescr [String] -- ^ binds
+    |   InstanceDescr [Text] -- ^ binds
     |   KeywordDescr
     |   ExtensionDescr
     |   ModNameDescr
@@ -278,7 +287,7 @@ instance Default DescrType where
     getDefault = Variable
 
 data SimpleDescr = SimpleDescr {
-    sdName      :: String,
+    sdName      :: Text,
     sdType      :: Maybe ByteString,
     sdLocation  :: Maybe Location,
     sdComment   :: Maybe ByteString,
@@ -306,27 +315,27 @@ data PackModule         =   PM {    pack :: PackageIdentifier
                                 deriving (Eq, Ord,Read,Show,Typeable)
 
 instance Show (Present PackModule) where
-    showsPrec _ (Present pd)  =   showString ((packageIdentifierToString . pack) pd) . showChar ':'
+    showsPrec _ (Present pd)  =   showString (T.unpack $ (packageIdentifierToString . pack) pd) . showChar ':'
                                     .  showString (display (modu pd))
 
-parsePackModule         ::   String -> PackModule
-parsePackModule str     =   let (pack',mod') = span (\c -> c /= ':') str
+parsePackModule         ::   Text -> PackModule
+parsePackModule str     =   let (pack',mod') = T.span (\c -> c /= ':') str
                             in case packageIdentifierFromString $ pack' of
-                                Nothing -> perror $ "Types>>parsePackModule: Can't parse package:" ++ str
-                                Just pi'-> case simpleParse $ tail mod' of
-                                            Nothing -> perror $
-                                                "Types>>parsePackModule: Can't parse module:" ++ str
+                                Nothing -> perror . T.unpack $ "Types>>parsePackModule: Can't parse package:" <> str
+                                Just pi'-> case simpleParse . T.unpack $ T.tail mod' of
+                                            Nothing -> perror . T.unpack $
+                                                "Types>>parsePackModule: Can't parse module:" <> str
                                             Just mn -> (PM pi' mn)
     where perror s      =   error $ "cannot parse PackModule from " ++ s
 
-showPackModule :: PackModule -> String
-showPackModule              = show. Present
+showPackModule :: PackModule -> Text
+showPackModule              = T.pack . show . Present
 
-packageIdentifierToString :: PackageIdentifier -> String
-packageIdentifierToString   = display
+packageIdentifierToString :: PackageIdentifier -> Text
+packageIdentifierToString   = T.pack . display
 
-packageIdentifierFromString :: String -> Maybe PackageIdentifier
-packageIdentifierFromString = simpleParse
+packageIdentifierFromString :: Text -> Maybe PackageIdentifier
+packageIdentifierFromString = simpleParse . T.unpack
 
 instance Show (Present Descr) where
     showsPrec _ (Present descr) =   case dscMbComment descr of
@@ -338,7 +347,7 @@ instance Show (Present Descr) where
               c com     =   showString $ unlines
                                 $ map (\(i,l) -> if i == 0 then "-- | " ++ l else "--  " ++ l)
                                     $ zip [0 .. length nelines - 1] nelines
-                                where nelines = nonEmptyLines (BS.unpack com)
+                                where nelines = nonEmptyLines $ BS.unpack com
               t         =   case dscMbTypeStr descr of
                                 Just ti -> showString $ BS.unpack ti
                                 Nothing -> id
@@ -371,7 +380,7 @@ instance Default PackageIdentifier where
 
 -- | A portion of the source, spanning one or more lines and zero or more columns.
 data SrcSpan = SrcSpan
-    { srcSpanFilename    :: String
+    { srcSpanFilename    :: FilePath
     , srcSpanStartLine   :: Int
     , srcSpanStartColumn :: Int
     , srcSpanEndLine     :: Int
@@ -405,11 +414,11 @@ instance Ord Scope where
 -- | An import declaration.
 data ImportDecl = ImportDecl
     { importLoc :: Location
-    , importModule :: String   -- ^ name of the module imported.
+    , importModule :: Text   -- ^ name of the module imported.
     , importQualified :: Bool          -- ^ imported @qualified@?
     , importSrc :: Bool                -- ^ imported with @{-\# SOURCE \#-}@?
-    , importPkg :: Maybe String        -- ^ imported with explicit package name
-    , importAs :: Maybe String -- ^ optional alias name in an @as@ clause.
+    , importPkg :: Maybe Text        -- ^ imported with explicit package name
+    , importAs :: Maybe Text -- ^ optional alias name in an @as@ clause.
     , importSpecs :: Maybe ImportSpecList
             -- ^ optional list of import specifications.
     }
@@ -447,18 +456,18 @@ data ImportSpecList
 -- | An import specification, representing a single explicit item imported
 --   (or hidden) from a module.
 data ImportSpec
-     = IVar String                  -- ^ variable
-     | IAbs String                 -- ^ @T@:
+     = IVar Text                  -- ^ variable
+     | IAbs Text                 -- ^ @T@:
                                         --   the name of a class, datatype or type synonym.
-     | IThingAll String             -- ^ @T(..)@:
+     | IThingAll Text             -- ^ @T(..)@:
                                         --   a class imported with all of its methods, or
                                         --   a datatype imported with all of its constructors.
-     | IThingWith String [String]  -- ^ @T(C_1,...,C_n)@:
+     | IThingWith Text [Text]  -- ^ @T(C_1,...,C_n)@:
                                         --   a class imported with some of its methods, or
                                         --   a datatype imported with some of its constructors.
   deriving (Eq,Ord,Read,Show)
 
-newtype VName = VName String
+newtype VName = VName Text
 
 instance Pretty ImportSpec where
     pretty (IVar name)                = pretty (VName name)
@@ -468,7 +477,7 @@ instance Pretty ImportSpec where
     	pretty name <> (parenList (map (pretty.VName) nameList))
     	
 instance Pretty VName  where
-    pretty (VName str) = if isOperator str then PP.parens (PP.text str) else (PP.text str)
+    pretty (VName t) = let str = T.unpack t in if isOperator str then PP.parens (PP.text str) else PP.text str
 
 isOperator :: String -> Bool
 isOperator ('(':_)   =  False              -- (), (,) etc

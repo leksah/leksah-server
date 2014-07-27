@@ -1,4 +1,6 @@
-{-# OPTIONS_GHC -XScopedTypeVariables -fno-warn-type-defaults #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -fno-warn-type-defaults #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  Main
@@ -40,7 +42,6 @@ import IDE.Metainfo.SourceDB (buildSourceForPackageDB, getDataDir, version)
 import Data.Time
 import Control.Exception
        (catch, SomeException)
-import MyMissing(trim)
 import System.Log
 import System.Log.Logger(updateGlobalLogger,rootLoggerName,addHandler,debugM,infoM,errorM,
     setLevel)
@@ -61,6 +62,10 @@ import System.Directory
         doesDirectoryExist)
 import IDE.Metainfo.SourceCollectorH (PackageCollectStats(..))
 import Control.Monad.IO.Class (MonadIO(..))
+import qualified Data.Text as T (strip, pack, unpack)
+import Data.Text (Text)
+import Control.Applicative ((<$>))
+import Data.Monoid ((<>))
 
 -- --------------------------------------------------------------------
 -- Command line options
@@ -69,7 +74,7 @@ import Control.Monad.IO.Class (MonadIO(..))
 
 data Flag =    CollectSystem
 
-             | ServerCommand (Maybe String)
+             | ServerCommand (Maybe Text)
              --modifiers
              | Rebuild
              | Sources
@@ -78,8 +83,8 @@ data Flag =    CollectSystem
              | VersionF
              | Help
              | Debug
-             | Verbosity String
-             | LogFile String
+             | Verbosity Text
+             | LogFile Text
              | Forever
              | EndWithLast
        deriving (Show,Eq)
@@ -90,7 +95,7 @@ options =   [
 -- main functions
              Option ['s'] ["system"] (NoArg CollectSystem)
                 "Collects new information for installed packages"
-         ,   Option ['r'] ["server"] (OptArg ServerCommand "Maybe Port")
+         ,   Option ['r'] ["server"] (OptArg (ServerCommand . (T.pack <$>)) "Maybe Port")
                 "Start as server."
          ,   Option ['b'] ["rebuild"] (NoArg Rebuild)
                 "Modifier for -s and -p: Rebuild metadata"
@@ -102,9 +107,9 @@ options =   [
                 "Display command line options"
          ,   Option ['d'] ["debug"] (NoArg Debug)
                 "Write ascii pack files"
-         ,   Option ['e'] ["verbosity"] (ReqArg Verbosity "Verbosity")
+         ,   Option ['e'] ["verbosity"] (ReqArg (Verbosity . T.pack) "Verbosity")
                 "One of DEBUG, INFO, NOTICE, WARNING, ERROR, CRITICAL, ALERT, EMERGENCY"
-         ,   Option ['l'] ["logfile"] (ReqArg LogFile "LogFile")
+         ,   Option ['l'] ["logfile"] (ReqArg (LogFile . T.pack) "LogFile")
                 "File path for logging messages"
          ,   Option ['f'] ["forever"] (NoArg Forever)
                 "Don't end the server when last connection ends"
@@ -142,7 +147,7 @@ main =  withSocketsDo $ catch inner handler
                                         _           -> Nothing) o
             let verbosity    =  case verbosity' of
                                     [] -> INFO
-                                    h:_ -> read h
+                                    h:_ -> read $ T.unpack h
             let logFile'     =  catMaybes $
                                     map (\x -> case x of
                                         LogFile s   -> Just s
@@ -152,7 +157,7 @@ main =  withSocketsDo $ catch inner handler
                                     h:_ -> Just h
             updateGlobalLogger rootLoggerName (\ l -> setLevel verbosity l)
             when (isJust logFile) $  do
-                handler' <- fileHandler (fromJust logFile) verbosity
+                handler' <- fileHandler (T.unpack $ fromJust logFile) verbosity
                 updateGlobalLogger rootLoggerName (\ l -> addHandler handler' l)
             infoM "leksah-server" $ "***server start"
             debugM "leksah-server" $ "args: " ++ show args
@@ -195,7 +200,7 @@ main =  withSocketsDo $ catch inner handler
                                         waitFor running
                                         return ()
                                     (Just ps:_)  -> do
-                                        let port = read ps
+                                        let port = read $ T.unpack ps
                                         running <- serveOne Nothing (server (PortNum
                                             (fromIntegral port)) newPrefs connRef threadId localServerAddr)
                                         waitFor running
@@ -239,7 +244,7 @@ doCommands' prefs connRef threadId (h,n,p) = do
                             hPutStrLn h (show ServerOK)
                             hFlush h)
                         (\ (e :: SomeException) -> do
-                            hPutStrLn h (show (ServerFailed (show e)))
+                            hPutStrLn h (show (ServerFailed (T.pack $ show e)))
                             hFlush h)
                     WorkspaceCommand rebuild package path modList ->
                         catch (do
@@ -247,7 +252,7 @@ doCommands' prefs connRef threadId (h,n,p) = do
                             hPutStrLn h (show ServerOK)
                             hFlush h)
                         (\ (e :: SomeException) -> do
-                            hPutStrLn h (show (ServerFailed (show e)))
+                            hPutStrLn h (show (ServerFailed (T.pack $ show e)))
                             hFlush h)
                     ParseHeaderCommand filePath ->
                         catch (do
@@ -255,7 +260,7 @@ doCommands' prefs connRef threadId (h,n,p) = do
                             hPutStrLn h (show res)
                             hFlush h)
                         (\ (e :: SomeException) -> do
-                            hPutStrLn h (show (ServerFailed (show e)))
+                            hPutStrLn h (show (ServerFailed (T.pack $ show e)))
                             hFlush h)
             doCommands' prefs connRef threadId (h,n,p)
 
@@ -294,9 +299,9 @@ writeStats stats = do
     appendFile reportPath (report time)
     where
         report time = "\n++++++++++++++++++++++++++++++\n" ++ show time ++ "\n++++++++++++++++++++++++++++++\n"
-                        ++ header' time ++ summary ++ details
+                        ++ header' time ++ summary ++ T.unpack details
         header' _time = "\nLeksah system metadata collection "
-        summary = "\nSuccess with         = " ++ packs ++
+        summary = "\nSuccess with         = " ++ T.unpack packs ++
                   "\nPackages total       = " ++ show packagesTotal ++
                   "\nPackages with source = " ++ show packagesWithSource ++
                   "\nPackages retreived   = " ++ show packagesRetreived ++
@@ -311,9 +316,9 @@ writeStats stats = do
         percentageWithSource = (fromIntegral modulesWithSource) * 100.0 /
                                     (fromIntegral modulesTotal')
         details              = foldr detail "" (filter (isJust . mbError) stats)
-        detail stat string   = string ++ "\n" ++ packageString stat ++ " " ++ trim (fromJust (mbError stat))
-        packs                = foldr (\stat string -> string ++ packageString stat ++ " ")
+        detail stat string   = string <> "\n" <> packageString stat <> " " <> (T.strip . fromJust $ mbError stat)
+        packs                = foldr (\stat string -> string <> packageString stat <> " ")
                                         "" (take 10 (filter withSource stats))
-                                        ++ if packagesWithSource > 10 then "..." else ""
+                                        <> if packagesWithSource > 10 then "..." else ""
 
 
