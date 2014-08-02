@@ -80,6 +80,7 @@ import Control.Applicative
 import Data.Conduit as C
        ((=$), ($$), ($=))
 import qualified Data.Conduit as C
+import Control.Monad.Trans.Resource (runResourceT)
 import qualified Data.Conduit.Text as CT (decode, utf8)
 import qualified Data.Conduit.List as CL
        (consume, concatMap, concatMapAccumM, sequence, map)
@@ -149,7 +150,7 @@ runTool' :: FilePath -> [Text] -> Maybe FilePath -> IO ([ToolOutput], ProcessHan
 runTool' fp args mbDir = do
     debugM "leksah-server" $ "Start: " ++ show (fp, args)
     (out,pid) <- runTool fp args mbDir
-    output <- C.runResourceT $ out $$ CL.consume
+    output <- runResourceT $ out $$ CL.consume
     waitForProcess pid
     debugM "leksah-server" $ "End: " ++ show (fp, args)
     return (output,pid)
