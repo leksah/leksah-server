@@ -573,12 +573,12 @@ transformToDescrs dflags pm = concatMap transformToDescr
 #elif MIN_VERSION_ghc(7,6,0)
     transformToDescr ((L loc (InstD _inst@(ClsInstD typ _ _ _))), mbComment, _sigList) =
         [Real $ RealDescr {
-        dscName'        =   name
+        dscName'        =   (T.pack name)
     ,   dscMbTypeStr'   =   Just (BS.pack ("instance " ++ (showSDocUnqual dflags $ppr typ)))
     ,   dscMbModu'      =   Just pm
     ,   dscMbLocation'  =   srcSpanToLocation loc
     ,   dscMbComment'   =   toComment mbComment []
-    ,   dscTypeHint'    =   InstanceDescr other
+    ,   dscTypeHint'    =   InstanceDescr (map T.pack other)
     ,   dscExported'    =   True}]
         where
         (name,other)           =   case words (showSDocUnqual dflags $ppr typ) of
