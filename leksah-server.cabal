@@ -38,10 +38,10 @@ library
                directory >=1.0.0.2 && <1.3, filepath >=1.1.0.1 && <1.4, ghc >=7.0.4 && <7.9,
                ltk >=0.14.0.0 && <0.15, parsec >=2.1.0.1 && <3.2,
                pretty >=1.0.1.0 && <1.2, time >=1.1 && <1.5, deepseq >=1.1 && <1.4,
-               hslogger >= 1.0.7 && <1.3, network >=2.2 && <3.0, conduit >= 1.0.8 && <1.2,
+               hslogger >= 1.0.7 && <1.3, network >=2.2 && <3.0, conduit >= 1.0.8 && <1.3,
                conduit-extra >=1.0.0.1 && <1.2, resourcet,
                attoparsec-conduit >=1.0.1.2 && <1.2, attoparsec >=0.10.0.3 && <0.13,
-               transformers >=0.2.2.0 && <0.4, strict >=0.3.2 && <0.4, text >=0.11.3.1 && <1.2
+               transformers >=0.2.2.0 && <0.5, strict >=0.3.2 && <0.4, text >=0.11.3.1 && <1.3
     if (impl(ghc >= 7.8))
        build-depends: haddock >= 2.7.2 && <2.15
     else
@@ -102,10 +102,10 @@ executable leksah-server
                directory >=1.0.0.2 && <1.3, filepath >=1.1.0.1 && <1.6, ghc >=7.0.4 && <7.9,
                ltk >=0.14.0.0 && <0.15, parsec >=2.1.0.1 && <3.2,
                pretty >=1.0.1.0 && <1.2, time >=1.1 && <1.5, deepseq >=1.1 && <1.4,
-               hslogger >= 1.0.7 && <1.3, network >=2.2 && <3.0, conduit >= 1.0.8 && <1.2,
+               hslogger >= 1.0.7 && <1.3, network >=2.2 && <3.0, conduit >= 1.0.8 && <1.3,
                conduit-extra >=1.0.0.1 && <1.2, resourcet,
                attoparsec-conduit >=1.0.1.2 && <1.2, attoparsec >=0.10.0.3 && <0.13,
-               transformers >=0.2.2.0 && <0.4, strict >=0.3.2 && <0.4, text >=0.11.3.1 && <1.2
+               transformers >=0.2.2.0 && <0.5, strict >=0.3.2 && <0.4, text >=0.11.3.1 && <1.3
     if (impl(ghc >= 7.8))
        build-depends: haddock >= 2.7.2 && <2.15
     else
@@ -175,10 +175,10 @@ executable leksahecho
     ghc-prof-options: -auto-all -prof
 --    ghc-shared-options: -auto-all -prof
     build-depends:  base >= 4.0.0.0 && <4.8, hslogger >= 1.0.7 && <1.3, deepseq >=1.1 && <1.4,
-               bytestring >=0.9.0.1 && <0.11, conduit >= 1.0.8 && <1.2,
+               bytestring >=0.9.0.1 && <0.11, conduit >= 1.0.8 && <1.3,
                conduit-extra >=1.0.0.1 && <1.2, resourcet,
                attoparsec-conduit >=1.0.1.2 && <1.2, attoparsec >=0.10.0.3 && <0.13,
-               transformers >=0.2.2.0 && <0.4, text >=0.11.3.1 && <1.2
+               transformers >=0.2.2.0 && <0.5, text >=0.11.3.1 && <1.3
 
     if (impl(ghc >= 7.2))
        build-depends: process >= 1.1 && <1.3
@@ -200,7 +200,7 @@ test-suite test-tool
     main-is:    TestTool.hs
     build-depends: base >= 4.0.0.0 && <4.8,  hslogger >= 1.0.7 && <1.3,
                leksah-server == 0.14.0.1,
-               HUnit >=1.2 && <1.3, transformers >=0.2.2.0 && <0.4, conduit >= 1.0.8 && <1.2,
+               HUnit >=1.2 && <1.3, transformers >=0.2.2.0 && <0.5, conduit >= 1.0.8 && <1.3,
                conduit-extra >=1.0.0.1 && <1.2, resourcet
 
     if (impl(ghc >= 7.2))
