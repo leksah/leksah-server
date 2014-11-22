@@ -121,7 +121,7 @@ expandHomePath p = case splitPath p of
     _ -> return p
 
 getSourceDirectories :: Prefs -> IO [FilePath]
-getSourceDirectories = (mapM expandHomePath) . sourceDirectories
+getSourceDirectories = mapM expandHomePath . sourceDirectories
 
 getUnpackDirectory :: Prefs -> IO (Maybe FilePath)
 getUnpackDirectory = maybe (return Nothing) (liftM Just . expandHomePath) . unpackDirectory

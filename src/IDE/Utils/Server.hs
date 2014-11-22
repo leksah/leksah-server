@@ -33,6 +33,7 @@ import Control.Exception as E
 import Data.Word
 import System.Log.Logger (infoM)
 import Data.Text (Text)
+import Control.Monad (void)
 
 data UserAndGroup = UserAndGroup Text Text | UserWithDefaultGroup Text
 
@@ -57,7 +58,7 @@ serverSocket server = do
 	sock <- serverSocket' server
 	setSocketOption sock ReuseAddr 1
 	bindSocket sock (serverAddr server)
-	infoM "leksah-server" $ ("Bind " ++ show (serverAddr server))
+	infoM "leksah-server" $ "Bind " ++ show (serverAddr server)
 	listen sock maxListenQueue
 	return (sock, server)
 
@@ -89,7 +90,7 @@ class WaitFor a where
 	waitFor :: a -> IO ()
 
 instance WaitFor (MVar a) where
-	waitFor mvar = readMVar mvar >> return ()
+	waitFor mvar = void (readMVar mvar)
 
 instance WaitFor a => WaitFor [a] where
 	waitFor = mapM_ waitFor
@@ -100,7 +101,7 @@ instance WaitFor (ThreadId, MVar ()) where
 acceptance :: Socket -> ServerRoutine -> IO ()
 acceptance sock action = E.catch (do
 		dta <- accept sock
-		forkIO (action dta) >> return ())
+		void . forkIO $ action dta)
 		(\(e :: SomeException) -> print e) >>
 		acceptance sock action
 

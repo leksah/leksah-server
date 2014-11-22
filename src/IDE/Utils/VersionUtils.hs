@@ -35,13 +35,13 @@ getGhcVersion = E.catch (do
                     else vers
     debugM "leksah-server" $ "Got GHC Version " ++ T.unpack vers2
     return $ T.unpack vers2
-    ) $ \ (_ :: SomeException) -> error ("FileUtils>>getGhcVersion failed")
+    ) $ \ (_ :: SomeException) -> error "FileUtils>>getGhcVersion failed"
 
 getGhcInfo :: IO Text
 getGhcInfo = E.catch (do
     (!output,_) <- runTool' "ghc" ["--info"] Nothing
     return . T.unlines $ map toolline output
-    ) $ \ (_ :: SomeException) -> error ("FileUtils>>getGhcInfo failed")
+    ) $ \ (_ :: SomeException) -> error "FileUtils>>getGhcInfo failed"
 
 getHaddockVersion :: IO Text
 getHaddockVersion = E.catch (do
@@ -51,7 +51,7 @@ getHaddockVersion = E.catch (do
                     then T.init vers
                     else vers
     return vers2
-    ) $ \ (_ :: SomeException) -> error ("FileUtils>>getHaddockVersion failed")
+    ) $ \ (_ :: SomeException) -> error "FileUtils>>getHaddockVersion failed"
 
 
 
