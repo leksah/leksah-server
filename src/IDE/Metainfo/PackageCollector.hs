@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 -----------------------------------------------------------------------------
@@ -25,7 +24,7 @@ import IDE.StrippedPrefs (RetrieveStrategy(..), Prefs(..))
 import PackageConfig (PackageConfig)
 import IDE.Metainfo.SourceCollectorH
        (findSourceForPackage, packageFromSource, PackageCollectStats(..))
-import System.Log.Logger (debugM, infoM)
+import System.Log.Logger (errorM, debugM, infoM)
 import IDE.Metainfo.InterfaceCollector (collectPackageFromHI)
 import IDE.Core.CTypes
        (getThisPackage, SimpleDescr(..), TypeDescr(..),
@@ -34,7 +33,7 @@ import IDE.Core.CTypes
         PackageDescr(..), metadataVersion, leksahVersion,
         packageIdentifierToString)
 import IDE.Utils.FileUtils (getCollectorPath)
-import System.Directory (doesFileExist, setCurrentDirectory)
+import System.Directory (setCurrentDirectory)
 import IDE.Utils.Utils
        (leksahMetadataPathFileExtension,
         leksahMetadataSystemFileExtension)
@@ -44,25 +43,25 @@ import qualified Data.Map as Map
        (fromListWith, fromList, keys, lookup)
 import Data.List (delete, nub)
 import Distribution.Text (display)
-import Control.Exception (SomeException)
-#if defined(USE_LIBCURL)
-import Network.Curl (curlGetString_, CurlCode(..))
-import Control.Monad (when)
-import System.IO (withBinaryFile, IOMode(..))
-import Data.ByteString (hPutStr)
-#else
-#ifdef MIN_VERSION_process_leksah
-import IDE.System.Process (system)
-#else
-import System.Process (system)
-#endif
-#endif
 import Control.Monad.IO.Class (MonadIO, MonadIO(..))
 import qualified Control.Exception as E (SomeException, catch)
 import IDE.Utils.Tool (runTool')
 import Data.Monoid ((<>))
 import qualified Data.Text as T (unpack)
 import Data.Text (Text)
+import Control.Applicative ((<$>))
+import Network.HTTP.Proxy (Proxy(..), fetchProxy)
+import Network.Browser
+       (request, setAuthorityGen, setOutHandler, setErrHandler, setProxy,
+        browse)
+import Data.Char (isSpace)
+import Network.URI (parseURI)
+import Network.HTTP (rspBody, rspCode, Header(..), Request(..))
+import Network.HTTP.Base (RequestMethod(..))
+import Network.HTTP.Headers (HeaderName(..))
+import qualified Data.ByteString as BS (writeFile, empty)
+import qualified Paths_leksah_server (version)
+import Distribution.System (buildArch, buildOS)
 
 collectPackage :: Bool -> Prefs -> Int -> (PackageConfig,Int) -> IO PackageCollectStats
 collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
@@ -134,23 +133,37 @@ collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
             setCurrentDirectory collectorPath
             let fullUrl  = T.unpack (retrieveURL prefs) <> "/metadata-" <> leksahVersion <> "/" <> T.unpack packString <> leksahMetadataSystemFileExtension
                 filePath = collectorPath </> T.unpack packString <.> leksahMetadataSystemFileExtension
-            debugM "leksah-server" $ "collectPackage: before retreiving = " <> fullUrl
-#if defined(USE_LIBCURL)
-            E.catch (do
-                (code, string) <- curlGetString_ fullUrl []
-                when (code == CurlOK) $
-                    withBinaryFile filePath WriteMode $ \ file -> do
-                        hPutStr file string)
-#elif defined(USE_CURL)
-            E.catch ((system $ "curl -OL --fail " ++ fullUrl) >> return ())
-#else
-            E.catch ((system $ "wget " ++ fullUrl) >> return ())
-#endif
-                (\(e :: SomeException) ->
-                    debugM "leksah-server" $ "collectPackage: Error when calling wget " ++ show e)
-            debugM "leksah-server" . T.unpack $ "collectPackage: after retreiving = " <> packString -- ++ " result = " ++ res
-            exist <- doesFileExist filePath
-            return exist
+
+            case parseURI fullUrl of
+                Nothing -> do
+                    errorM "leksah-server" $ "collectPackage: invalid URI = " <> fullUrl
+                    return False
+                Just uri -> do
+                    debugM "leksah-server" $ "collectPackage: before retreiving = " <> fullUrl
+                    proxy <- filterEmptyProxy . trimProxyUri <$> fetchProxy True
+                    (_, rsp) <- browse $ do
+                        setProxy proxy
+                        setErrHandler (errorM "leksah-server")
+                        setOutHandler (debugM "leksah-server")
+                        setAuthorityGen (\_ _ -> return Nothing)
+                        request Request{ rqURI      = uri
+                                        , rqMethod  = GET
+                                        , rqHeaders = [Header HdrUserAgent userAgent]
+                                        , rqBody    = BS.empty }
+                    if rspCode rsp == (2,0,0)
+                        then do
+                            BS.writeFile filePath $ rspBody rsp
+                            return True
+                        else return False
+
+        trimProxyUri (Proxy uri auth) = Proxy (trim uri) auth
+        trimProxyUri p = p
+        filterEmptyProxy (Proxy "" _) = NoProxy
+        filterEmptyProxy p = p
+        trim = f . f where f = reverse . dropWhile isSpace
+        userAgent = concat [ "leksah-server/", display Paths_leksah_server.version
+                           , " (", display buildOS, "; ", display buildArch, ")"
+                           ]
         writeMerged packageDescrS packageDescrHi fpSource packageName = do
             let mergedPackageDescr = mergePackageDescrs packageDescrHi packageDescrS
             liftIO $ writeExtractedPackage writeAscii mergedPackageDescr
