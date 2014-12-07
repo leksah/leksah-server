@@ -241,7 +241,7 @@ mergeDescr Nothing (Just descr) = descr
 mergeDescr (Just (Real rdhi)) (Just (Real rdsrc)) =
     Real RealDescr {
         dscName'        = dscName' rdhi
-    ,   dscMbTypeStr'   = dscMbTypeStr' rdhi
+    ,   dscMbTypeStr'   = dscMbTypeStr' rdsrc
     ,   dscMbModu'      = dscMbModu' rdsrc
     ,   dscMbLocation'  = dscMbLocation' rdsrc
     ,   dscMbComment'   = dscMbComment' rdsrc
