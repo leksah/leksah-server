@@ -146,9 +146,9 @@ packageFromSource cabalPath packageConfig = do
             debugM "leksah-server" "would block"
             return ([])
         handler (e :: NewException.SomeException) = do
-            warningM "leksah-server" ("Ghc failed to process: " ++ show e)
+            warningM "leksah-server" ("Ghc failed to process: " ++ show e ++ " (" ++ cabalPath ++ ")")
             return (Nothing, PackageCollectStats packageName Nothing False False
-                                            (Just ("Ghc failed to process: " <> T.pack (show e))))
+                                            (Just ("Ghc failed to process: " <> T.pack (show e) <> " (" <> T.pack cabalPath <> ")")))
         inner ghcFlags = inGhcIO ghcFlags [Opt_Haddock] $ \ dflags -> do
 #if MIN_VERSION_haddock(2,8,0)
             (interfaces,_) <- processModules verbose (exportedMods ++ hiddenMods) [] []
