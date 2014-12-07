@@ -158,10 +158,12 @@ collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
         runCabalConfigure fpSource = do
             let dirPath      = dropFileName fpSource
             setCurrentDirectory dirPath
-            E.catch (runTool' "cabal" (["configure","--user"]) Nothing >> return ())
-                                    (\ (_e :: E.SomeException) -> do
-                                        debugM "leksah-server" "Can't configure"
-                                        return ())
+            E.catch (do runTool' "cabal" ["clean"] Nothing
+                        runTool' "cabal" ["configure","--user"] Nothing
+                        return ())
+                    (\ (_e :: E.SomeException) -> do
+                        debugM "leksah-server" "Can't configure"
+                        return ())
 
 writeExtractedPackage :: MonadIO m => Bool -> PackageDescr -> m ()
 writeExtractedPackage writeAscii pd = do
