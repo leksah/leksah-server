@@ -404,7 +404,7 @@ getCollectorPath = liftIO $ do
 getSysLibDir :: IO FilePath
 getSysLibDir = E.catch (do
     (!output,_) <- runTool' "ghc" ["--print-libdir"] Nothing
-    let libDir = toolline $ head output
+    let libDir = head [line | ToolOutput line <- output]
         libDir2 = if ord (T.last libDir) == 13
                     then T.init libDir
                     else libDir
@@ -434,7 +434,7 @@ getSourcePackageIds = E.catch (do
 figureOutHaddockOpts :: IO [Text]
 figureOutHaddockOpts = do
     (!output,_) <- runTool' "cabal" (["haddock","--with-haddock=leksahecho","--executables"]) Nothing
-    let opts = concatMap (words . T.unpack . toolline) output
+    let opts = concat [words $ T.unpack l | ToolOutput l <- output]
     let res = filterOptGhc opts
     debugM "leksah-server" ("figureOutHaddockOpts " ++ show res)
     return $ map T.pack res
@@ -448,7 +448,7 @@ figureOutGhcOpts :: IO [Text]
 figureOutGhcOpts = do
     debugM "leksah-server" "figureOutGhcOpts"
     (!output,_) <- runTool' "cabal" ["build","--with-ghc=leksahecho"] Nothing
-    let res = case catMaybes $ map (findMake . T.unpack . toolline) output of
+    let res = case catMaybes [findMake $ T.unpack l | ToolOutput l <- output] of
                 options:_ -> words options
                 _         -> []
     debugM "leksah-server" $ ("figureOutGhcOpts " ++ show res)

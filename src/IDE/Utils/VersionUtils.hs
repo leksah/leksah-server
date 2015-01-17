@@ -19,7 +19,7 @@ module IDE.Utils.VersionUtils (
 ,   getGhcInfo
 ) where
 
-import IDE.Utils.Tool (toolline, runTool')
+import IDE.Utils.Tool (ToolOutput(..), runTool')
 import Data.Char (ord)
 import System.Log.Logger (debugM)
 import Control.Exception as E (SomeException, catch)
@@ -29,7 +29,7 @@ import Data.Text (Text)
 getGhcVersion :: IO FilePath
 getGhcVersion = E.catch (do
     (!output,_) <- runTool' "ghc" ["--numeric-version"] Nothing
-    let vers = toolline $ head output
+    let vers = head [l | ToolOutput l <- output]
         vers2 = if ord (T.last vers) == 13
                     then T.init vers
                     else vers
@@ -40,13 +40,13 @@ getGhcVersion = E.catch (do
 getGhcInfo :: IO Text
 getGhcInfo = E.catch (do
     (!output,_) <- runTool' "ghc" ["--info"] Nothing
-    return . T.unlines $ map toolline output
+    return . T.unlines $ [l | ToolOutput l <- output]
     ) $ \ (_ :: SomeException) -> error "FileUtils>>getGhcInfo failed"
 
 getHaddockVersion :: IO Text
 getHaddockVersion = E.catch (do
     (!output,_) <- runTool' "haddock" ["--version"] Nothing
-    let vers = toolline $ head output
+    let vers = head [l | ToolOutput l <- output]
         vers2 = if ord (T.last vers) == 13
                     then T.init vers
                     else vers

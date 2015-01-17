@@ -62,10 +62,10 @@ import IDE.System.Process
 import IDE.System.Process.Internals (StdStream(..))
 #else
 import System.Process
-       (proc, waitForProcess, ProcessHandle, createProcess, CreateProcess(..),
-       interruptProcessGroupOf, runCommand, getProcessExitCode,
-       runProcess, runInteractiveProcess, readProcessWithExitCode,
-       terminateProcess)
+       (showCommandForUser, proc, waitForProcess, ProcessHandle,
+        createProcess, CreateProcess(..), interruptProcessGroupOf,
+        runCommand, getProcessExitCode, runProcess, runInteractiveProcess,
+        readProcessWithExitCode, terminateProcess)
 import System.Process.Internals (StdStream(..))
 #endif
 import qualified Data.Text as T
@@ -168,7 +168,9 @@ runTool executable arguments mbDir = do
           create_group = True }
 #endif
     output <- getOutputNoPrompt inp out err pid
-    return (output, pid)
+    return (do
+        C.yield . ToolInput . T.pack $ showCommandForUser executable (map T.unpack arguments)
+        output, pid)
 
 newToolState :: IO ToolState
 newToolState = do
