@@ -72,31 +72,31 @@ doneTesting testMVar = do
 tests = test [
     "Exit Success" ~: do
         (output, _) <- runSelf' ["ExitSuccess"]
-        output `check` [ToolExit ExitSuccess],
+        output `check` [ToolInput "dist/build/test-tool/test-tool ExitSuccess", ToolExit ExitSuccess],
     "Exit Failure" ~: do
         (output, _) <- runSelf' ["Exit42"]
-        output `check` [ToolExit (ExitFailure 42)],
+        output `check` [ToolInput "dist/build/test-tool/test-tool Exit42", ToolExit (ExitFailure 42)],
     "Single Blank Out Line" ~: do
         (output, _) <- runSelf' ["BlankLine", "StdOut"]
-        output `check` [ToolOutput "", ToolExit ExitSuccess],
+        output `check` [ToolInput "dist/build/test-tool/test-tool BlankLine StdOut", ToolOutput "", ToolExit ExitSuccess],
     "Single Blank Err Line" ~: do
         (output, _) <- runSelf' ["BlankLine", "StdErr"]
-        output `check` [ToolError "", ToolExit ExitSuccess],
+        output `check` [ToolInput "dist/build/test-tool/test-tool BlankLine StdErr", ToolError "", ToolExit ExitSuccess],
     "Hello Out" ~: do
         (output, _) <- runSelf' ["Hello", "StdOut"]
-        output `check` [ToolOutput "Hello World", ToolExit ExitSuccess],
+        output `check` [ToolInput "dist/build/test-tool/test-tool Hello StdOut", ToolOutput "Hello World", ToolExit ExitSuccess],
     "Hello Err" ~: do
         (output, _) <- runSelf' ["Hello", "StdErr"]
-        output `check` [ToolError "Hello World", ToolExit ExitSuccess],
+        output `check` [ToolInput "dist/build/test-tool/test-tool Hello StdErr", ToolError "Hello World", ToolExit ExitSuccess],
     "Both" ~: do
         (output, _) <- runSelf' ["ErrAndOut"]
-        output `check` [ToolError "Error", ToolOutput "Output", ToolExit ExitSuccess],
+        output `check` [ToolInput "dist/build/test-tool/test-tool ErrAndOut", ToolError "Error", ToolOutput "Output", ToolExit ExitSuccess],
     "Unterminated Out" ~: do
         (output, _) <- runSelf' ["Unterminated", "StdOut"]
-        output `check` [ToolOutput "Unterminated", ToolExit ExitSuccess],
+        output `check` [ToolInput "dist/build/test-tool/test-tool Unterminated StdOut", ToolOutput "Unterminated", ToolExit ExitSuccess],
     "Unterminated Err" ~: do
         (output, _) <- runSelf' ["Unterminated", "StdErr"]
-        output `check` [ToolError "Unterminated", ToolExit ExitSuccess],
+        output `check` [ToolInput "dist/build/test-tool/test-tool Unterminated StdErr", ToolError "Unterminated", ToolExit ExitSuccess],
     "GHCi Failed Sart" ~: do
         t <- newEmptyMVar
         tool <- newGhci' ["MissingFile.hs"] $ do
