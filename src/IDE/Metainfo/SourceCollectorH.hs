@@ -82,10 +82,7 @@ import Data.Text (Text)
 import qualified Data.Text as T (unpack, pack)
 import Data.Monoid ((<>))
 
-#ifdef MIN_VERSION_haddock_leksah
-#else
-type HsDoc = Doc
-#endif
+type HsDoc a = Doc a
 
 type NDoc  = HsDoc Name
 
@@ -150,11 +147,7 @@ packageFromSource cabalPath packageConfig = do
             return (Nothing, PackageCollectStats packageName Nothing False False
                                             (Just ("Ghc failed to process: " <> T.pack (show e) <> " (" <> T.pack cabalPath <> ")")))
         inner ghcFlags = inGhcIO ghcFlags [Opt_Haddock] $ \ dflags -> do
-#if MIN_VERSION_haddock(2,8,0)
             (interfaces,_) <- processModules verbose (exportedMods ++ hiddenMods) [] []
-#else
-            (interfaces,_) <- createInterfaces verbose (exportedMods ++ hiddenMods) [] []
-#endif
             liftIO $ print (length interfaces)
             let mods = map (interfaceToModuleDescr dflags dirPath (getThisPackage packageConfig)) interfaces
             sp <- liftIO $ myCanonicalizePath dirPath
@@ -196,13 +189,8 @@ interfaceToModuleDescr dflags _dirPath pid interface =
                         (ifaceInstances interface) [] --(ifaceLocals interface)
         imports    = Map.empty --TODO
 
-#if MIN_VERSION_haddock(2,11,0)
 getDoc :: Documentation Name -> Maybe NDoc
 getDoc = documentationDoc
-#else
-getDoc :: Maybe NDoc -> Maybe NDoc
-getDoc = id
-#endif
 
 #if MIN_VERSION_ghc(7,4,1)
 type DeclInfo = [LHsDecl Name]
