@@ -465,7 +465,7 @@ transformToDescrs dflags pm = concatMap transformToDescr
         fields          =   nub $ concatMap (extractRecordFields dflags) lConDecl
         name            =   showRdrName dflags (unLoc lid)
         derivings Nothing = []
-        derivings (Just l) = map (extractDeriving dflags pm name) (unLoc l)
+        derivings (Just l) = map (extractDeriving dflags pm name) (unLoc710 l)
 #elif MIN_VERSION_ghc(7,6,0)
     transformToDescr ((L loc (TyClD typ@(ForeignType {tcdLName = lid}))), mbComment,_sigList) =
         [Real $ RealDescr {
