@@ -46,6 +46,8 @@ module IDE.Utils.Tool (
 
 ) where
 
+import Control.Applicative
+import Prelude
 import Control.Concurrent
        (tryTakeMVar, readMVar, takeMVar, putMVar,
         newEmptyMVar, forkIO, newChan, MVar, Chan, writeChan,
@@ -75,8 +77,6 @@ import System.Log.Logger (debugM)
 import System.Exit (ExitCode(..))
 import System.IO
        (hClose, hFlush, Handle, hSetBuffering, BufferMode(..))
-import Control.Applicative
-       ((<$>), (<|>), Alternative, liftA2, liftA)
 import Data.Conduit as C
        ((=$), ($$), ($=))
 import qualified Data.Conduit as C

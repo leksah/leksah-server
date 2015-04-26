@@ -63,6 +63,7 @@ module IDE.Core.CTypes (
 ,   ImportSpec(..)
 
 ,   getThisPackage
+,   PackageIdAndKey(..)
 ,   RetrieveStrategy(..)
 
 ) where
@@ -91,7 +92,13 @@ import Text.PrinterParser
 import Data.Char (isAlpha)
 import Control.DeepSeq (NFData(..))
 import PackageConfig (PackageConfig)
+#if MIN_VERSION_ghc(7,10,0)
+import Module (PackageKey)
+import PackageConfig (sourcePackageIdString, packageKey)
+import Data.Maybe (fromJust)
+#else
 import qualified Distribution.InstalledPackageInfo as IPI
+#endif
 import Data.Text (Text)
 import Data.Monoid ((<>))
 import Text.PrettyPrint (fsep, Doc, (<+>), empty, text)
@@ -107,14 +114,27 @@ import Distribution.Package(PackageName(..))
 --
 
 leksahVersion, configDirName :: FilePath
-leksahVersion = "0.14"
+leksahVersion = "0.15"
 configDirName = ".leksah-" <> leksahVersion
 
 metadataVersion :: Integer
 metadataVersion = 7
 
-getThisPackage :: PackageConfig -> PackageIdentifier
-getThisPackage    =   IPI.sourcePackageId
+data PackageIdAndKey = PackageIdAndKey {
+      packId  :: PackageIdentifier
+#if MIN_VERSION_ghc(7,10,0)
+    , packKey :: PackageKey
+#endif
+    }
+
+getThisPackage :: PackageConfig -> PackageIdAndKey
+getThisPackage p = PackageIdAndKey
+#if MIN_VERSION_ghc(7,10,0)
+                        (fromJust . simpleParse $ sourcePackageIdString p)
+                        (packageKey p)
+#else
+                        (IPI.sourcePackageId p)
+#endif
 
 data RetrieveStrategy = RetrieveThenBuild | BuildThenRetrieve | NeverRetrieve
     deriving (Show, Read, Eq, Ord, Enum, Bounded)
@@ -474,8 +494,8 @@ instance Pretty ImportSpec where
     pretty (IAbs name)                = pretty name
     pretty (IThingAll name)           = pretty name <> text "(..)"
     pretty (IThingWith name nameList) =
-    	pretty name <> (parenList (map (pretty.VName) nameList))
-    	
+        pretty name <> (parenList (map (pretty.VName) nameList))
+
 instance Pretty VName  where
     pretty (VName t) = let str = T.unpack t in if isOperator str then PP.parens (PP.text str) else PP.text str
 
@@ -486,7 +506,7 @@ isOperator ('$':c:_) =  not (isAlpha c)    -- Don't treat $d as an operator
 isOperator (':':c:_) =  not (isAlpha c)    -- Don't treat :T as an operator
 isOperator ('_':_)   =  False              -- Not an operator
 isOperator (c:_)     =  not (isAlpha c)    -- Starts with non-alpha
-isOperator _         =  False    	
+isOperator _         =  False
 
 -- ---------------------------------------------------------------------
 -- NFData instances for forcing evaluation

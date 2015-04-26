@@ -20,6 +20,8 @@ module IDE.Metainfo.PackageCollector (
 
 ) where
 
+import Control.Applicative
+import Prelude
 import IDE.StrippedPrefs (RetrieveStrategy(..), Prefs(..))
 import PackageConfig (PackageConfig)
 import IDE.Metainfo.SourceCollectorH
@@ -31,7 +33,7 @@ import IDE.Core.CTypes
         ReexportedDescr(..), Descr(..), RealDescr(..), dscTypeHint,
         descrType, dscName, Descr, ModuleDescr(..), PackModule(..),
         PackageDescr(..), metadataVersion, leksahVersion,
-        packageIdentifierToString)
+        packageIdentifierToString, packId)
 import IDE.Utils.FileUtils (getCollectorPath)
 import System.Directory (setCurrentDirectory)
 import IDE.Utils.Utils
@@ -49,7 +51,6 @@ import IDE.Utils.Tool (runTool')
 import Data.Monoid ((<>))
 import qualified Data.Text as T (unpack)
 import Data.Text (Text)
-import Control.Applicative ((<$>))
 import Network.HTTP.Proxy (Proxy(..), fetchProxy)
 import Network.Browser
        (request, setAuthorityGen, setOutHandler, setErrHandler, setProxy,
@@ -67,11 +68,12 @@ collectPackage :: Bool -> Prefs -> Int -> (PackageConfig,Int) -> IO PackageColle
 collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
     infoM "leksah-server" ("update_toolbar " ++ show
         ((fromIntegral packageIndex / fromIntegral numPackages) :: Double))
-    let packageName = packageIdentifierToString (getThisPackage packageConfig)
+    let packageName = packageIdentifierToString (packId $ getThisPackage packageConfig)
     let stat = PackageCollectStats packageName Nothing False False Nothing
-    eitherStrFp    <- findSourceForPackage prefs packageConfig
+    eitherStrFp    <- findSourceForPackage prefs (packId $ getThisPackage packageConfig)
     case eitherStrFp of
         Left message -> do
+            debugM "leksah-server" . T.unpack $ message <> " : " <> packageName
             packageDescrHi <- collectPackageFromHI packageConfig
             writeExtractedPackage False packageDescrHi
             return stat {packageString = message, modulesTotal = Just (length (pdModules packageDescrHi))}
@@ -97,6 +99,7 @@ collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
                                     writeExtractedPackage False packageDescrHi
                                     return bstat{modulesTotal = Just (length (pdModules packageDescrHi))}
                 BuildThenRetrieve -> do
+                        debugM "leksah-server" $ "Build (then retrieve) " <> T.unpack packageName <> " in " <> fpSource
                         runCabalConfigure fpSource
                         mbPackageDescrPair <- packageFromSource fpSource packageConfig
                         case mbPackageDescrPair of
@@ -116,6 +119,7 @@ collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
                                         writeExtractedPackage False packageDescrHi
                                         return bstat{modulesTotal = Just (length (pdModules packageDescrHi))}
                 NeverRetrieve -> do
+                        debugM "leksah-server" $ "Build " <> T.unpack packageName <> " in " <> fpSource
                         runCabalConfigure fpSource
                         packageDescrHi <- collectPackageFromHI packageConfig
                         mbPackageDescrPair <- packageFromSource fpSource packageConfig

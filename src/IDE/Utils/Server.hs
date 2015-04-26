@@ -14,13 +14,13 @@
 ------------------------------------------------------------------------------
 
 module IDE.Utils.Server
-	( ipAddress
-	, Server (..)
-	, serveOne
-	, serveMany
-	, ServerRoutine
-	, UserAndGroup (..)
-	, WaitFor (waitFor))
+        ( ipAddress
+        , Server (..)
+        , serveOne
+        , serveMany
+        , ServerRoutine
+        , UserAndGroup (..)
+        , WaitFor (waitFor))
 where
 
 import Network
@@ -41,7 +41,7 @@ data UserAndGroup = UserAndGroup Text Text | UserWithDefaultGroup Text
 -- This is especially useful when you are root and want to become a user.
 setUserAndGroup :: UserAndGroup -> IO ()
 setUserAndGroup _ = return ()
-				
+
 -- | make an IP Address: (127,0,0,1) is the localhost
 ipAddress :: (Word8, Word8, Word8, Word8) -> HostAddress
 ipAddress (a, b, c, d) = fromIntegral a + 0x100 * fromIntegral b + 0x10000 * fromIntegral c + 0x1000000 * fromIntegral d
@@ -55,55 +55,55 @@ serverSocket' _ = fail "Unexpected Socket Address Type"
 
 serverSocket :: Server -> IO (Socket, Server)
 serverSocket server = do
-	sock <- serverSocket' server
-	setSocketOption sock ReuseAddr 1
-	bindSocket sock (serverAddr server)
-	infoM "leksah-server" $ "Bind " ++ show (serverAddr server)
-	listen sock maxListenQueue
-	return (sock, server)
+        sock <- serverSocket' server
+        setSocketOption sock ReuseAddr 1
+        bindSocket sock (serverAddr server)
+        infoM "leksah-server" $ "Bind " ++ show (serverAddr server)
+        listen sock maxListenQueue
+        return (sock, server)
 
 -- |the specification of a serving process
 data Server = Server {
-	serverAddr :: SockAddr,
-	serverTyp :: SocketType,
-	serverRoutine :: ServerRoutine}
+        serverAddr :: SockAddr,
+        serverTyp :: SocketType,
+        serverRoutine :: ServerRoutine}
 
 startAccepting :: (Socket, Server) -> IO (ThreadId, MVar ())
 startAccepting (sock, server) = do
-	mvar <- newEmptyMVar
-	threadId <- forkIO (acceptance sock (serverRoutine server) `finally` putMVar mvar ())
-	return (threadId, mvar)
+        mvar <- newEmptyMVar
+        threadId <- forkIO (acceptance sock (serverRoutine server) `finally` putMVar mvar ())
+        return (threadId, mvar)
 
 serveMany :: Maybe UserAndGroup -> [Server] -> IO [(ThreadId, MVar ())]
 serveMany (Just userAndGroup) l = do
-	ready <- mapM serverSocket l
-	setUserAndGroup userAndGroup
-	mapM startAccepting ready
+        ready <- mapM serverSocket l
+        setUserAndGroup userAndGroup
+        mapM startAccepting ready
 serveMany Nothing l = mapM serverSocket l >>= mapM startAccepting
 
 serveOne :: Maybe UserAndGroup -> Server -> IO (ThreadId, MVar ())
 serveOne ug s = do
-	l <- serveMany ug [s]
-	return (head l)
+        l <- serveMany ug [s]
+        return (head l)
 
 class WaitFor a where
-	waitFor :: a -> IO ()
+        waitFor :: a -> IO ()
 
 instance WaitFor (MVar a) where
-	waitFor mvar = void (readMVar mvar)
+        waitFor mvar = void (readMVar mvar)
 
 instance WaitFor a => WaitFor [a] where
-	waitFor = mapM_ waitFor
+        waitFor = mapM_ waitFor
 
 instance WaitFor (ThreadId, MVar ()) where
-	waitFor (_, mvar) = waitFor mvar
+        waitFor (_, mvar) = waitFor mvar
 
 acceptance :: Socket -> ServerRoutine -> IO ()
 acceptance sock action = E.catch (do
-		dta <- accept sock
-		void . forkIO $ action dta)
-		(\(e :: SomeException) -> print e) >>
-		acceptance sock action
+                dta <- accept sock
+                void . forkIO $ action dta)
+                (\(e :: SomeException) -> print e) >>
+                acceptance sock action
 
 
 

@@ -47,6 +47,7 @@ module IDE.Utils.FileUtils (
 ,   myCanonicalizePath
 ) where
 
+import Control.Applicative
 import Prelude hiding (readFile)
 import System.FilePath
        (splitFileName, dropExtension, takeExtension,
@@ -68,8 +69,8 @@ import qualified Text.ParserCombinators.Parsec.Token as P
        (TokenParser(..), identStart)
 #endif
 import Text.ParserCombinators.Parsec
-       (GenParser, parse, oneOf, (<|>), alphaNum, noneOf, char, try,
-        (<?>), many, CharParser)
+       (GenParser, parse, oneOf, alphaNum, noneOf, char, try,
+        (<?>), CharParser)
 import Data.Set (Set)
 import Data.List
     (isPrefixOf, isSuffixOf, stripPrefix)
@@ -90,7 +91,6 @@ import qualified Data.Text as T
        (pack, map, stripPrefix, isSuffixOf, take, length, unpack, init,
         last, words)
 import Data.Monoid ((<>))
-import Control.Applicative ((<$>))
 import Data.Text (Text)
 
 haskellSrcExts :: [FilePath]
@@ -439,6 +439,7 @@ figureOutHaddockOpts = do
     debugM "leksah-server" ("figureOutHaddockOpts " ++ show res)
     return $ map T.pack res
     where
+        filterOptGhc :: [String] -> [String]
         filterOptGhc []    = []
         filterOptGhc (s:r) = case stripPrefix "--optghc=" s of
                                     Nothing -> filterOptGhc r
@@ -454,6 +455,7 @@ figureOutGhcOpts = do
     debugM "leksah-server" $ ("figureOutGhcOpts " ++ show res)
     return $ map T.pack res
     where
+        findMake :: String -> Maybe String
         findMake [] = Nothing
         findMake line@(_:xs) =
                 case stripPrefix "--make " line of

@@ -20,6 +20,8 @@ module Main (
 ,   collectPackage
 ) where
 
+import Control.Applicative
+import Prelude
 import System.Console.GetOpt
     (ArgDescr(..), usageInfo, ArgOrder(..), getOpt, OptDescr(..))
 import System.Environment (getArgs)
@@ -64,7 +66,6 @@ import IDE.Metainfo.SourceCollectorH (PackageCollectStats(..))
 import Control.Monad.IO.Class (MonadIO(..))
 import qualified Data.Text as T (strip, pack, unpack)
 import Data.Text (Text)
-import Control.Applicative ((<$>))
 import Data.Monoid ((<>))
 
 -- --------------------------------------------------------------------
@@ -277,8 +278,8 @@ collectSystem prefs writeAscii forceRebuild findSources = do
     knownPackages       <-  findKnownPackages collectorPath
     debugM "leksah-server" $ "collectSystem knownPackages= " ++ show knownPackages
     packageInfos        <-  inGhcIO [] [] $  \ _ -> getInstalledPackageInfos
-    debugM "leksah-server" $ "collectSystem packageInfos= " ++ show (map getThisPackage packageInfos)
-    let newPackages     =   filter (\pid -> not $Set.member (packageIdentifierToString $ getThisPackage pid)
+    debugM "leksah-server" $ "collectSystem packageInfos= " ++ show (map (packId . getThisPackage) packageInfos)
+    let newPackages     =   filter (\pid -> not $Set.member (packageIdentifierToString . packId $ getThisPackage pid)
                                                          knownPackages)
                                     packageInfos
     if null newPackages

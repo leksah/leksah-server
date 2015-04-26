@@ -23,7 +23,13 @@ module IDE.Utils.GHCUtils (
 ) where
 
 import Distribution.Simple (withinRange,PackageIdentifier(..),Dependency(..))
+#if MIN_VERSION_ghc(7,10,0)
+import PackageConfig (sourcePackageIdString)
+import Distribution.Text (simpleParse)
+import Data.Maybe (fromJust)
+#else
 import qualified Distribution.InstalledPackageInfo as IPI  (sourcePackageId)
+#endif
 import GHC
 import DriverPipeline(preprocess)
 import StringBuffer (StringBuffer(..),hGetStringBuffer)
@@ -94,7 +100,7 @@ inGhcIO flags' udynFlags ghcAct = do
         dynflags''' <- parseGhcFlags dynflags'' (map (noLoc . T.unpack) flags') flags'
         res <- defaultCleanupHandler dynflags''' $ do
             setSessionDynFlags dynflags'''
-            ghcAct dynflags'''
+            getSessionDynFlags >>= ghcAct
         unload
         return res
     where
@@ -129,7 +135,11 @@ getInstalledPackageInfos = do
 findFittingPackages :: [Dependency] -> Ghc [PackageIdentifier]
 findFittingPackages dependencyList = do
     knownPackages   <-  getInstalledPackageInfos
+#if MIN_VERSION_ghc(7,10,0)
+    let packages    =   map (fromJust . simpleParse . sourcePackageIdString) knownPackages
+#else
     let packages    =   map IPI.sourcePackageId knownPackages
+#endif
     return (concatMap (fittingKnown packages) dependencyList)
     where
     fittingKnown packages (Dependency dname versionRange) =
@@ -150,12 +160,12 @@ myParseModule dflags src_filename maybe_src_buf
       showPass dflags "Parser" >>
       {-# SCC "Parser" #-} do
 
-	-- sometimes we already have the buffer in memory, perhaps
-	-- because we needed to parse the imports out of it, or get the
-	-- module name.
+        -- sometimes we already have the buffer in memory, perhaps
+        -- because we needed to parse the imports out of it, or get the
+        -- module name.
       buf' <- case maybe_src_buf of
-		Just b  -> return b
-		Nothing -> hGetStringBuffer src_filename
+                Just b  -> return b
+                Nothing -> hGetStringBuffer src_filename
 
 #if MIN_VERSION_ghc(7,2,0)
       let loc  = mkRealSrcLoc (mkFastString src_filename) 1 0
@@ -171,7 +181,7 @@ myParseModule dflags src_filename maybe_src_buf
         PFailed span' err -> return (Left (mkPlainErrMsg span' err));
 #endif
 
-	POk pst rdr_module -> do {
+        POk pst rdr_module -> do {
 
 #if MIN_VERSION_ghc(7,2,0)
       let {ms@(warnings, errors) = getMessages pst};
@@ -190,10 +200,10 @@ myParseModule dflags src_filename maybe_src_buf
       dumpIfSet_dyn dflags Opt_D_dump_parsed "Parser" (ppr rdr_module) ;
 
       dumpIfSet_dyn dflags Opt_D_source_stats "Source Statistics"
-			   (ppSourceStats False rdr_module) ;
+                           (ppSourceStats False rdr_module) ;
 
       return (Right rdr_module)
-	-- ToDo: free the string buffer later.
+        -- ToDo: free the string buffer later.
       }}
 
 myParseHeader :: FilePath -> String -> [Text] -> IO (Either Text (DynFlags, HsModule RdrName))
@@ -223,12 +233,12 @@ myParseModuleHeader dflags src_filename maybe_src_buf
     showPass dflags "Parser" >>
     {-# SCC "Parser" #-} do
 
-	-- sometimes we already have the buffer in memory, perhaps
-	-- because we needed to parse the imports out of it, or get the
-	-- module name.
+        -- sometimes we already have the buffer in memory, perhaps
+        -- because we needed to parse the imports out of it, or get the
+        -- module name.
       buf' <- case maybe_src_buf of
-		Just b  -> return b
-		Nothing -> hGetStringBuffer src_filename
+                Just b  -> return b
+                Nothing -> hGetStringBuffer src_filename
 
 #if MIN_VERSION_ghc(7,2,0)
       let loc  = mkRealSrcLoc (mkFastString src_filename) 1 0
@@ -248,7 +258,7 @@ myParseModuleHeader dflags src_filename maybe_src_buf
         PFailed span' err -> return (Left (mkPlainErrMsg span' err));
 #endif
 
-	POk pst rdr_module -> do {
+        POk pst rdr_module -> do {
 
 #if MIN_VERSION_ghc(7,2,0)
       let {ms@(warnings, errors) = getMessages pst};
@@ -267,9 +277,9 @@ myParseModuleHeader dflags src_filename maybe_src_buf
       dumpIfSet_dyn dflags Opt_D_dump_parsed "Parser" (ppr rdr_module) ;
 
       dumpIfSet_dyn dflags Opt_D_source_stats "Source Statistics"
-			   (ppSourceStats False rdr_module) ;
+                           (ppSourceStats False rdr_module) ;
 
       return (Right rdr_module)
-	-- ToDo: free the string buffer later.
+        -- ToDo: free the string buffer later.
       }}
 

@@ -25,6 +25,8 @@ module IDE.Metainfo.SourceDB (
 
 ) where
 
+import Control.Applicative
+import Prelude
 import IDE.StrippedPrefs
        (getUnpackDirectory, getSourceDirectories, Prefs(..))
 import Data.Map (Map)
@@ -40,8 +42,8 @@ import Data.List (foldl')
 import qualified Text.PrettyPrint as PP
        (colon, (<>), text, ($$), vcat, Doc, render, char)
 import Text.ParserCombinators.Parsec
-       (try, char, unexpected, noneOf, eof, many, CharParser,
-        Parser, (<?>), (<|>))
+       (try, char, unexpected, noneOf, eof, CharParser,
+        Parser, (<?>))
 import Text.ParserCombinators.Parsec.Prim (parse)
 import Text.ParserCombinators.Parsec.Error (ParseError)
 import Text.ParserCombinators.Parsec.Language (emptyDef)
@@ -65,7 +67,6 @@ import System.FilePath
 import System.Directory (doesDirectoryExist)
 import Data.Text (Text)
 import qualified Data.Text as T (unpack, pack)
-import Control.Applicative ((<$>))
 import Data.Monoid ((<>))
 
 -- ---------------------------------------------------------------------

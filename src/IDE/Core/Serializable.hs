@@ -25,6 +25,8 @@ module IDE.Core.Serializable (
 
 ) where
 
+import Control.Applicative
+import Prelude
 import Distribution.Text (simpleParse,display)
 import Control.Monad (liftM)
 import Data.Maybe (fromJust)
@@ -34,7 +36,6 @@ import Data.Version (Version(..))
 import Distribution.ModuleName (ModuleName)
 
 import IDE.Core.CTypes
-import Control.Applicative ((<$>))
 import Data.Text (Text)
 import qualified Data.Text as T (pack, unpack)
 #if !MIN_VERSION_ghc(7,7,0)

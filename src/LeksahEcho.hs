@@ -19,7 +19,8 @@ main
 import System.Environment (getArgs)
 import IDE.Utils.VersionUtils (getHaddockVersion, getGhcVersion, getGhcInfo)
 import qualified Data.Text as T (unpack)
-import Control.Applicative ((<$>))
+import Control.Applicative
+import Prelude
 
 main :: IO ()
 main = do

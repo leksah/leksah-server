@@ -26,7 +26,7 @@ module IDE.Metainfo.SourceCollectorH (
 import IDE.Core.CTypes
        (getThisPackage, PackageDescr(..), TypeDescr(..), RealDescr(..),
         Descr(..), ModuleDescr(..), PackModule(..), SimpleDescr(..),
-        packageIdentifierToString, Location(..), RealDescr(..))
+        packageIdentifierToString, Location(..), RealDescr(..), PackageIdAndKey(..))
 
 #ifdef MIN_VERSION_haddock_leksah
 import Haddock.Types
@@ -52,7 +52,12 @@ import IDE.Metainfo.WorkspaceCollector
        (srcSpanToLocation, uncommentDecl, uncommentData, printHsDoc, sortByLoc)
 import PackageConfig (PackageConfig)
 import Distribution.Verbosity (verbose)
+#if MIN_VERSION_ghc(7,10,0)
+import GHC.PackageDb (exposedModules, hiddenModules, exposedName)
+import Documentation.Haddock.Types (_doc)
+#else
 import qualified Distribution.InstalledPackageInfo as IPI
+#endif
 import IDE.StrippedPrefs (getUnpackDirectory, Prefs(..))
 import IDE.Metainfo.SourceDB (sourceForPackage, getSourcesMap)
 import MonadUtils (liftIO)
@@ -109,10 +114,10 @@ data PackageCollectStats = PackageCollectStats {
     retrieved           :: Bool,
     mbError             :: Maybe Text}
 
-findSourceForPackage :: Prefs -> PackageConfig -> IO (Either Text FilePath)
-findSourceForPackage prefs packageConfig = do
+findSourceForPackage :: Prefs -> PackageIdentifier -> IO (Either Text FilePath)
+findSourceForPackage prefs packageId = do
     sourceMap <- liftIO $ getSourcesMap prefs
-    case sourceForPackage (getThisPackage packageConfig) sourceMap of
+    case sourceForPackage packageId sourceMap of
         Just fpSource -> return (Right fpSource)
         Nothing -> do
             unpackDir <- getUnpackDirectory prefs
@@ -128,7 +133,7 @@ findSourceForPackage prefs packageConfig = do
                         then return (Left "Failed to download and unpack source")
                         else return (Right (fpUnpack </> packageName' </>  takeWhile (/= '-') packageName' <.> "cabal"))
     where
-        packageName = packageIdentifierToString (getThisPackage packageConfig)
+        packageName = packageIdentifierToString packageId
         packageName' = T.unpack packageName
 
 
@@ -136,7 +141,7 @@ packageFromSource :: FilePath -> PackageConfig -> IO (Maybe PackageDescr, Packag
 packageFromSource cabalPath packageConfig = do
     setCurrentDirectory dirPath
     ghcFlags <- figureOutGhcOpts
-    debugM "leksah-server" ("ghcFlags:  " ++ show ghcFlags)	
+    debugM "leksah-server" ("ghcFlags:  " ++ show ghcFlags)
     NewException.catch (inner ghcFlags) handler
     where
         _handler' (_e :: NewException.SomeException) = do
@@ -149,20 +154,24 @@ packageFromSource cabalPath packageConfig = do
         inner ghcFlags = inGhcIO ghcFlags [Opt_Haddock] $ \ dflags -> do
             (interfaces,_) <- processModules verbose (exportedMods ++ hiddenMods) [] []
             liftIO $ print (length interfaces)
-            let mods = map (interfaceToModuleDescr dflags dirPath (getThisPackage packageConfig)) interfaces
+            let mods = map (interfaceToModuleDescr dflags dirPath (packId $ getThisPackage packageConfig)) interfaces
             sp <- liftIO $ myCanonicalizePath dirPath
             let pd = PackageDescr {
-                    pdPackage           =   getThisPackage packageConfig
+                    pdPackage           =   packId (getThisPackage packageConfig)
                 ,   pdModules           =   mods
                 ,   pdBuildDepends      =   [] -- TODO depends packageConfig
                 ,   pdMbSourcePath      =   Just sp}
             let stat = PackageCollectStats packageName (Just (length mods)) True False Nothing
             liftIO $ deepseq pd $ return (Just pd, stat)
+#if MIN_VERSION_ghc(7,10,0)
+        exportedMods = map (moduleNameString . exposedName) $ exposedModules packageConfig
+        hiddenMods   = map moduleNameString $ hiddenModules packageConfig
+#else
         exportedMods = map moduleNameString $ IPI.exposedModules packageConfig
         hiddenMods   = map moduleNameString $ IPI.hiddenModules packageConfig
+#endif
         dirPath      = dropFileName cabalPath
-        packageName  = packageIdentifierToString (getThisPackage packageConfig)
-
+        packageName  = packageIdentifierToString (packId $ getThisPackage packageConfig)
 -- Heaven
 
 interfaceToModuleDescr :: DynFlags -> FilePath -> PackageIdentifier -> Interface -> ModuleDescr
@@ -190,7 +199,11 @@ interfaceToModuleDescr dflags _dirPath pid interface =
         imports    = Map.empty --TODO
 
 getDoc :: Documentation Name -> Maybe NDoc
+#if MIN_VERSION_ghc(7,10,0)
+getDoc = fmap _doc . documentationDoc
+#else
 getDoc = documentationDoc
+#endif
 
 #if MIN_VERSION_ghc(7,4,1)
 type DeclInfo = [LHsDecl Name]
@@ -214,27 +227,30 @@ extractDescrs dflags pm _ifaceDeclMap ifaceExportItems' ifaceInstances' _ifaceLo
 transformToDescrs :: DynFlags -> PackModule -> [(LHsDecl Name, Maybe NDoc, [(Name, Maybe NDoc)])] -> [Descr]
 transformToDescrs dflags pm = concatMap transformToDescr
     where
-#if MIN_VERSION_ghc(7,2,0)
-    transformToDescr ((L loc (SigD (TypeSig [name] typ))), mbComment,_subCommentList) =
+#if MIN_VERSION_ghc(7,10,0)
+    transformToDescr ((L loc (SigD (TypeSig names typ _))), mbComment,_subCommentList) = map nameDescr names
+#elif MIN_VERSION_ghc(7,2,0)
+    transformToDescr ((L loc (SigD (TypeSig names typ))), mbComment,_subCommentList) = map nameDescr names
 #else
-    transformToDescr ((L loc (SigD (TypeSig name typ))), mbComment,_subCommentList) =
+    transformToDescr ((L loc (SigD (TypeSig name' typ))), mbComment,_subCommentList) = [nameDescr name']
 #endif
-        [Real $ RealDescr {
-        dscName'        =   T.pack . getOccString $ unLoc name
-    ,   dscMbTypeStr'   =   Just . BS.pack . showSDocUnqual dflags $ ppr typ
-    ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   srcSpanToLocation loc
-    ,   dscMbComment'   =   toComment dflags mbComment []
-    ,   dscTypeHint'    =   VariableDescr
-    ,   dscExported'    =   True}]
+      where
+        nameDescr name = Real $ RealDescr {
+                dscName'        =   T.pack . getOccString $ unLoc name
+            ,   dscMbTypeStr'   =   Just . BS.pack . showSDocUnqual dflags $ ppr typ
+            ,   dscMbModu'      =   Just pm
+            ,   dscMbLocation'  =   srcSpanToLocation loc
+            ,   dscMbComment'   =   toComment dflags mbComment []
+            ,   dscTypeHint'    =   VariableDescr
+            ,   dscExported'    =   True}
 
     transformToDescr ((L _loc (SigD _)), _mbComment, _subCommentList) = []
 
 #if MIN_VERSION_ghc(7,6,0)
-    transformToDescr ((L loc (TyClD typ@(ForeignType {tcdLName = lid}))), mbComment,_sigList) =
+    transformToDescr ((L loc for@(ForD (ForeignImport lid _ _ _))), mbComment,_sigList) =
         [Real $ RealDescr {
         dscName'        =   T.pack . getOccString $ unLoc lid
-    ,   dscMbTypeStr'   =   Just . BS.pack . showSDocUnqual dflags $ ppr typ
+    ,   dscMbTypeStr'   =   Just . BS.pack . showSDocUnqual dflags $ ppr for
     ,   dscMbModu'      =   Just pm
     ,   dscMbLocation'  =   srcSpanToLocation loc
     ,   dscMbComment'   =   toComment dflags mbComment []
@@ -289,7 +305,7 @@ transformToDescrs dflags pm = concatMap transformToDescr
     ,   dscExported'    =   True}]
             ++ derivings tcdDerivs'
         where
-        constructors    =   map (extractConstructor dflags) lConDecl
+        constructors    =   concatMap (extractConstructor dflags) lConDecl
         fields          =   nub $ concatMap (extractRecordFields dflags) lConDecl
         name            =   getOccString (unLoc lid)
         derivings Nothing = []
@@ -351,24 +367,36 @@ toDescrInst dflags pm inst@(Instance is_cls' _is_tcs _is_tvs is_tys' _is_dfun _i
 extractMethods :: DynFlags -> [LSig Name] -> [MyLDocDecl] -> [SimpleDescr]
 extractMethods dflags sigs docs =
     let pairs = attachComments' dflags sigs docs
-    in mapMaybe (extractMethod dflags) pairs
+    in concatMap (extractMethod dflags) pairs
 
-extractMethod :: DynFlags -> (LHsDecl Name, Maybe NDoc) -> Maybe SimpleDescr
-#if MIN_VERSION_ghc(7,2,0)
-extractMethod dflags ((L loc (SigD ts@(TypeSig [name] _typ))), mbDoc) =
+extractMethod :: DynFlags -> (LHsDecl Name, Maybe NDoc) -> [SimpleDescr]
+#if MIN_VERSION_ghc(7,10,0)
+extractMethod dflags ((L loc (SigD ts@(TypeSig names _typ _))), mbDoc) = map extractName names
+#elif MIN_VERSION_ghc(7,2,0)
+extractMethod dflags ((L loc (SigD ts@(TypeSig names _typ))), mbDoc) = map extractName names
 #else
-extractMethod dflags ((L loc (SigD ts@(TypeSig name _typ))), mbDoc) =
+extractMethod dflags ((L loc (SigD ts@(TypeSig name' _typ))), mbDoc) = [extractName name']
 #endif
-    Just $ SimpleDescr
+  where
+  extractName name =
+    SimpleDescr
         (T.pack . getOccString $ unLoc name)
         (Just . BS.pack . showSDocUnqual dflags $ ppr ts)
         (srcSpanToLocation loc)
         (toComment dflags mbDoc [])
         True
-extractMethod _dflags (_, _mbDoc) = Nothing
+extractMethod _dflags (_, _mbDoc) = []
 
-extractConstructor :: DynFlags -> LConDecl Name -> SimpleDescr
-extractConstructor dflags decl@(L loc (ConDecl {con_name = name, con_doc = doc})) =
+extractConstructor :: DynFlags -> LConDecl Name -> [SimpleDescr]
+#if MIN_VERSION_ghc(7,10,0)
+extractConstructor dflags decl@(L loc (ConDecl {con_names = names, con_doc = doc})) =
+  map extractName names
+#else
+extractConstructor dflags decl@(L loc (ConDecl {con_name = name', con_doc = doc})) =
+  [extractName name']
+#endif
+  where
+  extractName name =
     SimpleDescr
         (T.pack . getOccString $ unLoc name)
         (Just . BS.pack . showSDocUnqual dflags . ppr $uncommentDecl decl)
@@ -378,15 +406,31 @@ extractConstructor dflags decl@(L loc (ConDecl {con_name = name, con_doc = doc})
             Just (L _ d) -> Just . BS.pack . T.unpack $ printHsDoc d)
         True
 
+#if MIN_VERSION_ghc(7,10,0)
+unLoc710 :: GenLocated l e -> e
+unLoc710 = unLoc
+#else
+unLoc710 :: a -> a
+unLoc710 = id
+#endif
+
 extractRecordFields :: DynFlags -> LConDecl Name -> [SimpleDescr]
 extractRecordFields dflags (L _ _decl@(ConDecl {con_details=(RecCon flds)})) =
-    map extractRecordFields' flds
+    concatMap extractRecordFields' (unLoc710 flds)
     where
-    extractRecordFields' _field@(ConDeclField (L loc name) typ doc) =
+#if MIN_VERSION_ghc(7,10,0)
+    extractRecordFields' :: LConDeclField Name -> [SimpleDescr]
+    extractRecordFields' (L _ _field@(ConDeclField names typ doc)) = map extractName names
+#else
+    extractRecordFields' :: ConDeclField Name -> [SimpleDescr]
+    extractRecordFields' _field@(ConDeclField name' typ doc) = [extractName name']
+#endif
+      where
+      extractName name =
         SimpleDescr
-            (T.pack $ getOccString name)
+            (T.pack . getOccString $ unLoc name)
             (Just (BS.pack (showSDocUnqual dflags $ ppr typ)))
-            (srcSpanToLocation loc)
+            (srcSpanToLocation $ getLoc name)
             (case doc of
                 Nothing -> Nothing
                 Just (L _ d) -> Just . BS.pack . T.unpack $ printHsDoc d)

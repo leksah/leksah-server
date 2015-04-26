@@ -19,6 +19,7 @@ module IDE.HeaderParser (
 
 ) where
 
+import Control.Applicative
 import Prelude hiding (readFile)
 import IDE.Core.CTypes hiding(SrcSpan(..))
 import GHC hiding (ImportDecl)
@@ -39,13 +40,20 @@ import IDE.Utils.FileUtils (figureOutHaddockOpts)
 import Control.Monad.IO.Class (MonadIO(..))
 import System.IO.Strict (readFile)
 import qualified Data.Text as T (pack)
-import Control.Applicative ((<$>))
 
 #if !MIN_VERSION_ghc(7,6,0)
 showSDoc :: DynFlags -> O.SDoc -> String
 showSDoc _ = O.showSDoc
 showSDocUnqual :: DynFlags -> O.SDoc -> String
 showSDocUnqual _ = O.showSDocUnqual
+#endif
+
+#if MIN_VERSION_ghc(7,10,0)
+unLoc710 :: GenLocated l e -> e
+unLoc710 = unLoc
+#else
+unLoc710 :: a -> a
+unLoc710 = id
 #endif
 
 showRdrName :: DynFlags -> RdrName -> String
@@ -62,7 +70,7 @@ parseTheHeader filePath = do
             let i = case hsmodDecls pr of
                         decls@(_hd:_tl) -> (foldl (\ a b -> min a (srcSpanStartLine' (getLoc b))) 0 decls) - 1
                         [] -> case hsmodExports pr of
-                            Just list ->  (foldl (\ a b -> max a (srcSpanEndLine' (getLoc b))) 0 list) + 1
+                            Just list ->  (foldl (\ a b -> max a (srcSpanEndLine' (getLoc b))) 0 (unLoc710 list)) + 1
                             Nothing -> case hsmodName pr of
                                         Nothing -> 0
                                         Just mn -> srcSpanEndLine' (getLoc mn) + 2
@@ -92,18 +100,18 @@ transformImport dflags (L srcSpan importDecl) =
                         Just mn -> Just (moduleNameString mn)
         specs =    case ideclHiding importDecl of
                         Nothing -> Nothing
-                        Just (hide, list) -> Just (ImportSpecList hide (mapMaybe (transformEntity dflags) list))
+                        Just (hide, list) -> Just (ImportSpecList hide (mapMaybe (transformEntity dflags) (unLoc710 list)))
 
 transformEntity :: DynFlags -> LIE RdrName -> Maybe ImportSpec
 #if MIN_VERSION_ghc(7,2,0)
-transformEntity dflags (L _ (IEVar name))              = Just (IVar (T.pack $ showSDoc dflags (pprPrefixOcc name)))
+transformEntity dflags (L _ (IEVar name))              = Just (IVar (T.pack $ showSDoc dflags (pprPrefixOcc $ unLoc710 name)))
 #else
 transformEntity dflags (L _ (IEVar name))              = Just (IVar (T.pack $ showSDoc dflags (pprHsVar name)))
 #endif
-transformEntity dflags (L _ (IEThingAbs name))         = Just (IAbs (T.pack $ showRdrName dflags name))
-transformEntity dflags (L _ (IEThingAll name))         = Just (IThingAll (T.pack $ showRdrName dflags name))	
-transformEntity dflags (L _ (IEThingWith name list))   = Just (IThingWith (T.pack $ showRdrName dflags name)
-                                                        (map (T.pack . showRdrName dflags) list))	
+transformEntity dflags (L _ (IEThingAbs name))         = Just (IAbs (T.pack . showRdrName dflags $ unLoc710 name))
+transformEntity dflags (L _ (IEThingAll name))         = Just (IThingAll (T.pack . showRdrName dflags $ unLoc710 name))
+transformEntity dflags (L _ (IEThingWith name list))   = Just (IThingWith (T.pack . showRdrName dflags $ unLoc710 name)
+                                                        (map (T.pack . showRdrName dflags . unLoc710) list))
 transformEntity _ _                              = Nothing
 
 #if MIN_VERSION_ghc(7,2,0)

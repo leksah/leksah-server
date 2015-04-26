@@ -31,7 +31,7 @@ import System.FilePath
        (joinPath, (</>), dropTrailingPathSeparator, splitPath)
 import System.Directory (getHomeDirectory)
 import Control.Monad (liftM)
-import IDE.Core.CTypes (RetrieveStrategy(..))
+import IDE.Core.CTypes (RetrieveStrategy(..), configDirName)
 import Data.Text (Text)
 
 --
@@ -49,7 +49,7 @@ data Prefs = Prefs {
 defaultPrefs :: Prefs
 defaultPrefs = Prefs {
         sourceDirectories   =   []
-    ,   unpackDirectory     =   Nothing
+    ,   unpackDirectory     =   Just ("~" </> configDirName </> "packageSources")
     ,   retrieveURL         =   "http://www.leksah.org/"
     ,   retrieveStrategy    =   RetrieveThenBuild
     ,   serverPort          =   11111
