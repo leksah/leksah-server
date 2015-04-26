@@ -85,7 +85,6 @@ import FastString(mkFastString,appendFS,nullFS,unpackFS)
 import Control.Monad.IO.Class (MonadIO, MonadIO(..))
 import Control.Monad (when)
 import Control.Exception as E
-import Debug.Trace (trace)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Monoid ((<>))
@@ -226,7 +225,7 @@ unLoc710 = id
 extractModDescr :: DynFlags -> PackageIdentifier -> ModuleName -> FilePath -> HsModule RdrName -> ModuleDescr
 extractModDescr dflags pid moduleName' sourcePath hsMod = ModuleDescr {
         mdModuleId          =   PM pid moduleName'
-    ,   mdMbSourcePath      =   trace ("extractModDescr " ++ (show . modFile $ hsmodName hsMod)) $ modFile $ hsmodName hsMod
+    ,   mdMbSourcePath      =   modFile $ hsmodName hsMod
     ,   mdReferences        =   Map.empty -- imports
     ,   mdIdDescriptions    =   descrs'}
     where

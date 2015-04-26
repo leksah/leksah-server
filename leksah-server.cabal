@@ -92,7 +92,6 @@ library
         IDE.Metainfo.SourceCollectorH
         IDE.Metainfo.SourceDB Paths_leksah_server
     ghc-options: -Wall -fno-warn-unused-do-bind -ferror-spans
-    ghc-prof-options: -prof -fprof-auto
 
 executable leksah-server
     default-language: Haskell98
@@ -160,7 +159,6 @@ executable leksah-server
         ghc-options: -threaded
 
     ghc-options: -rtsopts -Wall -fno-warn-unused-do-bind -ferror-spans
-    ghc-prof-options: -prof -fprof-auto
 
 executable leksahecho
     default-language: Haskell98
