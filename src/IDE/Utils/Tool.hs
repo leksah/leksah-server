@@ -399,7 +399,10 @@ getOutput clr inp out err pid = do
                 then return (closed + 1)
                 else C.yield v >> return closed
             if nowClosed == 2
-                then (liftIO $ waitForProcess pid) >>= (C.yield . RawToolOutput . ToolExit)
+                then do
+                    exitCode <- liftIO $ waitForProcess pid
+                    liftIO $ hClose inp
+                    C.yield . RawToolOutput $ ToolExit exitCode
                 else loop nowClosed
         loop _ = error "Error in enumOutput"
 

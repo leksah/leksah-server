@@ -25,6 +25,7 @@ import System.Log.Logger (debugM)
 import Control.Exception as E (SomeException, catch)
 import qualified Data.Text as T (unlines, unpack, init, last)
 import Data.Text (Text)
+import Control.DeepSeq (deepseq)
 
 getGhcVersion :: IO FilePath
 getGhcVersion = E.catch (do
@@ -34,14 +35,14 @@ getGhcVersion = E.catch (do
                     then T.init vers
                     else vers
     debugM "leksah-server" $ "Got GHC Version " ++ T.unpack vers2
-    return $ T.unpack vers2
-    ) $ \ (_ :: SomeException) -> error "FileUtils>>getGhcVersion failed"
+    output `deepseq` return $ T.unpack vers2
+    ) $ \ (e :: SomeException) -> error $ "FileUtils>>getGhcVersion failed with " ++ show e
 
 getGhcInfo :: IO Text
 getGhcInfo = E.catch (do
     (!output,_) <- runTool' "ghc" ["--info"] Nothing
-    return . T.unlines $ [l | ToolOutput l <- output]
-    ) $ \ (_ :: SomeException) -> error "FileUtils>>getGhcInfo failed"
+    output `deepseq` return $ T.unlines $ [l | ToolOutput l <- output]
+    ) $ \ (e :: SomeException) -> error $ "FileUtils>>getGhcInfo failed with " ++ show e
 
 getHaddockVersion :: IO Text
 getHaddockVersion = E.catch (do
@@ -50,8 +51,8 @@ getHaddockVersion = E.catch (do
         vers2 = if ord (T.last vers) == 13
                     then T.init vers
                     else vers
-    return vers2
-    ) $ \ (_ :: SomeException) -> error "FileUtils>>getHaddockVersion failed"
+    output `deepseq` return vers2
+    ) $ \ (e :: SomeException) -> error $ "FileUtils>>getHaddockVersion failed with " ++ show e
 
 
 

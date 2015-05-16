@@ -92,6 +92,7 @@ import qualified Data.Text as T
         last, words)
 import Data.Monoid ((<>))
 import Data.Text (Text)
+import Control.DeepSeq (deepseq)
 
 haskellSrcExts :: [FilePath]
 haskellSrcExts = ["hs","lhs","chs","hs.pp","lhs.pp","chs.pp","hsc"]
@@ -348,7 +349,7 @@ cabalFileName filePath = E.catch (do
 getCabalUserPackageDir :: IO (Maybe FilePath)
 getCabalUserPackageDir = do
     (!output,_) <- runTool' "cabal" ["help"] Nothing
-    case T.stripPrefix "  " (toolline $ last output) of
+    output `deepseq` case T.stripPrefix "  " (toolline $ last output) of
         Just s | "config" `T.isSuffixOf` s -> return . Just . T.unpack $ T.take (T.length s - 6) s <> "packages"
         _ -> return Nothing
 
@@ -408,14 +409,14 @@ getSysLibDir = E.catch (do
         libDir2 = if ord (T.last libDir) == 13
                     then T.init libDir
                     else libDir
-    return . normalise $ T.unpack libDir2
-    ) $ \ (_ :: SomeException) -> error ("FileUtils>>getSysLibDir failed")
+    output `deepseq` return $ normalise $ T.unpack libDir2
+    ) $ \ (e :: SomeException) -> error ("FileUtils>>getSysLibDir failed with " ++ show e)
 
 getInstalledPackageIds :: IO [PackageIdentifier]
 getInstalledPackageIds = E.catch (do
     (!output, _) <- runTool' "ghc-pkg" ["list", "--simple-output"] Nothing
-    return $ concatMap names output
-    ) $ \ (_ :: SomeException) -> error ("FileUtils>>getInstalledPackageIds failed")
+    output `deepseq` return $ concatMap names output
+    ) $ \ (e :: SomeException) -> error ("FileUtils>>getInstalledPackageIds failed with " ++ show e)
   where
     names (ToolOutput n) = catMaybes (map (T.simpleParse . T.unpack) (T.words n))
     names _ = []
@@ -423,8 +424,8 @@ getInstalledPackageIds = E.catch (do
 getSourcePackageIds :: IO [PackageIdentifier]
 getSourcePackageIds = E.catch (do
     (!output, _) <- runTool' "ghc-pkg" ["list", "--simple-output"] Nothing
-    return . catMaybes $ map names output
-    ) $ \ (_ :: SomeException) -> error ("FileUtils>>getInstalledPackageIds failed")
+    output `deepseq` return $ catMaybes $ map names output
+    ) $ \ (e :: SomeException) -> error ("FileUtils>>getInstalledPackageIds failed with " ++ show e)
   where
     names (ToolOutput n) = T.simpleParse . T.unpack $ T.map replaceSpace n
     names _ = Nothing
@@ -437,7 +438,7 @@ figureOutHaddockOpts = do
     let opts = concat [words $ T.unpack l | ToolOutput l <- output]
     let res = filterOptGhc opts
     debugM "leksah-server" ("figureOutHaddockOpts " ++ show res)
-    return $ map T.pack res
+    output `deepseq` return $ map T.pack res
     where
         filterOptGhc :: [String] -> [String]
         filterOptGhc []    = []
@@ -450,10 +451,10 @@ figureOutGhcOpts = do
     debugM "leksah-server" "figureOutGhcOpts"
     (!output,_) <- runTool' "cabal" ["build","--with-ghc=leksahecho","--with-ghcjs=leksahecho"] Nothing
     let res = case catMaybes [findMake $ T.unpack l | ToolOutput l <- output] of
-                options:_ -> words options
+                options:_ -> filterOpts $ words options
                 _         -> []
     debugM "leksah-server" $ ("figureOutGhcOpts " ++ show res)
-    return $ map T.pack res
+    output `deepseq` return $ map T.pack res
     where
         findMake :: String -> Maybe String
         findMake [] = Nothing
@@ -461,3 +462,7 @@ figureOutGhcOpts = do
                 case stripPrefix "--make " line of
                     Nothing -> findMake xs
                     s -> s
+        filterOpts :: [String] -> [String]
+        filterOpts []    = []
+        filterOpts (o:_:r) | o `elem` ["-link-js-lib", "-js-lib-outputdir", "-js-lib-src", "-package-id"] = filterOpts r
+        filterOpts (o:r) = o:filterOpts r
