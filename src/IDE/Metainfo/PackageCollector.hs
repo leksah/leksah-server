@@ -35,7 +35,7 @@ import IDE.Core.CTypes
         PackageDescr(..), metadataVersion, leksahVersion,
         packageIdentifierToString, packId)
 import IDE.Utils.FileUtils (getCollectorPath)
-import System.Directory (setCurrentDirectory)
+import System.Directory (doesDirectoryExist, setCurrentDirectory)
 import IDE.Utils.Utils
        (leksahMetadataPathFileExtension,
         leksahMetadataSystemFileExtension)
@@ -63,6 +63,7 @@ import Network.HTTP.Headers (HeaderName(..))
 import qualified Data.ByteString as BS (writeFile, empty)
 import qualified Paths_leksah_server (version)
 import Distribution.System (buildArch, buildOS)
+import Control.Monad (unless)
 
 collectPackage :: Bool -> Prefs -> Int -> (PackageConfig,Int) -> IO PackageCollectStats
 collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
@@ -174,13 +175,15 @@ collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
             liftIO $ writePackagePath (dropFileName fpSource) packageName
         runCabalConfigure fpSource = do
             let dirPath      = dropFileName fpSource
-            setCurrentDirectory dirPath
-            E.catch (do runTool' "cabal" ["clean"] Nothing
-                        runTool' "cabal" ["configure","--user"] Nothing
-                        return ())
-                    (\ (_e :: E.SomeException) -> do
-                        debugM "leksah-server" "Can't configure"
-                        return ())
+            distExists <- doesDirectoryExist $ dirPath </> "dist"
+            unless distExists $ do
+                setCurrentDirectory dirPath
+                E.catch (do runTool' "cabal" ["clean"] Nothing
+                            runTool' "cabal" ["configure","--user"] Nothing
+                            return ())
+                        (\ (_e :: E.SomeException) -> do
+                            debugM "leksah-server" "Can't configure"
+                            return ())
 
 writeExtractedPackage :: MonadIO m => Bool -> PackageDescr -> m ()
 writeExtractedPackage writeAscii pd = do
