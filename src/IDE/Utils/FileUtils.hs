@@ -451,7 +451,7 @@ figureOutGhcOpts = do
     debugM "leksah-server" "figureOutGhcOpts"
     (!output,_) <- runTool' "cabal" ["build","--with-ghc=leksahecho","--with-ghcjs=leksahecho"] Nothing
     let res = case catMaybes [findMake $ T.unpack l | ToolOutput l <- output] of
-                options:_ -> filterOpts $ words options
+                options:_ -> words options
                 _         -> []
     debugM "leksah-server" $ ("figureOutGhcOpts " ++ show res)
     output `deepseq` return $ map T.pack res
@@ -462,7 +462,3 @@ figureOutGhcOpts = do
                 case stripPrefix "--make " line of
                     Nothing -> findMake xs
                     s -> s
-        filterOpts :: [String] -> [String]
-        filterOpts []    = []
-        filterOpts (o:_:r) | o `elem` ["-link-js-lib", "-js-lib-outputdir", "-js-lib-src", "-package-id"] = filterOpts r
-        filterOpts (o:r) = o:filterOpts r

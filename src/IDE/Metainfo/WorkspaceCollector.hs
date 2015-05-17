@@ -125,12 +125,17 @@ collectWorkspace pid moduleList forceRebuild writeAscii dir = do
     -- Construct directory
     liftIO $ createDirectoryIfMissing True packageCollectorPath
     setCurrentDirectory dir
-    opts1 <- figureOutGhcOpts
+    opts1 <- filterOpts <$> figureOutGhcOpts
     opts2 <- figureOutHaddockOpts
 
     debugM "leksah-server" $ ("before collect modules" ++ "\n\nopts1: " ++ show opts1 ++ "\n\n opt2: " ++ show opts2)
     mapM_ (collectModule packageCollectorPath writeAscii pid opts1) moduleList
     debugM "leksah-server" $ "after collect modules"
+  where
+    filterOpts :: [Text] -> [Text]
+    filterOpts []    = []
+    filterOpts (o:_:r) | o `elem` ["-link-js-lib", "-js-lib-outputdir", "-js-lib-src", "-package-id"] = filterOpts r
+    filterOpts (o:r) = o:filterOpts r
 
 collectModule :: FilePath -> Bool -> PackageIdentifier -> [Text] -> (Text,FilePath) -> IO()
 collectModule collectorPackagePath writeAscii pid opts (modId,sourcePath) = do
