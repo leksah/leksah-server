@@ -237,7 +237,7 @@ transformToDescrs dflags pm = concatMap transformToDescr
       where
         nameDescr name = Real $ RealDescr {
                 dscName'        =   T.pack . getOccString $ unLoc name
-            ,   dscMbTypeStr'   =   Just . BS.pack . showSDocUnqual dflags $ ppr typ
+            ,   dscMbTypeStr'   =   Just . BS.pack $ getOccString (unLoc name) <> " :: " <> showSDocUnqual dflags (ppr typ)
             ,   dscMbModu'      =   Just pm
             ,   dscMbLocation'  =   srcSpanToLocation loc
             ,   dscMbComment'   =   toComment dflags mbComment []
