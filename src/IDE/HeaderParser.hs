@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP, OverloadedStrings #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.HeaderParser
@@ -63,7 +63,7 @@ parseTheHeader :: FilePath -> IO ServerAnswer
 parseTheHeader filePath = do
     text        <- readFile filePath
     opts        <- figureOutHaddockOpts
-    parseResult <- liftIO $ myParseHeader filePath text opts
+    parseResult <- liftIO $ myParseHeader filePath text (filterOpts opts)
     case parseResult of
         Left str                                      -> return (ServerFailed str)
         Right (_, pr@HsModule{ hsmodImports = []})       -> do
@@ -76,6 +76,10 @@ parseTheHeader filePath = do
                                         Just mn -> srcSpanEndLine' (getLoc mn) + 2
             return (ServerHeader (Right i))
         Right (dflags, _pr@HsModule{ hsmodImports = imports }) -> return (ServerHeader (Left (transformImports dflags imports)))
+  where
+    filterOpts []    = []
+    filterOpts (o:_:r) | o `elem` ["-link-js-lib", "-js-lib-outputdir", "-js-lib-src", "-package-id"] = filterOpts r
+    filterOpts (o:r) = o:filterOpts r
 
 transformImports :: DynFlags -> [LImportDecl RdrName] -> [ImportDecl]
 transformImports dflags = map (transformImport dflags)
