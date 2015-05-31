@@ -40,7 +40,7 @@ module IDE.Utils.FileUtils (
 ,   autoExtractCabalTarFiles
 ,   autoExtractTarFiles
 ,   getInstalledPackageIds
-,   getSourcePackageIds
+,   getInstalledPackageIds'
 ,   figureOutGhcOpts
 ,   figureOutHaddockOpts
 ,   allFilesWithExtensions
@@ -88,7 +88,7 @@ import Control.Monad.IO.Class (MonadIO(..), MonadIO)
 import Control.Exception as E (SomeException, catch)
 import System.IO.Strict (readFile)
 import qualified Data.Text as T
-       (pack, map, stripPrefix, isSuffixOf, take, length, unpack, init,
+       (pack, stripPrefix, isSuffixOf, take, length, unpack, init,
         last, words)
 import Data.Monoid ((<>))
 import Data.Text (Text)
@@ -413,24 +413,16 @@ getSysLibDir = E.catch (do
     ) $ \ (e :: SomeException) -> error ("FileUtils>>getSysLibDir failed with " ++ show e)
 
 getInstalledPackageIds :: IO [PackageIdentifier]
-getInstalledPackageIds = E.catch (do
+getInstalledPackageIds = either (const []) id <$> getInstalledPackageIds'
+
+getInstalledPackageIds' :: IO (Either Text [PackageIdentifier])
+getInstalledPackageIds' = E.catch (do
     (!output, _) <- runTool' "ghc-pkg" ["list", "--simple-output"] Nothing
-    output `deepseq` return $ concatMap names output
-    ) $ \ (e :: SomeException) -> error ("FileUtils>>getInstalledPackageIds failed with " ++ show e)
+    output `deepseq` return $ Right $ concatMap names output
+    ) $ \ (e :: SomeException) -> return . Left . T.pack $ show e
   where
     names (ToolOutput n) = catMaybes (map (T.simpleParse . T.unpack) (T.words n))
     names _ = []
-
-getSourcePackageIds :: IO [PackageIdentifier]
-getSourcePackageIds = E.catch (do
-    (!output, _) <- runTool' "ghc-pkg" ["list", "--simple-output"] Nothing
-    output `deepseq` return $ catMaybes $ map names output
-    ) $ \ (e :: SomeException) -> error ("FileUtils>>getInstalledPackageIds failed with " ++ show e)
-  where
-    names (ToolOutput n) = T.simpleParse . T.unpack $ T.map replaceSpace n
-    names _ = Nothing
-    replaceSpace ' ' = '-'
-    replaceSpace c = c
 
 figureOutHaddockOpts :: IO [Text]
 figureOutHaddockOpts = do
