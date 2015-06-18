@@ -196,14 +196,13 @@ main =  withSocketsDo $ catch inner handler
                             else
                                 case servers of
                                     (Nothing:_)  -> do
-                                        running <- serveOne Nothing (server (PortNum (fromIntegral
-                                            (serverPort prefs))) newPrefs connRef threadId localServerAddr)
+                                        running <- serveOne Nothing (server (fromIntegral
+                                            (serverPort prefs)) newPrefs connRef threadId localServerAddr)
                                         waitFor running
                                         return ()
                                     (Just ps:_)  -> do
                                         let port = read $ T.unpack ps
-                                        running <- serveOne Nothing (server (PortNum
-                                            (fromIntegral port)) newPrefs connRef threadId localServerAddr)
+                                        running <- serveOne Nothing (server (fromIntegral port) newPrefs connRef threadId localServerAddr)
                                         waitFor running
                                         return ()
                                     _ -> return ()
