@@ -39,7 +39,7 @@ import System.Directory (doesDirectoryExist, setCurrentDirectory)
 import IDE.Utils.Utils
        (leksahMetadataPathFileExtension,
         leksahMetadataSystemFileExtension)
-import System.FilePath (dropFileName, (<.>), (</>))
+import System.FilePath (dropFileName, takeBaseName, (<.>), (</>))
 import Data.Binary.Shared (encodeFileSer)
 import qualified Data.Map as Map
        (fromListWith, fromList, keys, lookup)
@@ -172,12 +172,16 @@ collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
             liftIO $ writeExtractedPackage writeAscii packageDescr
             liftIO $ writePackagePath (dropFileName fpSource) packageName
         runCabalConfigure fpSource = do
-            let dirPath      = dropFileName fpSource
+            let dirPath         = dropFileName fpSource
+                packageName     = takeBaseName fpSource
+                flagsFor "base" = ["-finteger-gmp2"]
+                flagsFor _      = []
+                flags           = flagsFor packageName
             distExists <- doesDirectoryExist $ dirPath </> "dist"
             unless distExists $ do
                 setCurrentDirectory dirPath
                 E.catch (do runTool' "cabal" ["clean"] Nothing
-                            runTool' "cabal" ["configure","--user"] Nothing
+                            runTool' "cabal" ("configure":"--user":flags) Nothing
                             return ())
                         (\ (_e :: E.SomeException) -> do
                             debugM "leksah-server" "Can't configure"
