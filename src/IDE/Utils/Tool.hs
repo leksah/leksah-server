@@ -283,7 +283,7 @@ data CommandLineReader = CommandLineReader {
 
 ghciParseInitialPrompt :: AP.Parser Text
 ghciParseInitialPrompt = (do
-        ((AP.string "Prelude") <|> (AP.string "*"))
+        ((AP.string "Prelude") <|> (AP.string "*") <|> (AP.string ">"))
         AP.skipWhile (\c -> c /= '>' && c/= '\n')
         AP.string "> "
         return "")
