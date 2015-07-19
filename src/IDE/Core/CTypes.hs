@@ -95,7 +95,7 @@ import PackageConfig (PackageConfig)
 #if MIN_VERSION_ghc(7,10,0)
 import Module (PackageKey)
 import PackageConfig (sourcePackageIdString, packageKey)
-import Data.Maybe (fromJust)
+import Data.Maybe (fromJust, fromMaybe)
 #else
 import qualified Distribution.InstalledPackageInfo as IPI
 #endif
@@ -172,9 +172,7 @@ class SymbolTable alpha  where
     symUnion        :: alpha -> alpha -> alpha
 
 instance SymbolTable (Map Text [Descr]) where
-    symLookup str smap  = case str `Map.lookup` smap of
-                                Just dl -> dl
-                                Nothing -> []
+    symLookup str smap  = fromMaybe [] (str `Map.lookup` smap)
     symbols             = Map.keysSet
     symSplitLookup      = Map.splitLookup
     symInsert           = Map.insertWith (++)
@@ -184,7 +182,7 @@ instance SymbolTable (Map Text [Descr]) where
 
 data PackageDescr       =   PackageDescr {
         pdPackage           ::   PackageIdentifier
-    ,   pdMbSourcePath      ::   (Maybe FilePath)
+    ,   pdMbSourcePath      ::   Maybe FilePath
     ,   pdModules           ::   [ModuleDescr]
     ,   pdBuildDepends      ::   [PackageIdentifier]
 } deriving (Show,Typeable)
@@ -205,8 +203,8 @@ instance Ord PackageDescr where
 
 data ModuleDescr        =   ModuleDescr {
         mdModuleId          ::   PackModule
-    ,   mdMbSourcePath      ::   (Maybe FilePath)                  -- unqualified
-    ,   mdReferences        ::   (Map ModuleName (Set Text)) -- imports
+    ,   mdMbSourcePath      ::   Maybe FilePath                  -- unqualified
+    ,   mdReferences        ::   Map ModuleName (Set Text) -- imports
     ,   mdIdDescriptions    ::   [Descr]
 } deriving (Show,Typeable)
 
@@ -339,13 +337,13 @@ instance Show (Present PackModule) where
                                     .  showString (display (modu pd))
 
 parsePackModule         ::   Text -> PackModule
-parsePackModule str     =   let (pack',mod') = T.span (\c -> c /= ':') str
-                            in case packageIdentifierFromString $ pack' of
+parsePackModule str     =   let (pack',mod') = T.span (/= ':') str
+                            in case packageIdentifierFromString pack' of
                                 Nothing -> perror . T.unpack $ "Types>>parsePackModule: Can't parse package:" <> str
                                 Just pi'-> case simpleParse . T.unpack $ T.tail mod' of
                                             Nothing -> perror . T.unpack $
                                                 "Types>>parsePackModule: Can't parse module:" <> str
-                                            Just mn -> (PM pi' mn)
+                                            Just mn -> PM pi' mn
     where perror s      =   error $ "cannot parse PackModule from " ++ s
 
 showPackModule :: PackModule -> Text
@@ -394,9 +392,9 @@ instance Default PackModule where
     getDefault = parsePackModule "unknow-0:Undefined"
 
 instance Default PackageIdentifier where
-    getDefault = case packageIdentifierFromString "unknown-0" of
-                    Nothing -> error "CTypes.getDefault: Can't parse Package Identifier"
-                    Just it -> it
+    getDefault = fromMaybe
+                   (error "CTypes.getDefault: Can't parse Package Identifier")
+                   (packageIdentifierFromString "unknown-0")
 
 -- | A portion of the source, spanning one or more lines and zero or more columns.
 data SrcSpan = SrcSpan
@@ -494,7 +492,7 @@ instance Pretty ImportSpec where
     pretty (IAbs name)                = pretty name
     pretty (IThingAll name)           = pretty name <> text "(..)"
     pretty (IThingWith name nameList) =
-        pretty name <> (parenList (map (pretty.VName) nameList))
+        pretty name <> parenList (map (pretty . VName) nameList)
 
 instance Pretty VName  where
     pretty (VName t) = let str = T.unpack t in if isOperator str then PP.parens (PP.text str) else PP.text str

@@ -1,10 +1,6 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# OPTIONS_GHC
-    -XScopedTypeVariables
-    -XStandaloneDeriving
-    -XDeriveDataTypeable
-    -fno-warn-orphans #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -----------------------------------------------------------------------------
 --
@@ -38,15 +34,7 @@ import Distribution.ModuleName (ModuleName)
 import IDE.Core.CTypes
 import Data.Text (Text)
 import qualified Data.Text as T (pack, unpack)
-#if !MIN_VERSION_ghc(7,7,0)
-import Data.Typeable (Typeable)
-#endif
 
-#if !MIN_VERSION_ghc(7,7,0)
-deriving instance Typeable PackageIdentifier
-deriving instance Typeable ModuleName
-deriving instance Typeable PackageName
-#endif
 -----------------------------------------------------------
 
 instance BinaryShared Text where
@@ -56,9 +44,8 @@ instance BinaryShared Text where
     getShared x = T.pack <$> getShared (T.unpack <$> x)
 
 instance BinaryShared PackModule where
-    put =   putShared (\ (PM pack' modu') -> do
-                (put pack')
-                (put modu'))
+    put =   putShared (\ (PM pack' modu') -> do put pack'
+                                                put modu')
     get =   getShared (do
                 pack'                <- get
                 modu'                <- get
@@ -147,7 +134,7 @@ instance BinaryShared Descr where
 
 instance BinaryShared TypeDescr where
     put VariableDescr
-        = do    put (1:: Int)
+        =       put (1:: Int)
     put (FieldDescr typeDescrF')
         = do    put (2:: Int)
                 put typeDescrF'
@@ -159,7 +146,7 @@ instance BinaryShared TypeDescr where
                 put constructors'
                 put fields'
     put TypeDescr
-        = do    put (5:: Int)
+        =       put (5:: Int)
     put (NewtypeDescr constructor' mbField')
         = do    put (6:: Int)
                 put constructor'
@@ -175,15 +162,15 @@ instance BinaryShared TypeDescr where
         = do    put (9:: Int)
                 put binds'
     put KeywordDescr
-        = do    put (10:: Int)
+        =       put (10:: Int)
     put ExtensionDescr
-        = do    put (11:: Int)
+        =       put (11:: Int)
     put ModNameDescr
-        = do    put (12:: Int)
+        =       put (12:: Int)
     put QualModNameDescr
-        = do    put (13:: Int)
+        =       put (13:: Int)
     put ErrorDescr
-        = do    put (14:: Int)
+        =       put (14:: Int)
 
     get = do    (typeHint :: Int)                <- get
                 case typeHint of

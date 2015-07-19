@@ -50,7 +50,7 @@ import System.Log.Logger(updateGlobalLogger,rootLoggerName,addHandler,debugM,inf
 import System.Log.Handler.Simple(fileHandler)
 import Network(withSocketsDo)
 import Network.Socket
-       (inet_addr, SocketType(..), SockAddr(..), PortNumber(..))
+       (inet_addr, SocketType(..), SockAddr(..))
 import IDE.Utils.Server
 import System.IO (Handle, hPutStrLn, hGetLine, hFlush, hClose)
 import IDE.HeaderParser(parseTheHeader)

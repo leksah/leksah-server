@@ -82,12 +82,11 @@ getSourcesMap prefs = do
                 buildSourceForPackageDB prefs
                 mbSources' <- parseSourceForPackageDB
                 case mbSources' of
-                    Just map'' -> do
-                        return map''
+                    Just map'' -> return map''
                     Nothing ->  error "can't build/open source for package file"
 
 sourceForPackage :: PackageIdentifier
-    -> (Map PackageIdentifier [FilePath])
+    -> Map PackageIdentifier [FilePath]
     -> Maybe FilePath
 sourceForPackage pid pmap =
     case pid `Map.lookup` pmap of
@@ -116,7 +115,7 @@ showSourceForPackageDB  :: Map Text [FilePath] -> PP.Doc
 showSourceForPackageDB aMap = PP.vcat (map showIt (Map.toList aMap))
     where
     showIt :: (Text,[FilePath]) -> PP.Doc
-    showIt (pd,list) =  (foldl' (\l n -> l PP.$$ (PP.text $ show n)) label list)
+    showIt (pd,list) =  foldl' (\l n -> l PP.$$ PP.text (show n)) label list
                              PP.<>  PP.char '\n'
         where label  =  PP.text (T.unpack pd) PP.<> PP.colon
 
@@ -194,9 +193,9 @@ filePathParser :: CharParser () FilePath
 filePathParser = try (do
     whiteSpace
     char '"'
-    str <- many (noneOf ['"'])
+    str <- many (noneOf "\"")
     char '"'
-    return (str))
+    return str)
     <?> "filePathParser"
 
 parseCabal :: FilePath -> IO (Maybe Text)
@@ -217,11 +216,11 @@ cabalMinimalParser = do
     r1 <- cabalMinimalP
     r2 <- cabalMinimalP
     case r1 of
-        Left v -> do
+        Left v ->
             case r2 of
                 Right n -> return (n <> "-" <> v)
                 Left _ -> unexpected "Illegal cabal"
-        Right n -> do
+        Right n ->
             case r2 of
                 Left v -> return (n <> "-" <> v)
                 Right _ -> unexpected "Illegal cabal"
@@ -230,15 +229,15 @@ cabalMinimalP :: CharParser () (Either Text Text)
 cabalMinimalP =
     do  try $(symbol "name:" <|> symbol "Name:")
         whiteSpace
-        name       <-  (many $noneOf " \n")
-        (many $noneOf "\n")
+        name       <-  many $noneOf " \n"
+        many $noneOf "\n"
         char '\n'
         return . Right $ T.pack name
     <|> do
             try $(symbol "version:" <|> symbol "Version:")
             whiteSpace
-            versionString    <-  (many $noneOf " \n")
-            (many $noneOf "\n")
+            versionString    <-  many $noneOf " \n"
+            many $noneOf "\n"
             char '\n'
             return . Left $ T.pack versionString
     <|> do
@@ -252,7 +251,7 @@ getDataDir = do
     exePath <- getExecutablePath
     if takeFileName exePath `elem` ["leksah-server.exe", "leksah.exe"]
         then do
-            let dataDir = (takeDirectory $ takeDirectory exePath) </> "leksah"
+            let dataDir = takeDirectory (takeDirectory exePath) </> "leksah"
             exists <- doesDirectoryExist dataDir
             if exists then return dataDir else P.getDataDir
         else P.getDataDir

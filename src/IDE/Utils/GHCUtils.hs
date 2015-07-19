@@ -69,6 +69,7 @@ import Control.Monad.IO.Class (MonadIO(..))
 import Data.Text (Text)
 import qualified Data.Text as T (pack, unpack)
 import Data.Monoid ((<>))
+import Data.Function (on)
 
 #if !MIN_VERSION_ghc(7,7,0)
 -- this should not be repeated here, why is it necessary?
@@ -88,9 +89,9 @@ inGhcIO flags' udynFlags ghcAct = do
     runGhc (Just libDir) $ do
         dynflags  <- getSessionDynFlags
 #if MIN_VERSION_ghc(7,7,0)
-        let dynflags' = foldl (\ flags'' flag' -> gopt_set flags'' flag') dynflags udynFlags
+        let dynflags' = foldl gopt_set dynflags udynFlags
 #else
-        let dynflags' = foldl (\ flags'' flag' -> dopt_set flags'' flag') dynflags udynFlags
+        let dynflags' = foldl dopt_set dynflags udynFlags
 #endif
         let dynflags'' = dynflags' {
             hscTarget = HscNothing,
@@ -110,7 +111,7 @@ inGhcIO flags' udynFlags ghcAct = do
         (dynflags', rest, _) <- parseDynamicFlags dynflags flags_
         if not (null rest)
             then do
-                liftIO $ debugM "leksah-server" ("No dynamic GHC options: " ++ (unwords (map unLoc rest)))
+                liftIO $ debugM "leksah-server" ("No dynamic GHC options: " ++ unwords (map unLoc rest))
                 return dynflags'
             else return dynflags'
 
@@ -127,10 +128,9 @@ getInstalledPackageInfos = do
 #if !MIN_VERSION_ghc(7,6,0)
     setSessionDynFlags $ dopt_set dflags1 Opt_ReadUserPackageConf
 #endif
-    pkgInfos        <-  case pkgDatabase dflags1 of
-                            Nothing -> return []
-                            Just fm -> return fm
-    return pkgInfos
+    case pkgDatabase dflags1 of
+        Nothing -> return []
+        Just fm -> return fm
 
 findFittingPackages :: [Dependency] -> Ghc [PackageIdentifier]
 findFittingPackages dependencyList = do
@@ -147,7 +147,7 @@ findFittingPackages dependencyList = do
                                     name == dname && withinRange version versionRange)
                         packages
         in  if length filtered > 1
-                then [maximumBy (\a b -> compare (pkgVersion a) (pkgVersion b)) filtered]
+                then [maximumBy (compare `on` pkgVersion) filtered]
                 else filtered
 
  ---------------------------------------------------------------------

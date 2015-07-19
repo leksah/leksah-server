@@ -29,11 +29,8 @@ import IDE.Metainfo.SourceCollectorH
 import System.Log.Logger (errorM, debugM, infoM)
 import IDE.Metainfo.InterfaceCollector (collectPackageFromHI)
 import IDE.Core.CTypes
-       (getThisPackage, SimpleDescr(..), TypeDescr(..),
-        ReexportedDescr(..), Descr(..), RealDescr(..), dscTypeHint,
-        descrType, dscName, Descr, ModuleDescr(..), PackModule(..),
-        PackageDescr(..), metadataVersion, leksahVersion,
-        packageIdentifierToString, packId)
+       (metadataVersion, PackageDescr(..), leksahVersion, getThisPackage,
+        PackageIdAndKey(..), packageIdentifierToString)
 import IDE.Utils.FileUtils (getCollectorPath)
 import System.Directory (doesDirectoryExist, setCurrentDirectory)
 import IDE.Utils.Utils
@@ -41,9 +38,6 @@ import IDE.Utils.Utils
         leksahMetadataSystemFileExtension)
 import System.FilePath (dropFileName, takeBaseName, (<.>), (</>))
 import Data.Binary.Shared (encodeFileSer)
-import qualified Data.Map as Map
-       (fromListWith, fromList, keys, lookup)
-import Data.List (delete, nub)
 import Distribution.Text (display)
 import Control.Monad.IO.Class (MonadIO, MonadIO(..))
 import qualified Control.Exception as E (SomeException, catch)
@@ -133,7 +127,7 @@ collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
     where
         retrieve :: Text -> IO Bool
         retrieve packString = do
-            collectorPath   <- liftIO $ getCollectorPath
+            collectorPath   <- liftIO getCollectorPath
             setCurrentDirectory collectorPath
             let fullUrl  = T.unpack (retrieveURL prefs) <> "/metadata-" <> leksahVersion <> "/" <> T.unpack packString <> leksahMetadataSystemFileExtension
                 filePath = collectorPath </> T.unpack packString <.> leksahMetadataSystemFileExtension
@@ -189,7 +183,7 @@ collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
 
 writeExtractedPackage :: MonadIO m => Bool -> PackageDescr -> m ()
 writeExtractedPackage writeAscii pd = do
-    collectorPath   <- liftIO $ getCollectorPath
+    collectorPath   <- liftIO getCollectorPath
     let filePath    =  collectorPath </> T.unpack (packageIdentifierToString $ pdPackage pd) <.>
                             leksahMetadataSystemFileExtension
     if writeAscii
@@ -198,7 +192,7 @@ writeExtractedPackage writeAscii pd = do
 
 writePackagePath :: MonadIO m => FilePath -> Text -> m ()
 writePackagePath fp packageName = do
-    collectorPath   <- liftIO $ getCollectorPath
+    collectorPath   <- liftIO getCollectorPath
     let filePath    =  collectorPath </> T.unpack packageName <.> leksahMetadataPathFileExtension
     liftIO $ writeFile filePath fp
 

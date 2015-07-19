@@ -53,8 +53,8 @@ import System.FilePath
        (splitFileName, dropExtension, takeExtension,
         combine, addExtension, (</>), normalise, splitPath, takeFileName)
 import Distribution.ModuleName (toFilePath, ModuleName)
-import Control.Monad (foldM, filterM)
-import Data.Maybe (catMaybes)
+import Control.Monad (when, foldM, filterM)
+import Data.Maybe (mapMaybe, catMaybes)
 import Distribution.Simple.PreProcess.Unlit (unlit)
 import System.Directory
        (canonicalizePath, doesDirectoryExist, doesFileExist,
@@ -120,7 +120,7 @@ findSourceFile :: [FilePath]
     -> IO (Maybe FilePath)
 findSourceFile directories exts modId  =
     let modulePath      =   toFilePath modId
-        allPathes       =   map (\ d -> d </> modulePath) directories
+        allPathes       =   map (</> modulePath) directories
         allPossibles    =   concatMap (\ p -> map (addExtension p) exts)
                                 allPathes
     in  find' allPossibles
@@ -129,7 +129,7 @@ findSourceFile' :: [FilePath]
     -> FilePath
     -> IO (Maybe FilePath)
 findSourceFile' directories modulePath  =
-    let allPathes       =   map (\ d -> d </> modulePath) directories
+    let allPathes       =   map (</> modulePath) directories
     in  find' allPathes
 
 
@@ -199,19 +199,17 @@ allModules filePath = E.catch (do
     if exists
         then do
             filesAndDirs <- getDirectoryContents filePath
-            let filesAndDirs' = map (\s -> combine filePath s)
+            let filesAndDirs' = map (combine filePath)
                                     $filter (\s -> s /= "." && s /= ".." && s /= "_darcs" && s /= "dist"
                                         && s /= "Setup.lhs") filesAndDirs
-            dirs <-  filterM (\f -> doesDirectoryExist f) filesAndDirs'
-            files <-  filterM (\f -> doesFileExist f) filesAndDirs'
+            dirs <-  filterM doesDirectoryExist filesAndDirs'
+            files <-  filterM doesFileExist filesAndDirs'
             let hsFiles =   filter (\f -> let ext = takeExtension f in
                                             ext == ".hs" || ext == ".lhs") files
             mbModuleStrs <- mapM moduleNameFromFilePath hsFiles
-            let mbModuleNames = catMaybes $
-                                    map (\n -> case n of
-                                                    Nothing -> Nothing
-                                                    Just s -> simpleParse $ T.unpack s)
-                                        mbModuleStrs
+            let mbModuleNames = mapMaybe
+                                  (maybe Nothing (simpleParse . T.unpack))
+                                  mbModuleStrs
             otherModules <- mapM allModules dirs
             return (mbModuleNames ++ concat otherModules)
         else return [])
@@ -232,17 +230,15 @@ allFilesWithExtensions extensions recurseFurther collecting filePath = E.catch (
     if exists
         then do
             filesAndDirs <- getDirectoryContents filePath
-            let filesAndDirs' = map (\s -> combine filePath s)
+            let filesAndDirs' = map (combine filePath)
                                     $filter (\s -> s /= "." && s /= ".." && s /= "_darcs") filesAndDirs
-            dirs    <-  filterM (\f -> doesDirectoryExist f) filesAndDirs'
-            files   <-  filterM (\f -> doesFileExist f) filesAndDirs'
+            dirs    <-  filterM doesDirectoryExist filesAndDirs'
+            files   <-  filterM doesFileExist filesAndDirs'
             let choosenFiles =   filter (\f -> let ext = takeExtension f in
                                                     elem ext extensions) files
-            allFiles <-
-                if recurseFurther || (not recurseFurther && null choosenFiles)
-                    then foldM (allFilesWithExtensions extensions recurseFurther) (choosenFiles ++ collecting) dirs
-                    else return (choosenFiles ++ collecting)
-            return (allFiles)
+            if recurseFurther || (not recurseFurther && null choosenFiles)
+                then foldM (allFilesWithExtensions extensions recurseFurther) (choosenFiles ++ collecting) dirs
+                else return (choosenFiles ++ collecting)
         else return collecting)
             $ \ (_ :: SomeException) -> return collecting
 
@@ -269,8 +265,7 @@ moduleNameFromFilePath' fp str = do
         Left str' -> do
             let parseRes = parse moduleNameParser fp str'
             case parseRes of
-                Left _ -> do
-                    return Nothing
+                Left _ -> return Nothing
                 Right str'' -> return (Just str'')
 
 lexer :: P.TokenParser st
@@ -291,12 +286,11 @@ moduleNameParser = do
     many skipPreproc
     whiteSpace
     symbol "module"
-    str <- lexeme mident
-    return str
+    lexeme mident
     <?> "module identifier"
 
 skipPreproc :: CharParser () ()
-skipPreproc = do
+skipPreproc =
     try (do
         whiteSpace
         char '#'
@@ -318,7 +312,7 @@ findKnownPackages filePath = E.catch (do
     let nameList    =   map (T.pack . dropExtension) $
             filter (\s -> leksahMetadataSystemFileExtension `isSuffixOf` s) paths
     return (Set.fromList nameList))
-        $ \ (_ :: SomeException) -> return (Set.empty)
+        $ \ (_ :: SomeException) -> return Set.empty
 
 isEmptyDirectory :: FilePath -> IO Bool
 isEmptyDirectory filePath = E.catch (do
@@ -336,7 +330,7 @@ cabalFileName filePath = E.catch (do
     if exists
         then do
             filesAndDirs <- map (filePath </>) <$> getDirectoryContents filePath
-            files <-  filterM (\f -> doesFileExist f) filesAndDirs
+            files <-  filterM doesFileExist filesAndDirs
             case filter (\f -> let ext = takeExtension f in ext == ".cabal") files of
                 [f] -> return (Just f)
                 []  -> return Nothing
@@ -369,25 +363,23 @@ autoExtractTarFiles' :: FilePath -> IO ()
 autoExtractTarFiles' filePath =
     E.catch (do
         exists <- doesDirectoryExist filePath
-        if exists
-            then do
-                filesAndDirs             <- getDirectoryContents filePath
-                let filesAndDirs'        =  map (\s -> combine filePath s)
-                                                $ filter (\s -> s /= "." && s /= ".." && not (isPrefixOf "00-index" s)) filesAndDirs
-                dirs                     <- filterM (\f -> doesDirectoryExist f) filesAndDirs'
-                files                    <- filterM (\f -> doesFileExist f) filesAndDirs'
-                let choosenFiles         =  filter (\f -> isSuffixOf ".tar.gz" f) files
-                let decompressionTargets =  filter (\f -> (dropExtension . dropExtension) f `notElem` dirs) choosenFiles
-                mapM_ (\f -> let (dir,fn) = splitFileName f
-                                 command = "tar -zxf " ++ fn in do
-                                    setCurrentDirectory dir
-                                    handle   <- runCommand command
-                                    waitForProcess handle
-                                    return ())
-                        decompressionTargets
-                mapM_ autoExtractTarFiles' dirs
-                return ()
-            else return ()
+        when exists $ do
+            filesAndDirs             <- getDirectoryContents filePath
+            let filesAndDirs'        =  map (combine filePath)
+                                            $ filter (\s -> s /= "." && s /= ".." && not ("00-index" `isPrefixOf` s)) filesAndDirs
+            dirs                     <- filterM doesDirectoryExist filesAndDirs'
+            files                    <- filterM doesFileExist filesAndDirs'
+            let choosenFiles         =  filter (isSuffixOf ".tar.gz") files
+            let decompressionTargets =  filter (\f -> (dropExtension . dropExtension) f `notElem` dirs) choosenFiles
+            mapM_ (\f -> let (dir,fn) = splitFileName f
+                             command = "tar -zxf " ++ fn in do
+                                setCurrentDirectory dir
+                                handle   <- runCommand command
+                                waitForProcess handle
+                                return ())
+                    decompressionTargets
+            mapM_ autoExtractTarFiles' dirs
+            return ()
     ) $ \ (_ :: SomeException) -> return ()
 
 
@@ -421,12 +413,12 @@ getInstalledPackageIds' = E.catch (do
     output `deepseq` return $ Right $ concatMap names output
     ) $ \ (e :: SomeException) -> return . Left . T.pack $ show e
   where
-    names (ToolOutput n) = catMaybes (map (T.simpleParse . T.unpack) (T.words n))
+    names (ToolOutput n) = mapMaybe (T.simpleParse . T.unpack) (T.words n)
     names _ = []
 
 figureOutHaddockOpts :: IO [Text]
 figureOutHaddockOpts = do
-    (!output,_) <- runTool' "cabal" (["haddock","--with-haddock=leksahecho","--executables"]) Nothing
+    (!output,_) <- runTool' "cabal" ["haddock", "--with-haddock=leksahecho", "--executables"] Nothing
     let opts = concat [words $ T.unpack l | ToolOutput l <- output]
     let res = filterOptGhc opts
     debugM "leksah-server" ("figureOutHaddockOpts " ++ show res)
@@ -445,7 +437,7 @@ figureOutGhcOpts = do
     let res = case catMaybes [findMake $ T.unpack l | ToolOutput l <- output] of
                 options:_ -> words options
                 _         -> []
-    debugM "leksah-server" $ ("figureOutGhcOpts " ++ show res)
+    debugM "leksah-server" ("figureOutGhcOpts " ++ show res)
     output `deepseq` return $ map T.pack res
     where
         findMake :: String -> Maybe String

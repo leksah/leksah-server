@@ -41,7 +41,7 @@ getGhcVersion = E.catch (do
 getGhcInfo :: IO Text
 getGhcInfo = E.catch (do
     (!output,_) <- runTool' "ghc" ["--info"] Nothing
-    output `deepseq` return $ T.unlines $ [l | ToolOutput l <- output]
+    output `deepseq` return $ T.unlines [l | ToolOutput l <- output]
     ) $ \ (e :: SomeException) -> error $ "FileUtils>>getGhcInfo failed with " ++ show e
 
 getHaddockVersion :: IO Text

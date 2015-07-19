@@ -1,5 +1,7 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# OPTIONS_GHC -XRecordWildCards -XCPP -XBangPatterns -fno-warn-orphans #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.Utils.Tool
@@ -94,6 +96,7 @@ import Data.Char (isDigit)
 import Data.Text (replace, Text)
 import Data.Monoid ((<>))
 import Data.Text.IO (hPutStrLn)
+import Control.Arrow (Arrow(..))
 
 data ToolOutput = ToolInput Text
                 | ToolError Text
@@ -135,7 +138,7 @@ toolline (ToolPrompt l)  = l
 toolline (ToolExit _code) = ""
 
 quoteArg :: Text -> Text
-quoteArg s | T.any (==' ') s = "\"" <> (escapeQuotes s) <> "\""
+quoteArg s | T.any (==' ') s = "\"" <> escapeQuotes s <> "\""
 quoteArg s                   = s
 
 escapeQuotes :: Text -> Text
@@ -220,7 +223,7 @@ runInteractiveTool tool clr executable arguments mbDir = do
     isolateCommandOutput = isolateToFirst (not . isEndOfCommandOutput)
 
     processCommand [] _ = do
-        liftIO $ debugM "leksah-server" $ "No More Commands"
+        liftIO $ debugM "leksah-server" "No More Commands"
         return ()
     processCommand ((command@(ToolCommand commandString rawCommandString handler)):remainingCommands) inp = do
         liftIO $ do
@@ -228,35 +231,34 @@ runInteractiveTool tool clr executable arguments mbDir = do
             putMVar (currentToolCommand tool) command
             hPutStrLn inp commandString
             hFlush inp
-        (mapM (C.yield . ToolInput) (T.lines rawCommandString) >> isolateCommandOutput) =$ handler
+        (mapM_ (C.yield . ToolInput) (T.lines rawCommandString) >> isolateCommandOutput) =$ handler
         processCommand remainingCommands inp
 
     outputSequence :: Handle -> C.Conduit RawToolOutput IO ToolOutput
     outputSequence inp =
-        CL.concatMapAccumM writeCommandOutput (False, False, (outputSyncCommand clr), 0, "")
+        CL.concatMapAccumM writeCommandOutput (False, False, outputSyncCommand clr, 0, "")
       where
-        writeCommandOutput (RawToolOutput (ToolPrompt line)) (False, False, (Just outSyncCmd), n, _) = do
-            debugM "leksah-server" $ "Pre Sync Prompt"
+        writeCommandOutput (RawToolOutput (ToolPrompt line)) (False, False, Just outSyncCmd, n, _) = do
+            debugM "leksah-server" "Pre Sync Prompt"
             hPutStrLn inp $ outSyncCmd n
             hFlush inp
-            return ((True, False, (Just outSyncCmd), n, line), [])
+            return ((True, False, Just outSyncCmd, n, line), [])
         writeCommandOutput (RawToolOutput (ToolPrompt _))(True, False, mbSyncCmd, n, promptLine) = do
-            debugM "leksah-server" $ "Unsynced Prompt"
+            debugM "leksah-server" "Unsynced Prompt"
             return ((True, False, mbSyncCmd, n, promptLine), [])
         writeCommandOutput (RawToolOutput o@(ToolOutput line)) (True, False, mbSyncCmd, n, promptLine) = do
-            let synced = (isExpectedOutput clr n line)
-            when synced $ debugM "leksah-server" $ "Output Sync Found"
+            let synced = isExpectedOutput clr n line
+            when synced $ debugM "leksah-server" "Output Sync Found"
             return ((True, synced, mbSyncCmd, n, promptLine), if synced then [] else [o])
         writeCommandOutput (RawToolOutput (ToolPrompt _)) (_, _, mbSyncCmd, n, promptLine) = do
-            debugM "leksah-server" $ "Synced Prompt - Ready For Next Command"
+            debugM "leksah-server" "Synced Prompt - Ready For Next Command"
             tryTakeMVar (currentToolCommand tool)
             return ((False, False, mbSyncCmd, n+1, promptLine), [ToolPrompt promptLine])
         writeCommandOutput (RawToolOutput o@(ToolExit _)) s = do
-            debugM "leksah-server" $ "Tool Exit"
+            debugM "leksah-server" "Tool Exit"
             putMVar (outputClosed tool) True
             return (s, [o])
-        writeCommandOutput (RawToolOutput o) s = do
-            return (s, [o])
+        writeCommandOutput (RawToolOutput o) s = return (s, [o])
         writeCommandOutput x s = do
             debugM "leksah-server" $ "Unexpected output " ++ show x
             return (s, [])
@@ -283,19 +285,19 @@ data CommandLineReader = CommandLineReader {
 
 ghciParseInitialPrompt :: AP.Parser Text
 ghciParseInitialPrompt = (do
-        ((AP.string "Prelude") <|> (AP.string "*") <|> (AP.string ">"))
+        AP.string "Prelude" <|> AP.string "*" <|> AP.string ">"
         AP.skipWhile (\c -> c /= '>' && c/= '\n')
         AP.string "> "
         return "")
     <?> "ghciParseInitialPrompt"
 
 ghciParseFollowingPrompt :: AP.Parser Text
-ghciParseFollowingPrompt = (do
-        T.pack <$> AP.satisfy (/='\n') `AP.manyTill` (AP.string ghciPrompt))
+ghciParseFollowingPrompt = (
+        T.pack <$> AP.satisfy (/= '\n') `AP.manyTill` AP.string ghciPrompt)
     <?> "ghciParseFollowingPrompt"
 
 marker :: Int -> Text
-marker n = "kMAKWRALZZbHdXfHUOAAYBB" <> (T.pack $ show n)
+marker n = "kMAKWRALZZbHdXfHUOAAYBB" <> T.pack (show n)
 
 parseMarker :: AP.Parser Int
 parseMarker = (do
@@ -328,16 +330,16 @@ manyTill' p end = scan
     where scan = liftA (\b -> ([], b)) end <|> liftA2 (\a (as, b) -> (a:as, b)) p scan
 
 ghciParseExpectedError :: AP.Parser (Text, Int)
-ghciParseExpectedError = (do
-      (\(a, b) -> (T.pack a, b)) <$> AP.satisfy (/='\n') `manyTill'` (do
+ghciParseExpectedError = (
+      first T.pack <$> AP.satisfy (/='\n') `manyTill'` (do
         AP.string "\n<interactive>:"
         AP.takeWhile1 isDigit
         AP.string ":"
         ghciParseExpectedErrorCols
         AP.string ": Not in scope: "
-        (AP.char '`' <|> AP.char '‛' <|> AP.char '‘')
+        AP.char '`' <|> AP.char '‛' <|> AP.char '‘'
         result <- parseMarker
-        (AP.char '\'' <|> AP.char '’')
+        AP.char '\'' <|> AP.char '’'
         AP.string "\n"
         return result))
     <?> "ghciParseExpectedError"
@@ -372,7 +374,7 @@ parseError expectedErrorParser = (do
         return $ Left expected)
     <|> (do
         line <- AP.takeWhile (/= '\n')
-        (AP.endOfInput <|> AP.endOfLine)
+        AP.endOfInput <|> AP.endOfLine
         return $ Right line)
     <?> "parseError"
 
@@ -382,7 +384,7 @@ getOutput clr inp out err pid = do
     hSetBuffering out NoBuffering
     hSetBuffering err NoBuffering
     mvar <- newEmptyMVar
-    foundExpectedError <- liftIO $ newEmptyMVar
+    foundExpectedError <- liftIO newEmptyMVar
     forkIO $ do
         readError mvar err foundExpectedError
         putMVar mvar ToolErrClosed
@@ -410,7 +412,7 @@ getOutput clr inp out err pid = do
     readError mvar errors foundExpectedError = do
         CB.sourceHandle errors $= CT.decode CT.utf8
                     $= CL.map (T.filter (/= '\r'))
-                    $= (CL.sequence (sinkParser (parseError $ parseExpectedError clr)))
+                    $= CL.sequence (sinkParser (parseError $ parseExpectedError clr))
                     $$ sendErrors
         hClose errors
       where
@@ -425,25 +427,25 @@ getOutput clr inp out err pid = do
     outputSequence :: AP.Parser ToolOutput -> AP.Parser ToolOutput -> C.Conduit Text IO ToolOutput
     outputSequence i1 i2 = loop
       where
-        loop = C.await >>= maybe (return ()) (\x -> C.leftover x >> (sinkParser i1) >>= check)
+        loop = C.await >>= maybe (return ()) (\x -> C.leftover x >> sinkParser i1 >>= check)
         check line@(ToolPrompt _) = C.yield line >> CL.sequence (sinkParser i2)
         check line = C.yield line >> loop
 
     readOutput :: MVar RawToolOutput -> Handle -> MVar Int -> IO ()
     readOutput mvar output foundExpectedError = do
-        let parseLines parsePrompt = ((do
+        let parseLines parsePrompt = (do
                     lineSoFar <- parsePrompt
                     return $ ToolPrompt lineSoFar)
                 <|> (do
                     line <- AP.takeWhile (/= '\n')
-                    (AP.endOfInput <|> AP.endOfLine)
+                    AP.endOfInput <|> AP.endOfLine
                     return $ ToolOutput line)
-                <?> "parseLines")
+                <?> "parseLines"
             parseInitialLines = parseLines (parseInitialPrompt clr)
             parseFollowinglines = parseLines (parseFollowingPrompt clr)
         CB.sourceHandle output $= CT.decode CT.utf8
                     $= CL.map (T.filter (/= '\r'))
-                    $= (outputSequence (parseInitialLines) (parseFollowinglines))
+                    $= outputSequence parseInitialLines parseFollowinglines
                     $$ sendErrors
         hClose output
       where
@@ -454,13 +456,13 @@ getOutput clr inp out err pid = do
                     liftIO $ debugM "leksah-server" $ "sendErrors " ++ show mbx
                     case mbx of
                         Nothing -> return ()
-                        Just x@(ToolPrompt line) -> do
+                        Just x@(ToolPrompt line) ->
                             case (counter, errSynced, errorSyncCommand clr) of
-                                (0, _, _) -> do
+                                (0, _, _) ->
                                     loop (counter+1) errSynced line
                                 (_, False, Just syncCmd) -> do
                                     liftIO $ do
-                                        debugM "leksah-server" $ "sendErrors - Sync " ++ (T.unpack $ syncCmd counter)
+                                        debugM "leksah-server" $ "sendErrors - Sync " ++ T.unpack (syncCmd counter)
                                         hPutStrLn inp $ syncCmd counter
                                         hFlush inp
                                         waitForError counter
@@ -491,7 +493,7 @@ getOutputNoPrompt inp out err pid = do
     output <- getOutput noInputCommandLineReader inp out err pid
     return $ output $= CL.concatMap fromRawOutput
 
-newGhci' :: [Text] -> (C.Sink ToolOutput IO ()) -> IO ToolState
+newGhci' :: [Text] -> C.Sink ToolOutput IO () -> IO ToolState
 newGhci' flags startupOutputHandler = do
     tool <- newToolState
     writeChan (toolCommands tool) $
@@ -499,7 +501,7 @@ newGhci' flags startupOutputHandler = do
     runInteractiveTool tool ghciCommandLineReader "ghci" flags Nothing
     return tool
 
-newGhci :: FilePath -> Maybe Text -> [Text] -> (C.Sink ToolOutput IO ()) -> IO ToolState
+newGhci :: FilePath -> Maybe Text -> [Text] -> C.Sink ToolOutput IO () -> IO ToolState
 newGhci dir mbExe interactiveFlags startupOutputHandler = do
         tool <- newToolState
         writeChan (toolCommands tool) $
@@ -509,16 +511,16 @@ newGhci dir mbExe interactiveFlags startupOutputHandler = do
         return tool
 
 executeCommand :: ToolState -> Text -> Text -> C.Sink ToolOutput IO () -> IO ()
-executeCommand tool command rawCommand handler = do
+executeCommand tool command rawCommand handler =
     writeChan (toolCommands tool) $ ToolCommand command rawCommand handler
 
 executeGhciCommand :: ToolState -> Text -> C.Sink ToolOutput IO () -> IO ()
-executeGhciCommand tool command handler = do
+executeGhciCommand tool command handler =
     if '\n' `elem` T.unpack command
         then executeCommand tool safeCommand command handler
         else executeCommand tool command command handler
     where
-        filteredLines = (filter safeLine (T.lines command))
+        filteredLines = filter safeLine (T.lines command)
         safeCommand = ":cmd (return " <> T.pack (show $ ":{\n" <> T.unlines filteredLines <> "\n:}") <> ")"
         safeLine ":{" = False
         safeLine ":}" = False

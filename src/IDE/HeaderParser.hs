@@ -68,9 +68,9 @@ parseTheHeader filePath = do
         Left str                                      -> return (ServerFailed str)
         Right (_, pr@HsModule{ hsmodImports = []})       -> do
             let i = case hsmodDecls pr of
-                        decls@(_hd:_tl) -> (foldl (\ a b -> min a (srcSpanStartLine' (getLoc b))) 0 decls) - 1
+                        decls@(_hd:_tl) -> foldl (\ a b -> min a (srcSpanStartLine' (getLoc b))) 0 decls - 1
                         [] -> case hsmodExports pr of
-                            Just list ->  (foldl (\ a b -> max a (srcSpanEndLine' (getLoc b))) 0 (unLoc710 list)) + 1
+                            Just list -> foldl (\ a b -> max a (srcSpanEndLine' (getLoc b))) 0 (unLoc710 list) + 1
                             Nothing -> case hsmodName pr of
                                         Nothing -> 0
                                         Just mn -> srcSpanEndLine' (getLoc mn) + 2

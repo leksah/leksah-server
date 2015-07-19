@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP #-}
-{-# OPTIONS_GHC -XScopedTypeVariables -XFlexibleContexts#-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleContexts #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.Metainfo.InterfaceCollector
@@ -117,7 +118,7 @@ getIFaceInfos p modules _session = do
 #else
                                  (mkPackageId pid)
 #endif
-        isBase          =   pkgName pid == (PackageName "base")
+        isBase          =   pkgName pid == PackageName "base"
         ifaces          =   mapM (\ mn -> findAndReadIface empty
                                           (if isBase
                                                 then mkBaseModule_ mn
@@ -126,7 +127,7 @@ getIFaceInfos p modules _session = do
     hscEnv              <-  getSession
     let gblEnv          =   IfGblEnv { if_rec_types = Nothing }
     maybes              <-  Hs.liftIO $ initTcRnIf  'i' hscEnv gblEnv () ifaces
-    let res             =   catMaybes (map handleErr maybes)
+    let res             =   mapMaybe handleErr maybes
     return res
     where
         handleErr (M.Succeeded val)   =   Just val
@@ -137,9 +138,9 @@ getIFaceInfos p modules _session = do
 extractInfo :: DynFlags -> [(ModIface, FilePath)] -> [(ModIface, FilePath)] -> PackageIdAndKey ->
                     [PackageIdentifier] -> PackageDescr
 extractInfo dflags ifacesExp ifacesHid pid buildDepends =
-    let allDescrs           =   concatMap (extractExportedDescrH dflags pid)
-                                    (map fst (ifacesHid ++ ifacesExp))
-        mods                =   map (extractExportedDescrR dflags pid allDescrs) (map fst ifacesExp)
+    let allDescrs           =   concatMap (extractExportedDescrH dflags pid . fst)
+                                  (ifacesHid ++ ifacesExp)
+        mods                =   map (extractExportedDescrR dflags pid allDescrs . fst) ifacesExp
     in PackageDescr {
         pdPackage           =   packId pid
     ,   pdModules           =   mods
@@ -159,8 +160,7 @@ extractExportedDescrH dflags pid iface =
                                     $ concatMap availNames
                                         $ concatMap snd (mi_exports iface)
 #endif
-        exportedDecls       =   filter (\ ifdecl -> (occNameString $ ifName ifdecl)
-                                                    `Set.member` exportedNames)
+        exportedDecls       =   filter (\ ifdecl -> occNameString (ifName ifdecl) `Set.member` exportedNames)
                                                             (map snd (mi_decls iface))
     in  concatMap (extractIdentifierDescr dflags pid [mid]) exportedDecls
 
@@ -186,9 +186,9 @@ extractExportedDescrR dflags pid hidden iface =
                                                     `Set.member` exportedNames)
                                                             (map snd (mi_decls iface))
         ownDecls        =   concatMap (extractIdentifierDescr dflags pid [mid]) exportedDecls
-        otherDecls      =   exportedNames `Set.difference` (Set.fromList (map dscName ownDecls))
-        reexported      =   map (\d -> Reexported (ReexportedDescr (Just (PM (packId pid) mid)) d))
-                                 $ filter (\k -> (dscName k) `Set.member` otherDecls) hidden
+        otherDecls      =   exportedNames `Set.difference` Set.fromList (map dscName ownDecls)
+        reexported      =   map (Reexported . ReexportedDescr (Just (PM (packId pid) mid)))
+                                 $ filter (\k -> dscName k `Set.member` otherDecls) hidden
         inst            =   concatMap (extractInstances dflags (PM (packId pid) mid)) (mi_insts iface)
         uses            =   Map.fromList . catMaybes $ map (extractUsages dflags) (mi_usages iface)
         declsWithExp    =   map withExp ownDecls
@@ -259,7 +259,7 @@ extractIdentifierDescr dflags package modules decl
                             in [Real $ descr{dscTypeHint' = ClassDescr superclasses classOpsID}]
 #if MIN_VERSION_ghc(7,6,0)
             (IfaceAxiom {})
-                        ->  [Real $ descr]
+                        ->  [Real descr]
 #endif
 #if MIN_VERSION_ghc(7,10,0)
             (IfaceSynonym {})
@@ -274,11 +274,11 @@ extractIdentifierDescr dflags package modules decl
 #endif
 #if MIN_VERSION_ghc(7,8,0)
             (IfacePatSyn {})
-                        ->  [Real $ descr]
+                        ->  [Real descr]
 #endif
 
 extractConstructors :: DynFlags -> OccName -> [IfaceConDecl] -> [SimpleDescr]
-extractConstructors dflags name decls = map (\decl -> SimpleDescr (T.pack . unpackFS $occNameFS (ifConOcc decl))
+extractConstructors dflags name = map (\decl -> SimpleDescr (T.pack . unpackFS $occNameFS (ifConOcc decl))
                                                  (Just (BS.pack $ filterExtras $ showSDocUnqual dflags $
 #if MIN_VERSION_ghc(7,10,0)
                                                     pprIfaceForAllPart (ifConExTvs decl)
@@ -286,7 +286,7 @@ extractConstructors dflags name decls = map (\decl -> SimpleDescr (T.pack . unpa
                                                     pprIfaceForAllPart (ifConUnivTvs decl ++ ifConExTvs decl)
 #endif
                                                         (eq_ctxt decl ++ ifConCtxt decl) (pp_tau decl)))
-                                                 Nothing Nothing True) decls
+                                                 Nothing Nothing True)
 
     where
     pp_tau decl     = case map pprParendIfaceType (ifConArgTys decl) ++ [pp_res_ty decl] of
@@ -323,7 +323,7 @@ extractClassOp dflags (IfaceClassOp occName' _dm ty) = SimpleDescr (T.pack . unp
                                                 Nothing Nothing True
 
 extractSuperClassNames :: [IfacePredType] -> [Text]
-extractSuperClassNames l = catMaybes $ map extractSuperClassName l
+extractSuperClassNames = mapMaybe extractSuperClassName
     where
 #if !MIN_VERSION_ghc(7,3,0)
             extractSuperClassName (IfaceClassP name _)  =
@@ -341,18 +341,15 @@ extractInstances :: DynFlags
     -> [Descr]
 extractInstances dflags pm ifaceInst  =
     let className   =   showSDocUnqual dflags $ ppr $ ifInstCls ifaceInst
-        dataNames   =   map (\iftc -> T.pack . showSDocUnqual dflags $ ppr iftc)
-                            $ map fromJust
-                                $ filter isJust
-                                    $ ifInstTys ifaceInst
-    in [Real (RealDescr
+        dataNames   =   map (T.pack . showSDocUnqual dflags . ppr) . catMaybes $ ifInstTys ifaceInst
+    in [Real RealDescr
                     {   dscName'         =   T.pack className
                     ,   dscMbTypeStr'    =   Nothing
                     ,   dscMbModu'       =   Just pm
                     ,   dscMbLocation'   =   Nothing
                     ,   dscMbComment'    =   Nothing
                     ,   dscTypeHint'     =   InstanceDescr dataNames
-                    ,   dscExported'     =   False})]
+                    ,   dscExported'     =   False}]
 
 
 extractUsages :: DynFlags -> Usage -> Maybe (ModuleName, Set Text)
