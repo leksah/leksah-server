@@ -71,6 +71,7 @@ module IDE.Core.CTypes (
 import Data.Typeable (Typeable)
 import Data.Map (Map)
 import Data.Set (Set)
+import Data.Maybe (fromMaybe)
 import Default (Default(..))
 import MyMissing (nonEmptyLines)
 #if MIN_VERSION_ghc(7,6,0)
@@ -95,7 +96,7 @@ import PackageConfig (PackageConfig)
 #if MIN_VERSION_ghc(7,10,0)
 import Module (PackageKey)
 import PackageConfig (sourcePackageIdString, packageKey)
-import Data.Maybe (fromJust, fromMaybe)
+import Data.Maybe (fromJust)
 #else
 import qualified Distribution.InstalledPackageInfo as IPI
 #endif
