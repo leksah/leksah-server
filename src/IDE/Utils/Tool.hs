@@ -57,21 +57,12 @@ import Control.Concurrent
 import Control.Monad (when, unless)
 import Control.Monad.IO.Class (liftIO, MonadIO)
 import Data.Maybe (maybeToList)
-#ifdef MIN_VERSION_process_leksah
-import IDE.System.Process
-       (proc, waitForProcess, ProcessHandle, createProcess, CreateProcess(..),
-       interruptProcessGroup, runCommand, getProcessExitCode,
-       runProcess, runInteractiveProcess, readProcessWithExitCode,
-       terminateProcess)
-import IDE.System.Process.Internals (StdStream(..))
-#else
 import System.Process
        (showCommandForUser, proc, waitForProcess, ProcessHandle,
         createProcess, CreateProcess(..), interruptProcessGroupOf,
         runCommand, getProcessExitCode, runProcess, runInteractiveProcess,
         readProcessWithExitCode, terminateProcess)
 import System.Process.Internals (StdStream(..))
-#endif
 import qualified Data.Text as T
        (unlines, unwords, null, lines, any, unpack, pack, filter)
 import Control.DeepSeq
@@ -97,6 +88,10 @@ import Data.Text (replace, Text)
 import Data.Monoid ((<>))
 import Data.Text.IO (hPutStrLn)
 import Control.Arrow (Arrow(..))
+#ifdef MIN_VERSION_unix
+import System.Posix.Signals
+       (emptySignalSet, sigINT, addSignal, unblockSignals)
+#endif
 
 data ToolOutput = ToolInput Text
                 | ToolError Text
@@ -160,6 +155,10 @@ runTool' fp args mbDir = do
 
 runTool :: MonadIO m => FilePath -> [Text] -> Maybe FilePath -> IO (C.Source m ToolOutput, ProcessHandle)
 runTool executable arguments mbDir = do
+#ifdef MIN_VERSION_unix
+    -- As of GHC 7.10.1 both createProcess and the GHC GC use
+    unblockSignals $ addSignal sigINT emptySignalSet
+#endif
     (Just inp,Just out,Just err,pid) <- createProcess (proc executable (map T.unpack arguments))
         { std_in  = CreatePipe,
           std_out = CreatePipe,
