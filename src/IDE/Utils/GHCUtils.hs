@@ -38,6 +38,7 @@ import Lexer (mkPState,ParseResult(..),getMessages,unP)
 import Outputable (ppr)
 #if MIN_VERSION_ghc(7,2,0)
 #if MIN_VERSION_ghc(7,6,0)
+import Bag (unitBag)
 #else
 import ErrUtils (printBagOfWarnings)
 #endif
@@ -176,7 +177,11 @@ myParseModule dflags src_filename maybe_src_buf
       case unP P.parseModule (mkPState dflags buf' loc) of {
 
 #if MIN_VERSION_ghc(7,6,0)
-        PFailed span' err -> return (Left (mkPlainErrMsg dflags span' err));
+        PFailed span' err -> do {
+            let {errMsg = mkPlainErrMsg dflags span' err};
+            printBagOfErrors dflags (unitBag errMsg);
+            return (Left errMsg);
+            };
 #else
         PFailed span' err -> return (Left (mkPlainErrMsg span' err));
 #endif
