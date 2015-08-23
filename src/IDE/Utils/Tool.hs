@@ -80,7 +80,7 @@ import qualified Data.Conduit.List as CL
 import qualified Data.Conduit.Binary as CB
 import Data.Conduit.Attoparsec (sinkParser)
 import qualified Data.Attoparsec.Text as AP
-       (endOfInput, takeWhile, satisfy, skipWhile, string, Parser,
+       (endOfInput, takeWhile, satisfy, string, Parser,
         endOfLine, digit, manyTill, takeWhile1, char)
 import Data.Attoparsec.Text ((<?>))
 import Data.Char (isDigit)
@@ -210,6 +210,9 @@ runInteractiveTool tool clr executable arguments mbDir = do
     output <- getOutput clr inp out err pid
 
     forkIO $ do
+        case initialCommand clr of
+            Just cmd -> hPutStrLn inp cmd >> hFlush inp
+            Nothing  -> return ()
         commands <- getChanContents (toolCommandsRead tool)
         output $= outputSequence inp $$ processCommand commands inp
         return ()
@@ -274,6 +277,7 @@ ghciPrompt :: Text
 ghciPrompt = "3KM2KWR7LZZbHdXfHUOA5YBBsJVYoCQnKX"
 
 data CommandLineReader = CommandLineReader {
+    initialCommand :: Maybe Text,
     parseInitialPrompt :: AP.Parser Text,
     parseFollowingPrompt :: AP.Parser Text,
     errorSyncCommand :: Maybe (Int -> Text),
@@ -283,11 +287,8 @@ data CommandLineReader = CommandLineReader {
     }
 
 ghciParseInitialPrompt :: AP.Parser Text
-ghciParseInitialPrompt = (do
-        AP.string "Prelude" <|> AP.string "*" <|> AP.string ">"
-        AP.skipWhile (\c -> c /= '>' && c/= '\n')
-        AP.string "> "
-        return "")
+ghciParseInitialPrompt = (
+        T.pack <$> AP.satisfy (/= '\n') `AP.manyTill` AP.string ghciPrompt)
     <?> "ghciParseInitialPrompt"
 
 ghciParseFollowingPrompt :: AP.Parser Text
@@ -349,16 +350,18 @@ ghciIsExpectedOutput n =
 
 ghciCommandLineReader :: CommandLineReader
 ghciCommandLineReader    = CommandLineReader {
+    initialCommand       = Just $ ":set prompt " <> ghciPrompt,
     parseInitialPrompt   = ghciParseInitialPrompt,
     parseFollowingPrompt = ghciParseFollowingPrompt,
-    errorSyncCommand     = Just $ \n -> marker n,
+    errorSyncCommand     = Just $ \count -> marker count,
     parseExpectedError   = ghciParseExpectedError,
-    outputSyncCommand    = Just $ \n -> ":set prompt \"" <> marker n <> "\\n\"\n:set prompt " <> ghciPrompt,
+    outputSyncCommand    = Just $ \count -> ":set prompt \"" <> marker count <> "\\n\"\n:set prompt " <> ghciPrompt,
     isExpectedOutput     = ghciIsExpectedOutput
     }
 
 noInputCommandLineReader :: CommandLineReader
 noInputCommandLineReader = CommandLineReader {
+    initialCommand = Nothing,
     parseInitialPrompt = fail "No Prompt Expected",
     parseFollowingPrompt = fail "No Prompt Expected",
     errorSyncCommand = Nothing,

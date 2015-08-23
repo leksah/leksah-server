@@ -136,9 +136,9 @@ tests = test [
                 ToolInput "jfkdfjdkl",
                 ToolError "",
 #if __GLASGOW_HASKELL__ > 706
-                ToolError "<interactive>:22:1: Not in scope: ‘jfkdfjdkl’",
+                ToolError "<interactive>:23:1: Not in scope: ‘jfkdfjdkl’",
 #elif __GLASGOW_HASKELL__ > 702
-                ToolError "<interactive>:22:1: Not in scope: `jfkdfjdkl'",
+                ToolError "<interactive>:23:1: Not in scope: `jfkdfjdkl'",
 #else
                 ToolError "<interactive>:1:1: Not in scope: `jfkdfjdkl'",
 #endif
@@ -162,9 +162,9 @@ tests = test [
                 ToolInput "jfkdfjdkl",
                 ToolError "",
 #if __GLASGOW_HASKELL__ > 706
-                ToolError "<interactive>:35:1: Not in scope: ‘jfkdfjdkl’",
+                ToolError "<interactive>:36:1: Not in scope: ‘jfkdfjdkl’",
 #elif __GLASGOW_HASKELL__ > 702
-                ToolError "<interactive>:37:1: Not in scope: `jfkdfjdkl'",
+                ToolError "<interactive>:38:1: Not in scope: `jfkdfjdkl'",
 #else
                 ToolError "<interactive>:1:1: Not in scope: `jfkdfjdkl'",
 #endif
