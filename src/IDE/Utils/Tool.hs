@@ -80,8 +80,9 @@ import qualified Data.Conduit.List as CL
 import qualified Data.Conduit.Binary as CB
 import Data.Conduit.Attoparsec (sinkParser)
 import qualified Data.Attoparsec.Text as AP
-       (endOfInput, takeWhile, satisfy, string, Parser,
-        endOfLine, digit, manyTill, takeWhile1, char)
+       (isEndOfLine, isHorizontalSpace, skipWhile, endOfInput, takeWhile,
+        satisfy, string, Parser, endOfLine, digit, manyTill, takeWhile1,
+        char)
 import Data.Attoparsec.Text ((<?>))
 import Data.Char (isDigit)
 import Data.Text (replace, Text)
@@ -336,7 +337,9 @@ ghciParseExpectedError = (
         AP.takeWhile1 isDigit
         AP.string ":"
         ghciParseExpectedErrorCols
-        AP.string ": Not in scope: "
+        AP.string ":"
+        AP.skipWhile (\c -> AP.isHorizontalSpace c || AP.isEndOfLine c)
+        AP.string "Not in scope: "
         AP.char '`' <|> AP.char '‛' <|> AP.char '‘'
         result <- parseMarker
         AP.char '\'' <|> AP.char '’'
