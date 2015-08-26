@@ -500,7 +500,7 @@ newGhci' flags startupOutputHandler = do
     tool <- newToolState
     writeChan (toolCommands tool) $
         ToolCommand (":set prompt " <> ghciPrompt) "" startupOutputHandler
-    runInteractiveTool tool ghciCommandLineReader "ghci" flags Nothing
+    runInteractiveTool tool ghciCommandLineReader "ghci" ("--ghc-options=-ignore-dot-ghci" : flags) Nothing
     return tool
 
 newGhci :: FilePath -> Maybe Text -> [Text] -> C.Sink ToolOutput IO () -> IO ToolState
@@ -509,7 +509,7 @@ newGhci dir mbExe interactiveFlags startupOutputHandler = do
         writeChan (toolCommands tool) $
             ToolCommand (":set " <> T.unwords interactiveFlags <> "\n:set prompt " <> ghciPrompt) "" startupOutputHandler
         runInteractiveTool tool ghciCommandLineReader "cabal"
-            ("repl" : maybeToList mbExe) (Just dir)
+            ("repl" : "--ghc-options=-ignore-dot-ghci" : maybeToList mbExe) (Just dir)
         return tool
 
 executeCommand :: ToolState -> Text -> Text -> C.Sink ToolOutput IO () -> IO ()
