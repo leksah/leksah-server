@@ -216,10 +216,18 @@ instance Show (Present ModuleDescr) where
     show (Present md)   =   (show . mdModuleId) md
 
 instance Eq ModuleDescr where
-    (== ) a b            =   mdModuleId a == mdModuleId b
+    (== ) a b            =   let
+        idEq = mdModuleId a == mdModuleId b
+        in if idEq && ["Main"]  == components (modu (mdModuleId a))
+                then mdMbSourcePath a == mdMbSourcePath b
+                else idEq
 
 instance Ord ModuleDescr where
-    (<=) a b             =   mdModuleId a <=  mdModuleId b
+    (<=) a b             =   let
+        idEq = mdModuleId a == mdModuleId b
+        in if idEq && ["Main"]  == components (modu (mdModuleId a))
+                then mdMbSourcePath a <= mdMbSourcePath b
+                else mdModuleId a <=  mdModuleId b
 
 data Descr =  Real RealDescr | Reexported ReexportedDescr
         deriving (Show,Read,Typeable,Eq,Ord)

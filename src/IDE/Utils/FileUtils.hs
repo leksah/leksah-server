@@ -31,6 +31,8 @@ module IDE.Utils.FileUtils (
 ,   getSysLibDir
 ,   moduleNameFromFilePath
 ,   moduleNameFromFilePath'
+,   moduleCollectorFileName
+,   moduleCollectorFileName'
 ,   findKnownPackages
 ,   isSubPath
 ,   findSourceFile
@@ -51,7 +53,7 @@ import Control.Applicative
 import Prelude hiding (readFile)
 import System.FilePath
        (splitFileName, dropExtension, takeExtension,
-        combine, addExtension, (</>), normalise, splitPath, takeFileName)
+        combine, addExtension, (</>), normalise, splitPath, takeFileName,takeDirectory)
 import Distribution.ModuleName (toFilePath, ModuleName)
 import Control.Monad (when, foldM, filterM)
 import Data.Maybe (mapMaybe, catMaybes)
@@ -267,6 +269,26 @@ moduleNameFromFilePath' fp str = do
             case parseRes of
                 Left _ -> return Nothing
                 Right str'' -> return (Just str'')
+
+-- | Get the file name to use for the module collector results
+-- we want to store the file name for Main module since there can be several in one package
+moduleCollectorFileName
+    :: String -- ^ The module name as a String
+    -> FilePath -- ^ The source file for the module
+    -> String -- ^ The name to use for the collector file (without extension)
+moduleCollectorFileName mdString sourcePath =
+    if mdString == "Main"
+          then mdString ++ "_" ++ "_" ++ takeFileName (takeDirectory sourcePath) ++ dropExtension (takeFileName sourcePath)
+          else mdString
+
+-- | Get the file name to use for the module collector results
+-- we want to store the file name for Main module since there can be several in one package
+moduleCollectorFileName'
+    :: String -- ^ The module name as a String
+    -> Maybe FilePath -- ^ The source file for the module if we have it
+    -> String -- ^ The name to use for the collector file (without extension)
+moduleCollectorFileName' mdString (Just sourcePath) = moduleCollectorFileName mdString sourcePath
+moduleCollectorFileName' mdString _ = mdString
 
 lexer :: P.TokenParser st
 lexer = haskell
