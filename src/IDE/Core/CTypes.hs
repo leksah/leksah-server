@@ -218,6 +218,7 @@ instance Show (Present ModuleDescr) where
 instance Eq ModuleDescr where
     (== ) a b            =   let
         idEq = mdModuleId a == mdModuleId b
+        -- Main modules are only the same if they use the same file
         in if idEq && ["Main"]  == components (modu (mdModuleId a))
                 then mdMbSourcePath a == mdMbSourcePath b
                 else idEq
@@ -225,6 +226,7 @@ instance Eq ModuleDescr where
 instance Ord ModuleDescr where
     (<=) a b             =   let
         idEq = mdModuleId a == mdModuleId b
+        -- use source files for main modules
         in if idEq && ["Main"]  == components (modu (mdModuleId a))
                 then mdMbSourcePath a <= mdMbSourcePath b
                 else mdModuleId a <=  mdModuleId b
