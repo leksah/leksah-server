@@ -157,7 +157,8 @@ collectModule collectorPackagePath writeAscii pid opts (modId,sourcePath) = do
                             else return ()
             else errorM "leksah-server" ("source file not found " ++ sourcePath)
     where
-        collectorModulePath = collectorPackagePath </> T.unpack modId <.> leksahMetadataWorkspaceFileExtension
+        mdString = T.unpack modId
+        collectorModulePath = collectorPackagePath </> (moduleCollectorFileName mdString sourcePath) <.> leksahMetadataWorkspaceFileExtension
         mbModuleName = simpleParse $ T.unpack modId
 
 
