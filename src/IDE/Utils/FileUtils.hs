@@ -32,7 +32,6 @@ module IDE.Utils.FileUtils (
 ,   moduleNameFromFilePath
 ,   moduleNameFromFilePath'
 ,   moduleCollectorFileName
-,   moduleCollectorFileName'
 ,   findKnownPackages
 ,   isSubPath
 ,   findSourceFile
@@ -79,10 +78,10 @@ import Data.List
 import qualified Data.Set as  Set (empty, fromList)
 import Distribution.Package (PackageIdentifier)
 import Data.Char (ord)
-import Distribution.Text (simpleParse)
+import Distribution.Text (simpleParse, display)
 
 import IDE.Utils.Utils
-import IDE.Core.CTypes(configDirName)
+import IDE.Core.CTypes(configDirName, ModuleKey(..))
 import qualified Distribution.Text as  T (simpleParse)
 import System.Log.Logger(errorM,warningM,debugM)
 import IDE.Utils.Tool
@@ -140,7 +139,7 @@ find' []            =   return Nothing
 find' (h:t)         =   E.catch (do
     exists <- doesFileExist h
     if exists
-        then return (Just h)
+        then Just <$> canonicalizePath h
         else find' t)
         $ \ (_ :: SomeException) -> return Nothing
 
@@ -273,22 +272,11 @@ moduleNameFromFilePath' fp str = do
 -- | Get the file name to use for the module collector results
 -- we want to store the file name for Main module since there can be several in one package
 moduleCollectorFileName
-    :: String -- ^ The module name as a String
-    -> FilePath -- ^ The source file for the module
+    :: ModuleKey -- ^ The module key
     -> String -- ^ The name to use for the collector file (without extension)
-moduleCollectorFileName mdString sourcePath =
-    if mdString == "Main"
-          then mdString ++ "_" ++ "_" ++ takeFileName (takeDirectory sourcePath) ++ dropExtension (takeFileName sourcePath)
-          else mdString
-
--- | Get the file name to use for the module collector results
--- we want to store the file name for Main module since there can be several in one package
-moduleCollectorFileName'
-    :: String -- ^ The module name as a String
-    -> Maybe FilePath -- ^ The source file for the module if we have it
-    -> String -- ^ The name to use for the collector file (without extension)
-moduleCollectorFileName' mdString (Just sourcePath) = moduleCollectorFileName mdString sourcePath
-moduleCollectorFileName' mdString _ = mdString
+moduleCollectorFileName (LibModule name) = display name
+moduleCollectorFileName (MainModule sourcePath) =
+    "Main_" ++ "_" ++ takeFileName (takeDirectory sourcePath) ++ dropExtension (takeFileName sourcePath)
 
 lexer :: P.TokenParser st
 lexer = haskell

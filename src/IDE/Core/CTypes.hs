@@ -21,6 +21,10 @@
 module IDE.Core.CTypes (
 
     PackageDescr(..)
+,   ModuleKey(..)
+,   displayModuleKey
+,   parseModuleKey
+,   moduleKeyToName
 ,   ModuleDescr(..)
 ,   Descr(..)
 ,   RealDescr(..)
@@ -81,7 +85,7 @@ import Distribution.Package
 import Distribution.Package
        (PackageIdentifier(..),PackageName(..))
 #endif
-import Distribution.ModuleName (components, ModuleName)
+import Distribution.ModuleName (main, components, ModuleName)
 import Data.ByteString.Char8 (ByteString)
 #if !MIN_VERSION_bytestring(0,10,0)
 import Data.Version (Version(..))
@@ -201,6 +205,25 @@ instance Eq PackageDescr where
 
 instance Ord PackageDescr where
     (<=) a b              =   pdPackage a <=  pdPackage b
+
+-- | Key we use to identify a module in the metadata.
+-- But for "Main" modules we need to know the source file path.
+data ModuleKey = LibModule ModuleName | MainModule FilePath deriving (Show, Eq, Ord)
+
+-- | Display a the module key
+displayModuleKey :: ModuleKey -> String
+displayModuleKey (LibModule m) = display m
+displayModuleKey (MainModule f) = "Main (" ++ f ++ ")"
+
+-- | Parse a module key from the name of the module and the source file path.
+parseModuleKey :: String -> FilePath -> Maybe ModuleKey
+parseModuleKey "Main" sourcePath = Just $ MainModule sourcePath
+parseModuleKey s _ = LibModule <$> simpleParse s
+
+-- | Extract the module name from the module key
+moduleKeyToName :: ModuleKey -> ModuleName
+moduleKeyToName (LibModule m) = m
+moduleKeyToName (MainModule _) = main
 
 data ModuleDescr        =   ModuleDescr {
         mdModuleId          ::   PackModule

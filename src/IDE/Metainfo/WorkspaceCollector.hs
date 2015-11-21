@@ -55,7 +55,6 @@ import Data.Map(Map)
 import System.Directory
 import Distribution.Package hiding (PackageId)
 import Distribution.ModuleName
-import Distribution.Text (simpleParse)
 import System.FilePath
 import qualified Data.ByteString.Char8 as BS
 import Data.Binary.Shared
@@ -139,27 +138,25 @@ collectWorkspace pid moduleList forceRebuild writeAscii dir = do
 
 collectModule :: FilePath -> Bool -> PackageIdentifier -> [Text] -> (Text,FilePath) -> IO()
 collectModule collectorPackagePath writeAscii pid opts (modId,sourcePath) = do
-    existCollectorFile <- doesFileExist collectorModulePath
-    existSourceFile    <- doesFileExist sourcePath
-    case mbModuleName of
+    case parseModuleKey (T.unpack modId) sourcePath of
         Nothing -> errorM "leksah-server" (T.unpack $ "Can't parse module name " <> modId)
-        Just moduleName' ->
+        Just modKey -> do
+            let collectorModulePath = collectorPackagePath </> (moduleCollectorFileName modKey) <.> leksahMetadataWorkspaceFileExtension
+                moduleName' = moduleKeyToName modKey
+            existCollectorFile <- doesFileExist collectorModulePath
+            existSourceFile    <- doesFileExist sourcePath
             if existSourceFile
-            then do
-                if not existCollectorFile
-                    then collectModule' sourcePath collectorModulePath writeAscii pid opts moduleName'
-                    else do
-                        sourceModTime <-  getModificationTime sourcePath
-                        collModTime   <-  getModificationTime collectorModulePath
-                        if sourceModTime > collModTime
-                            then collectModule' sourcePath collectorModulePath writeAscii pid
-                                    opts moduleName'
-                            else return ()
-            else errorM "leksah-server" ("source file not found " ++ sourcePath)
-    where
-        mdString = T.unpack modId
-        collectorModulePath = collectorPackagePath </> (moduleCollectorFileName mdString sourcePath) <.> leksahMetadataWorkspaceFileExtension
-        mbModuleName = simpleParse $ T.unpack modId
+                then do
+                    if not existCollectorFile
+                        then collectModule' sourcePath collectorModulePath writeAscii pid opts moduleName'
+                        else do
+                            sourceModTime <-  getModificationTime sourcePath
+                            collModTime   <-  getModificationTime collectorModulePath
+                            if sourceModTime > collModTime
+                                then collectModule' sourcePath collectorModulePath writeAscii pid
+                                        opts moduleName'
+                                else return ()
+                else errorM "leksah-server" ("source file not found " ++ sourcePath)
 
 
 collectModule' :: FilePath -> FilePath -> Bool -> PackageIdentifier -> [Text] -> ModuleName -> IO()
