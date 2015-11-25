@@ -41,8 +41,9 @@ module IDE.Utils.Tool (
     runInteractiveProcess,
     runProcess,
     readProcessWithExitCode,
-    terminateProcess
-
+    terminateProcess,
+    CommandLineReader (..),
+    noInputCommandLineReader
 --    waitForChildren,
 --    forkChild
 
@@ -54,9 +55,9 @@ import Control.Concurrent
        (tryTakeMVar, readMVar, takeMVar, putMVar,
         newEmptyMVar, forkIO, newChan, MVar, Chan, writeChan,
         getChanContents, dupChan)
-import Control.Monad (when, unless)
+import Control.Monad (when, unless,void)
 import Control.Monad.IO.Class (liftIO, MonadIO)
-import Data.Maybe (maybeToList)
+import Data.Maybe (maybeToList,isJust)
 import System.Process
        (showCommandForUser, proc, waitForProcess, ProcessHandle,
         createProcess, CreateProcess(..), interruptProcessGroupOf,
@@ -284,7 +285,8 @@ data CommandLineReader = CommandLineReader {
     errorSyncCommand :: Maybe (Int -> Text),
     parseExpectedError :: AP.Parser (Text, Int),
     outputSyncCommand :: Maybe (Int -> Text),
-    isExpectedOutput :: Int -> Text -> Bool
+    isExpectedOutput :: Int -> Text -> Bool,
+    sepCharacter :: Maybe Char -- ^ separator character for non line oriented programs
     }
 
 ghciParseInitialPrompt :: AP.Parser Text
@@ -359,7 +361,8 @@ ghciCommandLineReader    = CommandLineReader {
     errorSyncCommand     = Just $ \count -> marker count,
     parseExpectedError   = ghciParseExpectedError,
     outputSyncCommand    = Just $ \count -> ":set prompt \"" <> marker count <> "\\n\"\n:set prompt " <> ghciPrompt,
-    isExpectedOutput     = ghciIsExpectedOutput
+    isExpectedOutput     = ghciIsExpectedOutput,
+    sepCharacter = Nothing
     }
 
 noInputCommandLineReader :: CommandLineReader
@@ -370,7 +373,8 @@ noInputCommandLineReader = CommandLineReader {
     errorSyncCommand = Nothing,
     parseExpectedError = fail "No Expected Errors",
     outputSyncCommand = Nothing,
-    isExpectedOutput = \_ _ -> False
+    isExpectedOutput = \_ _ -> False,
+    sepCharacter = Nothing
     }
 
 parseError :: AP.Parser (Text, Int) -> AP.Parser (Either (Text, Int) Text)
@@ -441,13 +445,19 @@ getOutput clr inp out err pid = do
         let parseLines parsePrompt = (do
                     lineSoFar <- parsePrompt
                     return $ ToolPrompt lineSoFar)
-                <|> (do
-                    line <- AP.takeWhile (/= '\n')
-                    AP.endOfInput <|> AP.endOfLine
-                    return $ ToolOutput line)
+                <|> (parseOneLine (sepCharacter clr))
                 <?> "parseLines"
             parseInitialLines = parseLines (parseInitialPrompt clr)
             parseFollowinglines = parseLines (parseFollowingPrompt clr)
+            parseOneLine Nothing = do
+                    line <- AP.takeWhile (/= '\n')
+                    AP.endOfInput <|> AP.endOfLine
+                    return $ ToolOutput line
+            -- if we have a separator, parse until we find it
+            parseOneLine (Just sep) = do
+                    line <- AP.takeWhile (/= sep)
+                    AP.endOfInput <|> void (AP.char sep)
+                    return $ ToolOutput line
         CB.sourceHandle output $= CT.decode CT.utf8
                     $= CL.map (T.filter (/= '\r'))
                     $= outputSequence parseInitialLines parseFollowinglines
@@ -481,6 +491,9 @@ getOutput clr inp out err pid = do
                                     loop (counter+1) False promptLine
                         Just x -> do
                             liftIO . putMVar mvar $ RawToolOutput x
+                            -- simulate prompt to end output handling
+                            when (isJust $ sepCharacter clr) $
+                                liftIO $ putMVar mvar $ RawToolOutput (ToolPrompt promptLine)
                             loop counter errSynced promptLine
 
         waitForError counter = do
