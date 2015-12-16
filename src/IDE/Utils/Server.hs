@@ -47,7 +47,7 @@ ipAddress :: (Word8, Word8, Word8, Word8) -> HostAddress
 ipAddress (a, b, c, d) = fromIntegral a + 0x100 * fromIntegral b + 0x10000 * fromIntegral c + 0x1000000 * fromIntegral d
 
 -- | the functionality of a server
-type ServerRoutine = (Handle, HostName, PortNumber) -> IO ()
+type ServerRoutine = (Handle, HostName, PortNumber) -> MVar () -> IO ()
 
 serverSocket' :: Server -> IO Socket
 serverSocket' (Server (SockAddrInet _ _) t _) = socket AF_INET t defaultProtocol
@@ -71,7 +71,7 @@ data Server = Server {
 startAccepting :: (Socket, Server) -> IO (ThreadId, MVar ())
 startAccepting (sock, server) = do
         mvar <- newEmptyMVar
-        threadId <- forkIO (acceptance sock (serverRoutine server) `finally` putMVar mvar ())
+        threadId <- forkIO (acceptance sock mvar (serverRoutine server) `finally` putMVar mvar ())
         return (threadId, mvar)
 
 serveMany :: Maybe UserAndGroup -> [Server] -> IO [(ThreadId, MVar ())]
@@ -98,12 +98,13 @@ instance WaitFor a => WaitFor [a] where
 instance WaitFor (ThreadId, MVar ()) where
         waitFor (_, mvar) = waitFor mvar
 
-acceptance :: Socket -> ServerRoutine -> IO ()
-acceptance sock action = E.catch (do
+acceptance :: Socket -> MVar () -> ServerRoutine -> IO ()
+acceptance sock mvar action = E.catch (do
                 dta <- accept sock
-                void . forkIO $ action dta)
+                void . forkIO $ action dta mvar)
                 (\(e :: SomeException) -> print e) >>
-                acceptance sock action
+                acceptance sock mvar action
+
 
 
 
