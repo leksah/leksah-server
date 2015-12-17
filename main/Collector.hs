@@ -54,9 +54,8 @@ import Network.Socket
 import IDE.Utils.Server
 import System.IO (Handle, hPutStrLn, hGetLine, hFlush, hClose)
 import IDE.HeaderParser(parseTheHeader)
-import System.Exit (ExitCode(..))
 import Data.IORef
-import Control.Concurrent (throwTo, ThreadId, myThreadId)
+import Control.Concurrent (MVar,putMVar)
 import IDE.Metainfo.PackageCollector(collectPackage)
 import Data.List (delete)
 import System.Directory
@@ -167,7 +166,6 @@ main =  withSocketsDo $ catch inner handler
             prefs           <- readStrippedPrefs prefsPath
             debugM "leksah-server" $ "prefs " ++ show prefs
             connRef  <- newIORef []
-            threadId <- myThreadId
             localServerAddr <- inet_addr "127.0.0.1"
 
             if elem VersionF o
@@ -197,28 +195,28 @@ main =  withSocketsDo $ catch inner handler
                                 case servers of
                                     (Nothing:_)  -> do
                                         running <- serveOne Nothing (server (fromIntegral
-                                            (serverPort prefs)) newPrefs connRef threadId localServerAddr)
+                                            (serverPort prefs)) newPrefs connRef localServerAddr)
                                         waitFor running
                                         return ()
                                     (Just ps:_)  -> do
                                         let port = read $ T.unpack ps
                                         running <- serveOne Nothing (server
-                                            (fromIntegral port) newPrefs connRef threadId localServerAddr)
+                                            (fromIntegral port) newPrefs connRef localServerAddr)
                                         waitFor running
                                         return ()
                                     _ -> return ()
 
-        server port prefs connRef threadId hostAddr = Server (SockAddrInet port hostAddr) Stream
-                                        (doCommands prefs connRef threadId)
+        server port prefs connRef hostAddr = Server (SockAddrInet port hostAddr) Stream
+                                        (doCommands prefs connRef)
 
-doCommands :: Prefs -> IORef [Handle] -> ThreadId -> (Handle, t1, t2) -> IO ()
-doCommands prefs connRef threadId (h,n,p) = do
+doCommands :: Prefs -> IORef [Handle] -> (Handle, t1, t2) -> MVar ()-> IO ()
+doCommands prefs connRef (h,n,p) mvar = do
     atomicModifyIORef connRef (\ list -> (h : list, ()))
-    doCommands' prefs connRef threadId (h,n,p)
+    doCommands' prefs connRef (h,n,p) mvar
 
 
-doCommands' :: Prefs -> IORef [Handle] -> ThreadId -> (Handle, t1, t2) -> IO ()
-doCommands' prefs connRef threadId (h,n,p) = do
+doCommands' :: Prefs -> IORef [Handle] -> (Handle, t1, t2) -> MVar () -> IO ()
+doCommands' prefs connRef (h,n,p) mvar = do
     debugM "leksah-server" $ "***wait"
     mbLine <- catch (liftM Just (hGetLine h))
                 (\ (_e :: SomeException) -> do
@@ -228,11 +226,13 @@ doCommands' prefs connRef threadId (h,n,p) = do
                     handles <- readIORef connRef
                     case handles of
                         [] -> do
-                                when (endWithLastConn prefs) $ do
-                                    infoM "leksah-server" $ "***lost last connection - exiting"
-                                    throwTo threadId ExitSuccess
-                                    --exitSuccess
-                                infoM "leksah-server" $ "***lost last connection - waiting"
+                                if (endWithLastConn prefs)
+                                    then do
+                                       infoM "leksah-server" $ "***lost last connection - exiting"
+                                       -- we're waiting on that mvar before exiting
+                                       putMVar mvar ()
+                                    else do
+                                        infoM "leksah-server" $ "***lost last connection - waiting"
                                 return Nothing
                         _  -> return Nothing)
     case mbLine of
@@ -263,7 +263,7 @@ doCommands' prefs connRef threadId (h,n,p) = do
                         (\ (e :: SomeException) -> do
                             hPutStrLn h (show (ServerFailed (T.pack $ show e)))
                             hFlush h)
-            doCommands' prefs connRef threadId (h,n,p)
+            doCommands' prefs connRef (h,n,p) mvar
 
 collectSystem :: Prefs -> Bool -> Bool -> Bool -> IO()
 collectSystem prefs writeAscii forceRebuild findSources = do
@@ -305,7 +305,7 @@ writeStats stats = do
         summary = "\nSuccess with         = " ++ T.unpack packs ++
                   "\nPackages total       = " ++ show packagesTotal ++
                   "\nPackages with source = " ++ show packagesWithSource ++
-                  "\nPackages retreived   = " ++ show packagesRetreived ++
+                  "\nPackages retrieved   = " ++ show packagesRetreived ++
                   "\nModules total        = " ++ show modulesTotal' ++
                   "\nModules with source  = " ++ show modulesWithSource ++
                   "\nPercentage source    = " ++ show percentageWithSource
