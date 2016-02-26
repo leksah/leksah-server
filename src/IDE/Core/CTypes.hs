@@ -148,14 +148,15 @@ data RetrieveStrategy = RetrieveThenBuild | BuildThenRetrieve | NeverRetrieve
 
 data ServerCommand =
         SystemCommand {
-            scRebuild :: Bool,
-            scSources :: Bool,
-            scExtract :: Bool}
+            scRebuild    :: Bool,
+            scSources    :: Bool,
+            scExtract    :: Bool,
+            scPackageDBs :: [[FilePath]]}
     |   WorkspaceCommand {
-            wcRebuild :: Bool,
-            wcPackage :: PackageIdentifier,
-            wcPath    :: FilePath,
-            wcModList :: [(Text,FilePath)]}
+            wcRebuild  :: Bool,
+            wcPackage  :: PackageIdentifier,
+            wcPath     :: FilePath,
+            wcModList  :: [(Text,FilePath)]}
     |   ParseHeaderCommand {
             hcFilePath :: FilePath}
     deriving (Eq,Ord,Show,Read)

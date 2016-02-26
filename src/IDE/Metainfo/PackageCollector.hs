@@ -1,5 +1,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.Metainfo.PackageCollector
@@ -29,8 +30,8 @@ import IDE.Metainfo.SourceCollectorH
 import System.Log.Logger (errorM, debugM, infoM)
 import IDE.Metainfo.InterfaceCollector (collectPackageFromHI)
 import IDE.Core.CTypes
-       (metadataVersion, PackageDescr(..), leksahVersion, getThisPackage,
-        PackageIdAndKey(..), packageIdentifierToString)
+       (metadataVersion, PackageDescr(..), leksahVersion,
+        packageIdentifierToString, getThisPackage, packId)
 import IDE.Utils.FileUtils (getCollectorPath)
 import System.Directory (doesDirectoryExist, setCurrentDirectory)
 import IDE.Utils.Utils
@@ -43,7 +44,7 @@ import Control.Monad.IO.Class (MonadIO, MonadIO(..))
 import qualified Control.Exception as E (SomeException, catch)
 import IDE.Utils.Tool (runTool')
 import Data.Monoid ((<>))
-import qualified Data.Text as T (unpack)
+import qualified Data.Text as T (unpack, pack)
 import Data.Text (Text)
 import Network.HTTP.Proxy (Proxy(..), fetchProxy)
 import Network.Browser
@@ -59,83 +60,52 @@ import qualified Paths_leksah_server (version)
 import Distribution.System (buildArch, buildOS)
 import Control.Monad (unless)
 
-collectPackage :: Bool -> Prefs -> Int -> (PackageConfig,Int) -> IO PackageCollectStats
-collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
+collectPackage :: Bool -> Prefs -> Int -> ((PackageConfig, [FilePath]), Int) -> IO PackageCollectStats
+collectPackage writeAscii prefs numPackages ((packageConfig, dbs), packageIndex) = do
     infoM "leksah-server" ("update_toolbar " ++ show
         ((fromIntegral packageIndex / fromIntegral numPackages) :: Double))
-    let packageName = packageIdentifierToString (packId $ getThisPackage packageConfig)
-    let stat = PackageCollectStats packageName Nothing False False Nothing
-    eitherStrFp    <- findSourceForPackage prefs (packId $ getThisPackage packageConfig)
+    eitherStrFp    <- findSourceForPackage prefs pid
     case eitherStrFp of
         Left message -> do
             debugM "leksah-server" . T.unpack $ message <> " : " <> packageName
-            packageDescrHi <- collectPackageFromHI packageConfig
+            packageDescrHi <- collectPackageFromHI packageConfig dbs
             writeExtractedPackage False packageDescrHi
             return stat {packageString = message, modulesTotal = Just (length (pdModules packageDescrHi))}
         Right fpSource ->
             case retrieveStrategy prefs of
-                RetrieveThenBuild -> do
-                    success <- retrieve packageName
-                    if success
-                        then do
-                            debugM "leksah-server" . T.unpack $ "collectPackage: retreived = " <> packageName
-                            liftIO $ writePackagePath (dropFileName fpSource) packageName
-                            return (stat {withSource=True, retrieved= True, mbError=Nothing})
-                        else do
-                            debugM "leksah-server" . T.unpack $ "collectPackage: Can't retreive = " <> packageName
-                            runCabalConfigure fpSource
-                            mbPackageDescrPair <- packageFromSource fpSource packageConfig
-                            case mbPackageDescrPair of
-                                (Just packageDescrS, bstat) ->  do
-                                    writePackageDesc packageDescrS fpSource packageName
-                                    return bstat{modulesTotal = Just (length (pdModules packageDescrS))}
-                                (Nothing,bstat) ->  do
-                                    packageDescrHi <- collectPackageFromHI packageConfig
-                                    writeExtractedPackage False packageDescrHi
-                                    return bstat{modulesTotal = Just (length (pdModules packageDescrHi))}
+                RetrieveThenBuild ->
+                    retrieve fpSource >>= \case
+                        Just stats -> return stats
+                        Nothing -> buildOnly fpSource
                 BuildThenRetrieve -> do
-                        debugM "leksah-server" $ "Build (then retrieve) " <> T.unpack packageName <> " in " <> fpSource
-                        runCabalConfigure fpSource
-                        mbPackageDescrPair <- packageFromSource fpSource packageConfig
-                        case mbPackageDescrPair of
-                            (Just packageDescrS,bstat) ->  do
-                                writePackageDesc packageDescrS fpSource packageName
-                                return bstat{modulesTotal = Just (length (pdModules packageDescrS))}
-                            (Nothing,bstat) ->  do
-                                success  <- retrieve packageName
-                                if success
-                                    then do
-                                        debugM "leksah-server" . T.unpack $ "collectPackage: retreived = " <> packageName
-                                        liftIO $ writePackagePath (dropFileName fpSource) packageName
-                                        return (stat {withSource=True, retrieved= True, mbError=Nothing})
-                                    else do
-                                        packageDescrHi <- collectPackageFromHI packageConfig
-                                        writeExtractedPackage False packageDescrHi
-                                        return bstat{modulesTotal = Just (length (pdModules packageDescrHi))}
-                NeverRetrieve -> do
-                        debugM "leksah-server" $ "Build " <> T.unpack packageName <> " in " <> fpSource
-                        runCabalConfigure fpSource
-                        mbPackageDescrPair <- packageFromSource fpSource packageConfig
-                        case mbPackageDescrPair of
-                                (Just packageDescrS,bstat) ->  do
-                                    writePackageDesc packageDescrS fpSource packageName
-                                    return bstat{modulesTotal = Just (length (pdModules packageDescrS))}
-                                (Nothing,bstat) ->  do
-                                    packageDescrHi <- collectPackageFromHI packageConfig
+                    debugM "leksah-server" $ "Build (then retrieve) " <> T.unpack packageName <> " in " <> fpSource
+                    build fpSource >>= \case
+                        (True, bstat) -> return bstat
+                        (False, bstat) ->
+                            retrieve fpSource >>= \case
+                                Just stats -> return stats
+                                Nothing -> do
+                                    packageDescrHi <- collectPackageFromHI packageConfig dbs
                                     writeExtractedPackage False packageDescrHi
                                     return bstat{modulesTotal = Just (length (pdModules packageDescrHi))}
+                NeverRetrieve -> do
+                    debugM "leksah-server" $ "Build " <> T.unpack packageName <> " in " <> fpSource
+                    buildOnly fpSource
     where
-        retrieve :: Text -> IO Bool
-        retrieve packString = do
+        pid = packId $ getThisPackage packageConfig
+        packageName = packageIdentifierToString pid
+        stat = PackageCollectStats packageName Nothing False False Nothing
+        retrieve :: FilePath -> IO (Maybe PackageCollectStats)
+        retrieve fpSource = do
             collectorPath   <- liftIO getCollectorPath
             setCurrentDirectory collectorPath
-            let fullUrl  = T.unpack (retrieveURL prefs) <> "/metadata-" <> leksahVersion <> "/" <> T.unpack packString <> leksahMetadataSystemFileExtension
-                filePath = collectorPath </> T.unpack packString <.> leksahMetadataSystemFileExtension
+            let fullUrl  = T.unpack (retrieveURL prefs) <> "/metadata-" <> leksahVersion <> "/" <> T.unpack packageName <> leksahMetadataSystemFileExtension
+                filePath = collectorPath </> T.unpack packageName <.> leksahMetadataSystemFileExtension
 
             case parseURI fullUrl of
                 Nothing -> do
                     errorM "leksah-server" $ "collectPackage: invalid URI = " <> fullUrl
-                    return False
+                    return Nothing
                 Just uri -> do
                     debugM "leksah-server" $ "collectPackage: before retreiving = " <> fullUrl
                     proxy <- filterEmptyProxy . trimProxyUri <$> fetchProxy True
@@ -151,8 +121,31 @@ collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
                     if rspCode rsp == (2,0,0)
                         then do
                             BS.writeFile filePath $ rspBody rsp
-                            return True
-                        else return False
+                            debugM "leksah-server" . T.unpack $ "collectPackage: retreived = " <> packageName
+                            liftIO $ writePackagePath (dropFileName fpSource) packageName
+                            return (Just stat {withSource=True, retrieved= True, mbError=Nothing})
+                        else do
+                            debugM "leksah-server" . T.unpack $ "collectPackage: Can't retreive = " <> packageName
+                            return Nothing
+
+        build :: FilePath -> IO (Bool, PackageCollectStats)
+        build fpSource = do
+            runCabalConfigure fpSource
+            mbPackageDescrPair <- packageFromSource fpSource packageConfig
+            case mbPackageDescrPair of
+                (Just packageDescrS, bstat) -> do
+                    writePackageDesc packageDescrS fpSource
+                    return (True, bstat{modulesTotal = Just (length (pdModules packageDescrS))})
+                (Nothing, bstat) -> return (False, bstat)
+
+        buildOnly :: FilePath -> IO PackageCollectStats
+        buildOnly fpSource =
+            build fpSource >>= \case
+                (True, bstat) -> return bstat
+                (False, bstat) -> do
+                    packageDescrHi <- collectPackageFromHI packageConfig dbs
+                    writeExtractedPackage False packageDescrHi
+                    return bstat{modulesTotal = Just (length (pdModules packageDescrHi))}
 
         trimProxyUri (Proxy uri auth) = Proxy (trim uri) auth
         trimProxyUri p = p
@@ -162,20 +155,20 @@ collectPackage writeAscii prefs numPackages (packageConfig, packageIndex) = do
         userAgent = concat [ "leksah-server/", display Paths_leksah_server.version
                            , " (", display buildOS, "; ", display buildArch, ")"
                            ]
-        writePackageDesc packageDescr fpSource packageName = do
+        writePackageDesc packageDescr fpSource = do
             liftIO $ writeExtractedPackage writeAscii packageDescr
             liftIO $ writePackagePath (dropFileName fpSource) packageName
         runCabalConfigure fpSource = do
             let dirPath         = dropFileName fpSource
-                packageName     = takeBaseName fpSource
+                packageName'    = takeBaseName fpSource
                 flagsFor "base" = ["-finteger-gmp2"]
                 flagsFor _      = []
-                flags           = flagsFor packageName
+                flags           = flagsFor packageName'
             distExists <- doesDirectoryExist $ dirPath </> "dist"
             unless distExists $ do
                 setCurrentDirectory dirPath
                 E.catch (do runTool' "cabal" ["clean"] Nothing
-                            runTool' "cabal" ("configure":"--user":flags) Nothing
+                            runTool' "cabal" ("configure":flags ++ map (("--package-db"<>) .T.pack) dbs) Nothing
                             return ())
                         (\ (_e :: E.SomeException) -> do
                             debugM "leksah-server" "Can't configure"

@@ -113,7 +113,7 @@ showRdrName :: DynFlags -> RdrName -> Text
 showRdrName dflags r = T.pack . showSDoc dflags $ ppr r
 
 -- | Test
-collectWorkspace :: PackageIdentifier ->  [(Text,FilePath)] -> Bool -> Bool -> FilePath -> IO()
+collectWorkspace :: PackageIdentifier -> [(Text,FilePath)] -> Bool -> Bool -> FilePath -> IO()
 collectWorkspace pid moduleList forceRebuild writeAscii dir = do
     debugM "leksah-server" $ "collectWorkspace called with modules " ++ show moduleList ++ " in folder " ++ dir
     collectorPath <- liftIO $ getCollectorPath
@@ -161,7 +161,7 @@ collectModule collectorPackagePath writeAscii pid opts (modId,sourcePath) = do
 
 collectModule' :: FilePath -> FilePath -> Bool -> PackageIdentifier -> [Text] -> ModuleName -> IO()
 collectModule' sourcePath destPath writeAscii pid opts moduleName' = gcatch (
-    inGhcIO (opts++["-cpp"]) [Opt_Haddock] $ \ dynFlags -> do
+    inGhcIO (opts++["-cpp"]) [Opt_Haddock] [] $ \ dynFlags -> do
         session         <-  getSession
 #if MIN_VERSION_ghc(7,2,0)
         (dynFlags3,fp') <-  liftIO $ preprocess session (sourcePath,Nothing)

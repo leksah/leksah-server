@@ -151,7 +151,7 @@ packageFromSource cabalPath packageConfig = do
             warningM "leksah-server" ("Ghc failed to process: " ++ show e ++ " (" ++ cabalPath ++ ")")
             return (Nothing, PackageCollectStats packageName Nothing False False
                                             (Just ("Ghc failed to process: " <> T.pack (show e) <> " (" <> T.pack cabalPath <> ")")))
-        inner ghcFlags = inGhcIO ghcFlags [Opt_Haddock] $ \ dflags -> do
+        inner ghcFlags = inGhcIO ghcFlags [Opt_Haddock] [] $ \ dflags -> do
             (interfaces,_) <- processModules verbose (exportedMods ++ hiddenMods) [] []
             liftIO $ print (length interfaces)
             let mods = map (interfaceToModuleDescr dflags dirPath (packId $ getThisPackage packageConfig)) interfaces

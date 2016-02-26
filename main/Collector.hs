@@ -1,5 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -fno-warn-type-defaults #-}
 -----------------------------------------------------------------------------
 --
@@ -25,7 +27,7 @@ import Prelude
 import System.Console.GetOpt
     (ArgDescr(..), usageInfo, ArgOrder(..), getOpt, OptDescr(..))
 import System.Environment (getArgs)
-import Control.Monad (when)
+import Control.Monad (when, forM)
 import Data.Version (showVersion)
 import IDE.Utils.FileUtils
 import IDE.Utils.Utils
@@ -39,6 +41,7 @@ import Prelude hiding(catch)
 #endif
 import Control.Monad (liftM)
 import qualified Data.Set as Set (member)
+import qualified Data.Map as Map (toList, fromListWith)
 import IDE.Core.CTypes hiding (Extension)
 import IDE.Metainfo.SourceDB (buildSourceForPackageDB, getDataDir, version)
 import Data.Time
@@ -66,6 +69,7 @@ import Control.Monad.IO.Class (MonadIO(..))
 import qualified Data.Text as T (strip, pack, unpack)
 import Data.Text (Text)
 import Data.Monoid ((<>))
+import Distribution.Package (PackageIdentifier)
 
 -- --------------------------------------------------------------------
 -- Command line options
@@ -190,7 +194,7 @@ main =  withSocketsDo $ catch inner handler
                         if elem CollectSystem o
                             then do
                                 debugM "leksah-server" "collectSystem"
-                                collectSystem prefs debug rebuild sources
+                                collectSystem prefs debug rebuild sources []
                             else
                                 case servers of
                                     (Nothing:_)  -> do
@@ -239,9 +243,9 @@ doCommands' prefs connRef (h,n,p) mvar = do
         Nothing -> return ()
         Just line -> do
             case read line of
-                    SystemCommand rebuild sources _extract -> --the extract arg is not used
+                    SystemCommand rebuild sources _extract dbs -> --the extract arg is not used
                         catch (do
-                            collectSystem prefs False rebuild sources
+                            collectSystem prefs False rebuild sources dbs
                             hPutStrLn h (show ServerOK)
                             hFlush h)
                         (\ (e :: SomeException) -> do
@@ -265,8 +269,8 @@ doCommands' prefs connRef (h,n,p) mvar = do
                             hFlush h)
             doCommands' prefs connRef (h,n,p) mvar
 
-collectSystem :: Prefs -> Bool -> Bool -> Bool -> IO()
-collectSystem prefs writeAscii forceRebuild findSources = do
+collectSystem :: Prefs -> Bool -> Bool -> Bool -> [[FilePath]] -> IO()
+collectSystem prefs writeAscii forceRebuild findSources dbLists = do
     collectorPath       <- getCollectorPath
     when forceRebuild $ do
         exists           <- doesDirectoryExist collectorPath
@@ -277,11 +281,10 @@ collectSystem prefs writeAscii forceRebuild findSources = do
         return ()
     knownPackages       <-  findKnownPackages collectorPath
     debugM "leksah-server" $ "collectSystem knownPackages= " ++ show knownPackages
-    packageInfos        <-  inGhcIO [] [] $  \ _ -> getInstalledPackageInfos
-    debugM "leksah-server" $ "collectSystem packageInfos= " ++ show (map (packId . getThisPackage) packageInfos)
-    let newPackages     =   filter (\pid -> not $Set.member (packageIdentifierToString . packId $ getThisPackage pid)
-                                                         knownPackages)
-                                    packageInfos
+    packageInfos        <-  concat <$> forM dbLists (\dbs -> inGhcIO [] [] dbs $  \ _ -> map (,dbs) <$> getInstalledPackageInfos)
+    debugM "leksah-server" $ "collectSystem packageInfos= " ++ show (map (packId . getThisPackage . fst) packageInfos)
+    let newPackages = filter (\pi -> not $ Set.member (packageIdentifierToString . packId . getThisPackage $ fst pi) knownPackages)
+                            packageInfos
     if null newPackages
         then do
             infoM "leksah-server" "Metadata collector has nothing to do"

@@ -70,6 +70,8 @@ import System.Log.Logger (debugM)
 import System.Exit (ExitCode(..))
 import System.IO
        (hClose, hFlush, Handle, hSetBuffering, BufferMode(..))
+import System.Directory (doesFileExist)
+import System.FilePath ((</>))
 import Data.Conduit as C
        ((=$), ($$), ($=))
 import qualified Data.Conduit as C
@@ -511,7 +513,8 @@ newGhci dir mbExe interactiveFlags startupOutputHandler = do
         tool <- newToolState
         writeChan (toolCommands tool) $
             ToolCommand (":set " <> T.unwords interactiveFlags <> "\n:set prompt " <> ghciPrompt) "" startupOutputHandler
-        runInteractiveTool tool ghciCommandLineReader "cabal"
+        useStack <- doesFileExist $ dir </> "stack.yaml"
+        runInteractiveTool tool ghciCommandLineReader (if useStack then "stack" else "cabal")
             ("repl" : maybeToList mbExe) (Just dir)
         return tool
 

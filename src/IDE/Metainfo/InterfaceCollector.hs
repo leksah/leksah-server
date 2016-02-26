@@ -87,8 +87,8 @@ showSDocUnqual :: DynFlags -> SDoc -> Text
 showSDocUnqual _ = O.showSDocUnqual
 #endif
 
-collectPackageFromHI :: PackageConfig -> IO PackageDescr
-collectPackageFromHI  packageConfig = inGhcIO [] [] $ \ dflags -> do
+collectPackageFromHI :: PackageConfig -> [FilePath] -> IO PackageDescr
+collectPackageFromHI packageConfig dbs = inGhcIO [] [] dbs $ \ dflags -> do
     let pIdAndKey = getThisPackage packageConfig
     Hs.liftIO . debugM "leksah-server" $ "collectPackageFromHI"
     session             <-  getSession

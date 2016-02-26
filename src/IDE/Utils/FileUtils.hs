@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -42,6 +41,7 @@ module IDE.Utils.FileUtils (
 ,   autoExtractTarFiles
 ,   getInstalledPackageIds
 ,   getInstalledPackageIds'
+,   getPackageDBs
 ,   figureOutGhcOpts
 ,   figureOutHaddockOpts
 ,   allFilesWithExtensions
@@ -54,7 +54,7 @@ import System.FilePath
        (splitFileName, dropExtension, takeExtension,
         combine, addExtension, (</>), normalise, splitPath, takeFileName,takeDirectory)
 import Distribution.ModuleName (toFilePath, ModuleName)
-import Control.Monad (when, foldM, filterM)
+import Control.Monad (when, foldM, filterM, forM)
 import Data.Maybe (mapMaybe, catMaybes)
 import Distribution.Simple.PreProcess.Unlit (unlit)
 import System.Directory
@@ -62,19 +62,14 @@ import System.Directory
         setCurrentDirectory, getCurrentDirectory, getDirectoryContents,
         createDirectory, getHomeDirectory)
 import Text.ParserCombinators.Parsec.Language (haskellDef, haskell)
-#if MIN_VERSION_parsec(3,0,0)
 import qualified Text.ParserCombinators.Parsec.Token as P
        (GenTokenParser(..), TokenParser, identStart)
-#else
-import qualified Text.ParserCombinators.Parsec.Token as P
-       (TokenParser(..), identStart)
-#endif
 import Text.ParserCombinators.Parsec
        (GenParser, parse, oneOf, alphaNum, noneOf, char, try,
         (<?>), CharParser)
 import Data.Set (Set)
 import Data.List
-    (isPrefixOf, isSuffixOf, stripPrefix)
+    (isPrefixOf, isSuffixOf, stripPrefix, nub)
 import qualified Data.Set as  Set (empty, fromList)
 import Distribution.Package (PackageIdentifier)
 import Data.Char (ord)
@@ -90,7 +85,7 @@ import Control.Exception as E (SomeException, catch)
 import System.IO.Strict (readFile)
 import qualified Data.Text as T
        (pack, stripPrefix, isSuffixOf, take, length, unpack, init,
-        last, words)
+        last, words, splitOn)
 import Data.Monoid ((<>))
 import Data.Text (Text)
 import Control.DeepSeq (deepseq)
@@ -414,17 +409,42 @@ getSysLibDir = E.catch (do
     output `deepseq` return $ normalise $ T.unpack libDir2
     ) $ \ (e :: SomeException) -> error ("FileUtils>>getSysLibDir failed with " ++ show e)
 
-getInstalledPackageIds :: IO [PackageIdentifier]
-getInstalledPackageIds = either (const []) id <$> getInstalledPackageIds'
+getInstalledPackageIds :: [FilePath] -> IO [PackageIdentifier]
+getInstalledPackageIds dirs = either (const []) id <$> getInstalledPackageIds' dirs
 
-getInstalledPackageIds' :: IO (Either Text [PackageIdentifier])
-getInstalledPackageIds' = E.catch (do
+getInstalledPackageIds' :: [FilePath] -> IO (Either Text [PackageIdentifier])
+getInstalledPackageIds' dirs = E.catch (do
     (!output, _) <- runTool' "ghc-pkg" ["list", "--simple-output"] Nothing
-    output `deepseq` return $ Right $ concatMap names output
+    pids <- output `deepseq` return $ concatMap names output
+    -- Do our best to get the stack package ids
+    stackPids <- forM dirs $ \dir -> E.catch (do
+                    useStack <- liftIO . doesFileExist $ dir </> "stack.yaml"
+                    if useStack
+                        then do
+                            (!output', _) <- runTool' "stack" ["--stack-yaml", T.pack (dir </> "stack.yaml"), "exec", "ghc-pkg", "--", "list", "--simple-output"] Nothing
+                            output' `deepseq` return $ concatMap names output'
+                        else return []
+                 ) $ \ (_ :: SomeException) -> return []
+    return . Right . nub $ pids ++ concat stackPids
     ) $ \ (e :: SomeException) -> return . Left . T.pack $ show e
   where
     names (ToolOutput n) = mapMaybe (T.simpleParse . T.unpack) (T.words n)
     names _ = []
+
+getPackageDBs :: [FilePath] -> IO [[FilePath]]
+getPackageDBs dirs = do
+    dbs <- forM dirs $ \dir -> E.catch (do
+                    useStack <- liftIO . doesFileExist $ dir </> "stack.yaml"
+                    if useStack
+                        then do
+                            (!output, _) <- runTool' "stack" ["--stack-yaml", T.pack (dir </> "stack.yaml"), "path", "--ghc-package-path"] Nothing
+                            filterM doesDirectoryExist $ concatMap paths output
+                        else return []
+                 ) $ \ (_ :: SomeException) -> return []
+    return $ nub dbs
+  where
+    paths (ToolOutput n) = map T.unpack (T.splitOn ":" n)
+    paths _ = []
 
 figureOutHaddockOpts :: IO [Text]
 figureOutHaddockOpts = do

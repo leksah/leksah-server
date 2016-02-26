@@ -61,9 +61,9 @@ import HscTypes (Ghc(..))
 #endif
 import IDE.Utils.FileUtils (getSysLibDir)
 #if MIN_VERSION_ghc(7,7,0)
-import DynFlags (DumpFlag(..), gopt_set)
+import DynFlags (DumpFlag(..), gopt_set, PkgConfRef(..))
 #else
-import DynFlags (dopt_set)
+import DynFlags (dopt_set, PkgConfRef(..))
 #endif
 import System.Log.Logger(debugM)
 import Control.Monad.IO.Class (MonadIO(..))
@@ -79,11 +79,11 @@ instance MonadIO Ghc where
 #endif
 
 #if MIN_VERSION_ghc(7,7,0)
-inGhcIO :: [Text] -> [GeneralFlag] -> (DynFlags -> Ghc a) -> IO a
+inGhcIO :: [Text] -> [GeneralFlag] -> [FilePath] -> (DynFlags -> Ghc a) -> IO a
 #else
-inGhcIO :: [Text] -> [DynFlag] -> (DynFlags -> Ghc a) -> IO a
+inGhcIO :: [Text] -> [DynFlag] -> [FilePath] -> (DynFlags -> Ghc a) -> IO a
 #endif
-inGhcIO flags' udynFlags ghcAct = do
+inGhcIO flags' udynFlags dbs ghcAct = do
     debugM "leksah-server" $ "inGhcIO called with: " ++ show flags'
     libDir         <-   getSysLibDir
 --    (restFlags, _) <-   parseStaticFlags (map noLoc flags')
@@ -97,7 +97,8 @@ inGhcIO flags' udynFlags ghcAct = do
         let dynflags'' = dynflags' {
             hscTarget = HscNothing,
             ghcMode   = CompManager,
-            ghcLink   = NoLink
+            ghcLink   = NoLink,
+            extraPkgConfs = (map PkgConfFile dbs++) . extraPkgConfs dynflags'
             }
         dynflags''' <- parseGhcFlags dynflags'' (map (noLoc . T.unpack) flags') flags'
         res <- defaultCleanupHandler dynflags''' $ do
@@ -212,7 +213,7 @@ myParseModule dflags src_filename maybe_src_buf
       }}
 
 myParseHeader :: FilePath -> String -> [Text] -> IO (Either Text (DynFlags, HsModule RdrName))
-myParseHeader fp _str opts = inGhcIO (opts++["-cpp"]) [] $ \ _dynFlags -> do
+myParseHeader fp _str opts = inGhcIO (opts++["-cpp"]) [] [] $ \ _dynFlags -> do
     session   <- getSession
 #if MIN_VERSION_ghc(7,2,0)
     (dynFlags',fp')    <-  liftIO $ preprocess session (fp,Nothing)
