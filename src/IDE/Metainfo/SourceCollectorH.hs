@@ -68,7 +68,7 @@ import IDE.Utils.GHCUtils (inGhcIO)
 import qualified Control.Exception as NewException (SomeException, catch)
 import IDE.Utils.Tool
 import Control.Monad (unless)
-import IDE.Utils.FileUtils (figureOutGhcOpts, myCanonicalizePath)
+import IDE.Utils.FileUtils (figureOutGhcOpts, myCanonicalizePath, getSysLibDir)
 import Distribution.Package(PackageIdentifier)
 import GHC hiding(Id,Failed,Succeeded,ModuleName)
 import Distribution.ModuleName (components)
@@ -151,18 +151,20 @@ packageFromSource cabalPath packageConfig = do
             warningM "leksah-server" ("Ghc failed to process: " ++ show e ++ " (" ++ cabalPath ++ ")")
             return (Nothing, PackageCollectStats packageName Nothing False False
                                             (Just ("Ghc failed to process: " <> T.pack (show e) <> " (" <> T.pack cabalPath <> ")")))
-        inner ghcFlags = inGhcIO ghcFlags [Opt_Haddock] [] $ \ dflags -> do
-            (interfaces,_) <- processModules verbose (exportedMods ++ hiddenMods) [] []
-            liftIO $ print (length interfaces)
-            let mods = map (interfaceToModuleDescr dflags dirPath (packId $ getThisPackage packageConfig)) interfaces
-            sp <- liftIO $ myCanonicalizePath dirPath
-            let pd = PackageDescr {
-                    pdPackage           =   packId (getThisPackage packageConfig)
-                ,   pdModules           =   mods
-                ,   pdBuildDepends      =   [] -- TODO depends packageConfig
-                ,   pdMbSourcePath      =   Just sp}
-            let stat = PackageCollectStats packageName (Just (length mods)) True False Nothing
-            liftIO $ deepseq pd $ return (Just pd, stat)
+        inner ghcFlags = do
+            libDir <- getSysLibDir
+            inGhcIO libDir ghcFlags [Opt_Haddock] [] $ \ dflags -> do
+                (interfaces,_) <- processModules verbose (exportedMods ++ hiddenMods) [] []
+                liftIO $ print (length interfaces)
+                let mods = map (interfaceToModuleDescr dflags dirPath (packId $ getThisPackage packageConfig)) interfaces
+                sp <- liftIO $ myCanonicalizePath dirPath
+                let pd = PackageDescr {
+                        pdPackage           =   packId (getThisPackage packageConfig)
+                    ,   pdModules           =   mods
+                    ,   pdBuildDepends      =   [] -- TODO depends packageConfig
+                    ,   pdMbSourcePath      =   Just sp}
+                let stat = PackageCollectStats packageName (Just (length mods)) True False Nothing
+                liftIO $ deepseq pd $ return (Just pd, stat)
 #if MIN_VERSION_ghc(7,10,0)
         exportedMods = map (moduleNameString . exposedName) $ exposedModules packageConfig
         hiddenMods   = map moduleNameString $ hiddenModules packageConfig

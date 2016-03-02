@@ -280,8 +280,9 @@ collectSystem prefs writeAscii forceRebuild findSources dbLists = do
         when exists' (removeFile reportPath)
         return ()
     knownPackages       <-  findKnownPackages collectorPath
+    libDir <- getSysLibDir
     debugM "leksah-server" $ "collectSystem knownPackages= " ++ show knownPackages
-    packageInfos        <-  concat <$> forM dbLists (\dbs -> inGhcIO [] [] dbs $  \ _ -> map (,dbs) <$> getInstalledPackageInfos)
+    packageInfos        <-  concat <$> forM dbLists (\dbs -> inGhcIO libDir [] [] dbs $  \ _ -> map (,dbs) <$> getInstalledPackageInfos)
     debugM "leksah-server" $ "collectSystem packageInfos= " ++ show (map (packId . getThisPackage . fst) packageInfos)
     let newPackages = filter (\pi -> not $ Set.member (packageIdentifierToString . packId . getThisPackage $ fst pi) knownPackages)
                             packageInfos

@@ -75,6 +75,7 @@ import IDE.Core.CTypes
 import Data.ByteString.Char8 (ByteString)
 import TcRnMonad (initTcRnIf)
 import IDE.Utils.GHCUtils
+import IDE.Utils.FileUtils (getSysLibDir)
 import Control.DeepSeq(deepseq)
 import Data.Text (Text)
 import qualified Data.Text as T (pack)
@@ -88,7 +89,9 @@ showSDocUnqual _ = O.showSDocUnqual
 #endif
 
 collectPackageFromHI :: PackageConfig -> [FilePath] -> IO PackageDescr
-collectPackageFromHI packageConfig dbs = inGhcIO [] [] dbs $ \ dflags -> do
+collectPackageFromHI packageConfig dbs = do
+  libDir <- getSysLibDir
+  inGhcIO libDir [] [] dbs $ \ dflags -> do
     let pIdAndKey = getThisPackage packageConfig
     Hs.liftIO . debugM "leksah-server" $ "collectPackageFromHI"
     session             <-  getSession

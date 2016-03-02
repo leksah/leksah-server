@@ -79,13 +79,12 @@ instance MonadIO Ghc where
 #endif
 
 #if MIN_VERSION_ghc(7,7,0)
-inGhcIO :: [Text] -> [GeneralFlag] -> [FilePath] -> (DynFlags -> Ghc a) -> IO a
+inGhcIO :: FilePath -> [Text] -> [GeneralFlag] -> [FilePath] -> (DynFlags -> Ghc a) -> IO a
 #else
-inGhcIO :: [Text] -> [DynFlag] -> [FilePath] -> (DynFlags -> Ghc a) -> IO a
+inGhcIO :: FilePath -> [Text] -> [DynFlag] -> [FilePath] -> (DynFlags -> Ghc a) -> IO a
 #endif
-inGhcIO flags' udynFlags dbs ghcAct = do
+inGhcIO libDir flags' udynFlags dbs ghcAct = do
     debugM "leksah-server" $ "inGhcIO called with: " ++ show flags'
-    libDir         <-   getSysLibDir
 --    (restFlags, _) <-   parseStaticFlags (map noLoc flags')
     runGhc (Just libDir) $ do
         dynflags  <- getSessionDynFlags
@@ -213,7 +212,9 @@ myParseModule dflags src_filename maybe_src_buf
       }}
 
 myParseHeader :: FilePath -> String -> [Text] -> IO (Either Text (DynFlags, HsModule RdrName))
-myParseHeader fp _str opts = inGhcIO (opts++["-cpp"]) [] [] $ \ _dynFlags -> do
+myParseHeader fp _str opts = do
+  libDir <- getSysLibDir
+  inGhcIO libDir (opts++["-cpp"]) [] [] $ \ _dynFlags -> do
     session   <- getSession
 #if MIN_VERSION_ghc(7,2,0)
     (dynFlags',fp')    <-  liftIO $ preprocess session (fp,Nothing)

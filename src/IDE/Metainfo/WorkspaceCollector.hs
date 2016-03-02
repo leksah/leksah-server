@@ -127,8 +127,9 @@ collectWorkspace pid moduleList forceRebuild writeAscii dir = do
     opts1 <- filterOpts <$> figureOutGhcOpts
     opts2 <- figureOutHaddockOpts
 
+    libDir <- getSysLibDir
     debugM "leksah-server" $ ("before collect modules" ++ "\n\nopts1: " ++ show opts1 ++ "\n\n opt2: " ++ show opts2)
-    mapM_ (collectModule packageCollectorPath writeAscii pid opts1) moduleList
+    mapM_ (collectModule libDir packageCollectorPath writeAscii pid opts1) moduleList
     debugM "leksah-server" $ "after collect modules"
   where
     filterOpts :: [Text] -> [Text]
@@ -136,8 +137,8 @@ collectWorkspace pid moduleList forceRebuild writeAscii dir = do
     filterOpts (o:_:r) | o `elem` ["-link-js-lib", "-js-lib-outputdir", "-js-lib-src", "-package-id"] = filterOpts r
     filterOpts (o:r) = o:filterOpts r
 
-collectModule :: FilePath -> Bool -> PackageIdentifier -> [Text] -> (Text,FilePath) -> IO()
-collectModule collectorPackagePath writeAscii pid opts (modId,sourcePath) = do
+collectModule :: FilePath -> FilePath -> Bool -> PackageIdentifier -> [Text] -> (Text,FilePath) -> IO()
+collectModule libDir collectorPackagePath writeAscii pid opts (modId,sourcePath) = do
     case parseModuleKey (T.unpack modId) sourcePath of
         Nothing -> errorM "leksah-server" (T.unpack $ "Can't parse module name " <> modId)
         Just modKey -> do
@@ -148,20 +149,20 @@ collectModule collectorPackagePath writeAscii pid opts (modId,sourcePath) = do
             if existSourceFile
                 then do
                     if not existCollectorFile
-                        then collectModule' sourcePath collectorModulePath writeAscii pid opts moduleName'
+                        then collectModule' libDir sourcePath collectorModulePath writeAscii pid opts moduleName'
                         else do
                             sourceModTime <-  getModificationTime sourcePath
                             collModTime   <-  getModificationTime collectorModulePath
                             if sourceModTime > collModTime
-                                then collectModule' sourcePath collectorModulePath writeAscii pid
+                                then collectModule' libDir sourcePath collectorModulePath writeAscii pid
                                         opts moduleName'
                                 else return ()
                 else errorM "leksah-server" ("source file not found " ++ sourcePath)
 
 
-collectModule' :: FilePath -> FilePath -> Bool -> PackageIdentifier -> [Text] -> ModuleName -> IO()
-collectModule' sourcePath destPath writeAscii pid opts moduleName' = gcatch (
-    inGhcIO (opts++["-cpp"]) [Opt_Haddock] [] $ \ dynFlags -> do
+collectModule' :: FilePath -> FilePath -> FilePath -> Bool -> PackageIdentifier -> [Text] -> ModuleName -> IO()
+collectModule' libDir sourcePath destPath writeAscii pid opts moduleName' = gcatch (
+   inGhcIO libDir (opts++["-cpp"]) [Opt_Haddock] [] $ \ dynFlags -> do
         session         <-  getSession
 #if MIN_VERSION_ghc(7,2,0)
         (dynFlags3,fp') <-  liftIO $ preprocess session (sourcePath,Nothing)
