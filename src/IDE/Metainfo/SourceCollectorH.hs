@@ -232,9 +232,9 @@ transformToDescrs dflags pm = concatMap transformToDescr
 #if MIN_VERSION_ghc(7,10,0)
     transformToDescr (L loc (SigD (TypeSig names typ _)), mbComment, _subCommentList) = map nameDescr names
 #elif MIN_VERSION_ghc(7,2,0)
-    transformToDescr ((L loc (SigD (TypeSig names typ))), mbComment,_subCommentList) = map nameDescr names
+    transformToDescr (L loc (SigD (TypeSig names typ)), mbComment,_subCommentList) = map nameDescr names
 #else
-    transformToDescr ((L loc (SigD (TypeSig name' typ))), mbComment,_subCommentList) = [nameDescr name']
+    transformToDescr (L loc (SigD (TypeSig name' typ)), mbComment,_subCommentList) = [nameDescr name']
 #endif
       where
         nameDescr name = Real RealDescr {
@@ -245,6 +245,18 @@ transformToDescrs dflags pm = concatMap transformToDescr
             ,   dscMbComment'   =   toComment dflags mbComment []
             ,   dscTypeHint'    =   VariableDescr
             ,   dscExported'    =   True}
+
+#if MIN_VERSION_ghc(7,8,0)
+    transformToDescr (L loc (SigD (PatSynSig name _ _ _ typ)), mbComment, _subCommentList) =
+            [Real RealDescr {
+            dscName'        =   T.pack . getOccString $ unLoc name
+        ,   dscMbTypeStr'   =   Just . BS.pack $ getOccString (unLoc name) <> " :: " <> showSDocUnqual dflags (ppr typ)
+        ,   dscMbModu'      =   Just pm
+        ,   dscMbLocation'  =   srcSpanToLocation loc
+        ,   dscMbComment'   =   toComment dflags mbComment []
+        ,   dscTypeHint'    =   PatternSynonymDescr
+        ,   dscExported'    =   True}]
+#endif
 
     transformToDescr (L _loc (SigD _), _mbComment, _subCommentList) = []
 

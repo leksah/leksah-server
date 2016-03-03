@@ -331,11 +331,12 @@ data TypeDescr   =
     |   ModNameDescr
     |   QualModNameDescr
     |   ErrorDescr
+    |   PatternSynonymDescr
             --the descrName is the type Konstructor?
         deriving (Show,Read,Eq,Ord,Typeable)
 
 data DescrType = Variable | Field | Constructor | Data  | Type | Newtype
-    | Class | Method | Instance | Keyword | Extension | ModName | QualModName | Error
+    | Class | Method | Instance | Keyword | Extension | ModName | QualModName | Error | PatternSynonym
   deriving (Show, Eq, Ord, Bounded, Enum, Read)
 
 instance Default DescrType where
@@ -364,6 +365,7 @@ descrType ExtensionDescr     =   Extension
 descrType ModNameDescr       =   ModName
 descrType QualModNameDescr   =   QualModName
 descrType ErrorDescr         =   Error
+descrType PatternSynonymDescr =  PatternSynonym
 
 data PackModule         =   PM {    pack :: PackageIdentifier
                                 ,   modu :: ModuleName}

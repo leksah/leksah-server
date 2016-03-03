@@ -171,6 +171,8 @@ instance BinaryShared TypeDescr where
         =       put (13:: Int)
     put ErrorDescr
         =       put (14:: Int)
+    put PatternSynonymDescr
+        =       put (15:: Int)
 
     get = do    (typeHint :: Int)                <- get
                 case typeHint of
@@ -205,6 +207,7 @@ instance BinaryShared TypeDescr where
                     12 -> return ModNameDescr
                     13 -> return QualModNameDescr
                     14 -> return ErrorDescr
+                    15 -> return PatternSynonymDescr
                     _ -> error "Impossible in Binary SpDescr get"
 
 instance BinaryShared SimpleDescr where

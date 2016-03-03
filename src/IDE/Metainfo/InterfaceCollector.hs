@@ -277,7 +277,7 @@ extractIdentifierDescr dflags package modules decl
 #endif
 #if MIN_VERSION_ghc(7,8,0)
             (IfacePatSyn {})
-                        ->  [Real descr]
+                        ->  [Real descr{dscTypeHint' = PatternSynonymDescr}]
 #endif
 
 extractConstructors :: DynFlags -> OccName -> [IfaceConDecl] -> [SimpleDescr]

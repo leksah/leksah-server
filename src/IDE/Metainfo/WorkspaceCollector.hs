@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE ScopedTypeVariables, PatternGuards, OverloadedStrings #-}
 -----------------------------------------------------------------------------
@@ -251,14 +252,15 @@ fixExports dflags (Just iel) descrs = map (fixDescr (map unLoc iel)) descrs
         fixDescr list (Real rd) = Real rd'
             where
                 rd' = case dscTypeHint' rd of
-                          VariableDescr   -> rd{dscExported' = isJust findVar}
-                          InstanceDescr _ -> rd
-                          _               -> case findThing of
-                                                Nothing                -> nothingExported rd
-                                                Just (IEThingAll _)    -> allExported rd
-                                                Just (IEThingAbs _)    -> someExported rd []
-                                                Just (IEThingWith _ l) -> someExported rd (map (showRdrName dflags . unLoc710) l)
-                                                _                      -> allExported rd
+                          VariableDescr       -> rd{dscExported' = isJust findVar}
+                          PatternSynonymDescr -> rd{dscExported' = isJust findVar}
+                          InstanceDescr _     -> rd
+                          _                   -> case findThing of
+                                                    Nothing                -> nothingExported rd
+                                                    Just (IEThingAll _)    -> allExported rd
+                                                    Just (IEThingAbs _)    -> someExported rd []
+                                                    Just (IEThingWith _ l) -> someExported rd (map (showRdrName dflags . unLoc710) l)
+                                                    _                      -> allExported rd
                 findVar = find (\ a ->
                             case a of
                                 IEVar r | showRdrName dflags (unLoc710 r) == dscName' rd -> True
@@ -421,6 +423,18 @@ transformToDescrs dflags pm = concatMap transformToDescr
     ,   dscMbComment'   =   toComment mbComment (catMaybes (map snd sigList))
     ,   dscTypeHint'    =   VariableDescr
     ,   dscExported'    =   True}]
+
+#if MIN_VERSION_ghc(7,8,0)
+    transformToDescr ((L loc (ValD (PatSynBind PSB{..}))), mbComment,sigList) =
+        [Real $ RealDescr {
+        dscName'        =   showRdrName dflags (unLoc psb_id)
+    ,   dscMbTypeStr'   =   sigToByteString dflags sigList
+    ,   dscMbModu'      =   Just pm
+    ,   dscMbLocation'  =   srcSpanToLocation loc
+    ,   dscMbComment'   =   toComment mbComment (catMaybes (map snd sigList))
+    ,   dscTypeHint'    =   PatternSynonymDescr
+    ,   dscExported'    =   True}]
+#endif
 
 #if MIN_VERSION_ghc(7,7,0)
     transformToDescr ((L loc for@(ForD (ForeignImport lid _ _ _))), mbComment,_sigList) =
