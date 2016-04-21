@@ -22,8 +22,8 @@ module Main (
 ,   collectPackage
 ) where
 
-import Control.Applicative
-import Prelude
+import Prelude ()
+import Prelude.Compat
 import System.Console.GetOpt
     (ArgDescr(..), usageInfo, ArgOrder(..), getOpt, OptDescr(..))
 import System.Environment (getArgs)
@@ -35,13 +35,7 @@ import IDE.Utils.GHCUtils
 import IDE.StrippedPrefs
 import IDE.Metainfo.WorkspaceCollector
 import Data.Maybe(catMaybes, fromJust, mapMaybe, isJust)
-#if MIN_VERSION_ghc(7,8,0)
-#else
-import Prelude hiding(catch)
-#endif
-import Control.Monad (liftM)
 import qualified Data.Set as Set (member)
-import qualified Data.Map as Map (toList, fromListWith)
 import IDE.Core.CTypes hiding (Extension)
 import IDE.Metainfo.SourceDB (buildSourceForPackageDB, getDataDir, version)
 import Data.Time
@@ -69,7 +63,6 @@ import Control.Monad.IO.Class (MonadIO(..))
 import qualified Data.Text as T (strip, pack, unpack)
 import Data.Text (Text)
 import Data.Monoid ((<>))
-import Distribution.Package (PackageIdentifier)
 
 -- --------------------------------------------------------------------
 -- Command line options
@@ -139,7 +132,7 @@ main :: IO ()
 main =  withSocketsDo $ catch inner handler
     where
         handler (e :: SomeException) = do
-            putStrLn $ "leksah-server: " ++ (show e)
+            putStrLn $ "leksah-server: " ++ show e
             errorM "leksah-server" (show e)
             return ()
         inner = do
@@ -159,11 +152,11 @@ main =  withSocketsDo $ catch inner handler
             let logFile     =  case logFile' of
                                     [] -> Nothing
                                     h:_ -> Just h
-            updateGlobalLogger rootLoggerName (\ l -> setLevel verbosity l)
+            updateGlobalLogger rootLoggerName (setLevel verbosity)
             when (isJust logFile) $  do
                 handler' <- fileHandler (T.unpack $ fromJust logFile) verbosity
-                updateGlobalLogger rootLoggerName (\ l -> addHandler handler' l)
-            infoM "leksah-server" $ "***server start"
+                updateGlobalLogger rootLoggerName (addHandler handler')
+            infoM "leksah-server" "***server start"
             debugM "leksah-server" $ "args: " ++ show args
             dataDir         <- getDataDir
             prefsPath       <- getConfigFilePathForLoad strippedPreferencesFilename Nothing dataDir
@@ -186,11 +179,10 @@ main =  withSocketsDo $ catch inner handler
                         let debug       =   elem Debug o
                         let forever     =   elem Forever o
                         let endWithLast =   elem EndWithLast o
-                        let newPrefs    =   if forever && not endWithLast
-                                                then prefs{endWithLastConn = False}
-                                                else if  not forever && endWithLast
-                                                        then prefs{endWithLastConn = True}
-                                                        else prefs
+                        let newPrefs
+                              | forever && not endWithLast = prefs{endWithLastConn = False}
+                              | not forever && endWithLast = prefs{endWithLastConn = True}
+                              | otherwise = prefs
                         if elem CollectSystem o
                             then do
                                 debugM "leksah-server" "collectSystem"
@@ -221,22 +213,21 @@ doCommands prefs connRef (h,n,p) mvar = do
 
 doCommands' :: Prefs -> IORef [Handle] -> (Handle, t1, t2) -> MVar () -> IO ()
 doCommands' prefs connRef (h,n,p) mvar = do
-    debugM "leksah-server" $ "***wait"
-    mbLine <- catch (liftM Just (hGetLine h))
+    debugM "leksah-server" "***wait"
+    mbLine <- catch (Just <$> hGetLine h)
                 (\ (_e :: SomeException) -> do
-                    infoM "leksah-server" $ "***lost connection"
+                    infoM "leksah-server" "***lost connection"
                     hClose h
                     atomicModifyIORef connRef (\ list -> (delete h list,()))
                     handles <- readIORef connRef
                     case handles of
                         [] -> do
-                                if (endWithLastConn prefs)
+                                if endWithLastConn prefs
                                     then do
-                                       infoM "leksah-server" $ "***lost last connection - exiting"
+                                       infoM "leksah-server" "***lost last connection - exiting"
                                        -- we're waiting on that mvar before exiting
                                        putMVar mvar ()
-                                    else do
-                                        infoM "leksah-server" $ "***lost last connection - waiting"
+                                    else infoM "leksah-server" "***lost last connection - waiting"
                                 return Nothing
                         _  -> return Nothing)
     case mbLine of
@@ -284,11 +275,10 @@ collectSystem prefs writeAscii forceRebuild findSources dbLists = do
     debugM "leksah-server" $ "collectSystem knownPackages= " ++ show knownPackages
     packageInfos        <-  concat <$> forM dbLists (\dbs -> inGhcIO libDir [] [] dbs $  \ _ -> map (,dbs) <$> getInstalledPackageInfos)
     debugM "leksah-server" $ "collectSystem packageInfos= " ++ show (map (packId . getThisPackage . fst) packageInfos)
-    let newPackages = filter (\pi -> not $ Set.member (packageIdentifierToString . packId . getThisPackage $ fst pi) knownPackages)
+    let newPackages = filter (\pi' -> not $ Set.member (packageIdentifierToString . packId . getThisPackage $ fst pi') knownPackages)
                             packageInfos
     if null newPackages
-        then do
-            infoM "leksah-server" "Metadata collector has nothing to do"
+        then infoM "leksah-server" "Metadata collector has nothing to do"
         else do
             when findSources $ liftIO $ buildSourceForPackageDB prefs
             infoM "leksah-server" "update_toolbar 0.0"
@@ -318,8 +308,7 @@ writeStats stats = do
         packagesRetreived    = length (filter retrieved stats)
         modulesTotal'        = sum (mapMaybe modulesTotal stats)
         modulesWithSource    = sum (mapMaybe modulesTotal (filter withSource stats))
-        percentageWithSource = (fromIntegral modulesWithSource) * 100.0 /
-                                    (fromIntegral modulesTotal')
+        percentageWithSource = fromIntegral modulesWithSource * 100.0 / fromIntegral modulesTotal'
         details              = foldr detail "" (filter (isJust . mbError) stats)
         detail stat string   = string <> "\n" <> packageString stat <> " " <> (T.strip . fromJust $ mbError stat)
         packs                = foldr (\stat string -> string <> packageString stat <> " ")

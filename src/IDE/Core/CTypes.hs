@@ -72,8 +72,8 @@ module IDE.Core.CTypes (
 
 ) where
 
-import Control.Applicative ((<$>))
-import Prelude
+import Prelude ()
+import Prelude.Compat
 import Data.Typeable (Typeable)
 import Data.Map (Map)
 import Data.Set (Set)

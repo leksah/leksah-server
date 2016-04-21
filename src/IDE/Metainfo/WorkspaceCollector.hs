@@ -425,9 +425,17 @@ transformToDescrs dflags pm = concatMap transformToDescr
     ,   dscExported'    =   True}]
 
 #if MIN_VERSION_ghc(7,8,0)
+#if MIN_VERSION_ghc(7,10,0)
     transformToDescr ((L loc (ValD (PatSynBind PSB{..}))), mbComment,sigList) =
+#else
+    transformToDescr ((L loc (ValD (PatSynBind{..}))), mbComment,sigList) =
+#endif
         [Real $ RealDescr {
+#if MIN_VERSION_ghc(7,10,0)
         dscName'        =   showRdrName dflags (unLoc psb_id)
+#else
+        dscName'        =   showRdrName dflags (unLoc patsyn_id)
+#endif
     ,   dscMbTypeStr'   =   sigToByteString dflags sigList
     ,   dscMbModu'      =   Just pm
     ,   dscMbLocation'  =   srcSpanToLocation loc
