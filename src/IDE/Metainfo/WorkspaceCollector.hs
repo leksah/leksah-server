@@ -259,7 +259,11 @@ fixExports dflags (Just iel) descrs = map (fixDescr (map unLoc iel)) descrs
                                                     Nothing                -> nothingExported rd
                                                     Just (IEThingAll _)    -> allExported rd
                                                     Just (IEThingAbs _)    -> someExported rd []
+#if MIN_VERSION_ghc(8,0,0)
+                                                    Just (IEThingWith _ _ l _) -> someExported rd (map (showRdrName dflags . unLoc710) l)
+#else
                                                     Just (IEThingWith _ l) -> someExported rd (map (showRdrName dflags . unLoc710) l)
+#endif
                                                     _                      -> allExported rd
                 findVar = find (\ a ->
                             case a of
@@ -270,7 +274,11 @@ fixExports dflags (Just iel) descrs = map (fixDescr (map unLoc iel)) descrs
                                 case a of
                                 IEThingAbs r | showRdrName dflags (unLoc710 r) == dscName' rd -> True
                                 IEThingAll r | showRdrName dflags (unLoc710 r) == dscName' rd -> True
+#if MIN_VERSION_ghc(8,0,0)
+                                IEThingWith r _ _list _ | showRdrName dflags (unLoc710 r) == dscName' rd -> True
+#else
                                 IEThingWith r _list | showRdrName dflags (unLoc710 r) == dscName' rd -> True
+#endif
                                 _                                     -> False)
                                     list
         allExported rd                                 = rd
@@ -370,7 +378,9 @@ finishedDoc _ _ rest = rest
 
 sigNameNoLoc' :: Sig name -> [name]
 #if MIN_VERSION_ghc(7,2,0)
-#if MIN_VERSION_ghc(7,10,0)
+#if MIN_VERSION_ghc(8,0,0)
+sigNameNoLoc' (TypeSig   ns _)          = map unLoc ns
+#elif MIN_VERSION_ghc(7,10,0)
 sigNameNoLoc' (TypeSig   ns _ _)        = map unLoc ns
 #else
 sigNameNoLoc' (TypeSig   ns _)          = map unLoc ns
@@ -406,7 +416,7 @@ attachSignatures dflags signatures = map (attachSignature signaturesMap)
                             Just sigList -> (decl,mbDoc, sigList)
                             Nothing ->  (decl, mbDoc, [])
     declName _t@(TyClD x)                           = Just (tcdName x)
-    declName _t@(ValD (FunBind fun_id' _ _ _ _ _ )) = Just (unLoc fun_id')
+    declName _t@(ValD (FunBind {fun_id = fun_id'} )) = Just (unLoc fun_id')
     declName _                                      = Nothing
 
 
@@ -414,7 +424,7 @@ transformToDescrs :: DynFlags -> PackModule -> [(NDecl, (Maybe NDoc), [(NSig, Ma
 transformToDescrs dflags pm = concatMap transformToDescr
     where
     transformToDescr :: (NDecl, (Maybe NDoc), [(NSig, Maybe NDoc)]) -> [Descr]
-    transformToDescr ((L loc (ValD (FunBind lid _ _ _ _ _))), mbComment,sigList) =
+    transformToDescr ((L loc (ValD (FunBind {fun_id = lid}))), mbComment,sigList) =
         [Real $ RealDescr {
         dscName'        =   showRdrName dflags (unLoc lid)
     ,   dscMbTypeStr'   =   sigToByteString dflags sigList
@@ -699,8 +709,13 @@ mergeIdDescrs d1 d2 = dres ++ reexported
                                         Just d -> dscMbTypeStr d}
         addType _ d                     = d
 
+#if MIN_VERSION_ghc(8,0,0)
+extractDeriving :: OutputableBndr alpha => DynFlags -> PackModule -> Text -> LHsSigType alpha -> Descr
+extractDeriving dflags pm name HsIB { hsib_body = (L loc typ) } =
+#else
 extractDeriving :: OutputableBndr alpha => DynFlags -> PackModule -> Text -> LHsType alpha -> Descr
 extractDeriving dflags pm name (L loc typ) =
+#endif
         Real $ RealDescr {
         dscName'        =   className
     ,   dscMbTypeStr'   =   Just (BS.pack . T.unpack $ "instance " <> className <> " " <> name)
@@ -718,7 +733,9 @@ extractMethods dflags sigs docs =
     in concatMap (extractMethod dflags) pairs
 
 extractMethod :: OutputableBndr alpha => DynFlags -> (LHsDecl alpha, Maybe (NDoc)) -> [SimpleDescr]
-#if MIN_VERSION_ghc(7,10,0)
+#if MIN_VERSION_ghc(8,0,0)
+extractMethod dflags ((L loc (SigD ts@(TypeSig names _typ))), mbDoc) = map extractName names
+#elif MIN_VERSION_ghc(7,10,0)
 extractMethod dflags ((L loc (SigD ts@(TypeSig names _typ _))), mbDoc) = map extractName names
 #elif MIN_VERSION_ghc(7,2,0)
 extractMethod dflags ((L loc (SigD ts@(TypeSig names _typ))), mbDoc) = map extractName names
@@ -736,15 +753,21 @@ extractMethod dflags ((L loc (SigD ts@(TypeSig name' _typ))), mbDoc) = [extractN
 extractMethod _ (_, _mbDoc) = []
 
 extractConstructor :: DynFlags -> Located (ConDecl RdrName) -> [SimpleDescr]
-#if MIN_VERSION_ghc(7,10,0)
+#if MIN_VERSION_ghc(8,0,0)
+extractConstructor dflags decl@(L loc d') = extractDecl d'
+ where
+  extractDecl (ConDeclGADT {..}) = map (extractName con_doc) con_names
+  extractDecl (ConDeclH98 {..}) = [extractName con_doc con_name]
+#elif MIN_VERSION_ghc(7,10,0)
 extractConstructor dflags decl@(L loc (ConDecl {con_names = names, con_doc = doc})) =
-    map extractName names
+    map (extractName doc) names
+ where
 #else
 extractConstructor dflags decl@(L loc (ConDecl {con_name = name', con_doc = doc})) =
-    [extractName name']
-#endif
+    [extractName doc name']
  where
-  extractName name =
+#endif
+  extractName doc name =
     SimpleDescr
         (T.pack . showSDoc dflags . ppr $ unLoc name)
         (Just . BS.pack . showSDocUnqual dflags . ppr $ uncommentDecl decl)
@@ -755,7 +778,11 @@ extractConstructor dflags decl@(L loc (ConDecl {con_name = name', con_doc = doc}
         True
 
 extractRecordFields :: DynFlags -> Located (ConDecl RdrName) -> [SimpleDescr]
+#if MIN_VERSION_ghc(8,0,0)
+extractRecordFields dflags (L _ _decl@ConDeclH98 {con_details = RecCon flds}) =
+#else
 extractRecordFields dflags (L _ _decl@(ConDecl {con_details = RecCon flds})) =
+#endif
     concatMap extractRecordFields' (unLoc710 flds)
     where
 #if MIN_VERSION_ghc(7,10,0)
@@ -821,7 +848,9 @@ mayGetInterfaceFile :: PackageIdAndKey -> ModuleName -> Ghc (Maybe (ModIface,Fil
 mayGetInterfaceFile p mn =
     let pid             =   packId p
         makeMod         =   mkModule
-#if MIN_VERSION_ghc(7,10,0)
+#if MIN_VERSION_ghc(8,0,0)
+                                 (packUnitId p)
+#elif MIN_VERSION_ghc(7,10,0)
                                  (packKey p)
 #else
                                  (mkPackageId pid)

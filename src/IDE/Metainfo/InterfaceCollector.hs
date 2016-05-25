@@ -38,7 +38,10 @@ import qualified GhcMonad as Hs (liftIO)
 import HscTypes hiding (liftIO)
 import qualified HscTypes as Hs (liftIO)
 #endif
-#if MIN_VERSION_ghc(7,3,0)
+#if MIN_VERSION_ghc(8,0,0)
+import Avail
+import TysWiredIn ( )
+#elif MIN_VERSION_ghc(7,3,0)
 import Avail
 import TysWiredIn ( eqTyConName )
 #endif
@@ -116,7 +119,9 @@ getIFaceInfos :: PackageIdAndKey -> [Module.ModuleName] -> HscEnv -> Ghc [(ModIf
 getIFaceInfos p modules _session = do
     let pid             =   packId p
         makeMod         =   mkModule
-#if MIN_VERSION_ghc(7,10,0)
+#if MIN_VERSION_ghc(8,0,0)
+                                 (packUnitId p)
+#elif MIN_VERSION_ghc(7,10,0)
                                  (packKey p)
 #else
                                  (mkPackageId pid)
@@ -222,11 +227,17 @@ extractIdentifierDescr dflags package modules decl
             (IfaceData {ifName=name, ifCons=ifCons'})
                 -> let d = case ifCons' of
                             IfDataTyCon _decls
+#if MIN_VERSION_ghc(8,0,0)
+                                _ _
+#endif
                                 ->  let
                                         fieldNames          =   concatMap (extractFields dflags) (visibleIfConDecls ifCons')
                                         constructors'       =   extractConstructors dflags name (visibleIfConDecls ifCons')
                                     in DataDescr constructors' fieldNames
                             IfNewTyCon _
+#if MIN_VERSION_ghc(8,0,0)
+                                _ _
+#endif
                                 ->  let
                                         fieldNames          =   concatMap (extractFields dflags) (visibleIfConDecls ifCons')
                                         constructors'       =   extractConstructors dflags name (visibleIfConDecls ifCons')
@@ -245,7 +256,8 @@ extractIdentifierDescr dflags package modules decl
 #else
                             IfAbstractTyCon ->  DataDescr [] []
 #endif
-#if MIN_VERSION_ghc(7,6,0)
+#if MIN_VERSION_ghc(8,0,0)
+#elif MIN_VERSION_ghc(7,6,0)
                             IfDataFamTyCon ->  DataDescr [] []
 #else
                             IfOpenDataTyCon ->  DataDescr [] []
@@ -300,7 +312,9 @@ extractConstructors dflags name = map (\decl -> SimpleDescr (T.pack . unpackFS $
 #else
     pp_res_ty decl  = ppr name <+> fsep [ppr tv | (tv,_) <- ifConUnivTvs decl]
 #endif
-#if MIN_VERSION_ghc(7,10,0)
+#if MIN_VERSION_ghc(8,0,0)
+    eq_ctxt decl    = [IfaceTyConApp (IfaceTyCon eqTyConName NoIfaceTyConInfo) (ITC_Vis (IfaceTyVar tv) (ITC_Vis ty ITC_Nil))
+#elif MIN_VERSION_ghc(7,10,0)
     eq_ctxt decl    = [IfaceTyConApp (IfaceTc eqTyConName) (ITC_Type (IfaceTyVar tv) (ITC_Type ty ITC_Nil))
 #elif MIN_VERSION_ghc(7,3,0)
     eq_ctxt decl    = [IfaceTyConApp (IfaceTc eqTyConName) [(IfaceTyVar (occNameFS tv)), ty]

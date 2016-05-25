@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 -----------------------------------------------------------------------------
@@ -229,7 +230,9 @@ extractDescrs dflags pm _ifaceDeclMap ifaceExportItems' ifaceInstances' _ifaceLo
 transformToDescrs :: DynFlags -> PackModule -> [(LHsDecl Name, Maybe NDoc, [(Name, Maybe NDoc)])] -> [Descr]
 transformToDescrs dflags pm = concatMap transformToDescr
     where
-#if MIN_VERSION_ghc(7,10,0)
+#if MIN_VERSION_ghc(8,0,0)
+    transformToDescr (L loc (SigD (TypeSig names typ)), mbComment, _subCommentList) = map nameDescr names
+#elif MIN_VERSION_ghc(7,10,0)
     transformToDescr (L loc (SigD (TypeSig names typ _)), mbComment, _subCommentList) = map nameDescr names
 #elif MIN_VERSION_ghc(7,2,0)
     transformToDescr (L loc (SigD (TypeSig names typ)), mbComment,_subCommentList) = map nameDescr names
@@ -247,7 +250,11 @@ transformToDescrs dflags pm = concatMap transformToDescr
             ,   dscExported'    =   True}
 
 #if MIN_VERSION_ghc(7,8,0)
+#if MIN_VERSION_ghc(8,0,0)
+    transformToDescr (L loc (SigD (PatSynSig name typ)), mbComment, _subCommentList) =
+#else
     transformToDescr (L loc (SigD (PatSynSig name _ _ _ typ)), mbComment, _subCommentList) =
+#endif
             [Real RealDescr {
             dscName'        =   T.pack . getOccString $ unLoc name
         ,   dscMbTypeStr'   =   Just . BS.pack $ getOccString (unLoc name) <> " :: " <> showSDocUnqual dflags (ppr typ)
@@ -384,7 +391,9 @@ extractMethods dflags sigs docs =
     in concatMap (extractMethod dflags) pairs
 
 extractMethod :: DynFlags -> (LHsDecl Name, Maybe NDoc) -> [SimpleDescr]
-#if MIN_VERSION_ghc(7,10,0)
+#if MIN_VERSION_ghc(8,0,0)
+extractMethod dflags (L loc (SigD ts@(TypeSig names _typ)), mbDoc) = map extractName names
+#elif MIN_VERSION_ghc(7,10,0)
 extractMethod dflags (L loc (SigD ts@(TypeSig names _typ _)), mbDoc) = map extractName names
 #elif MIN_VERSION_ghc(7,2,0)
 extractMethod dflags (L loc (SigD ts@(TypeSig names _typ)), mbDoc) = map extractName names
@@ -402,15 +411,21 @@ extractMethod dflags (L loc (SigD ts@(TypeSig name' _typ)), mbDoc) = [extractNam
 extractMethod _dflags (_, _mbDoc) = []
 
 extractConstructor :: DynFlags -> LConDecl Name -> [SimpleDescr]
-#if MIN_VERSION_ghc(7,10,0)
+#if MIN_VERSION_ghc(8,0,0)
+extractConstructor dflags decl@(L loc d) = extractDecl d
+ where
+  extractDecl (ConDeclGADT {..}) = map (extractName con_doc) con_names
+  extractDecl (ConDeclH98 {..}) = [extractName con_doc con_name]
+#elif MIN_VERSION_ghc(7,10,0)
 extractConstructor dflags decl@(L loc (ConDecl {con_names = names, con_doc = doc})) =
-  map extractName names
+  map (extractName doc) names
+  where
 #else
 extractConstructor dflags decl@(L loc (ConDecl {con_name = name', con_doc = doc})) =
-  [extractName name']
-#endif
+  [extractName doc name']
   where
-  extractName name =
+#endif
+  extractName doc name =
     SimpleDescr
         (T.pack . getOccString $ unLoc name)
         (Just . BS.pack . showSDocUnqual dflags . ppr $uncommentDecl decl)
@@ -429,7 +444,11 @@ unLoc710 = id
 #endif
 
 extractRecordFields :: DynFlags -> LConDecl Name -> [SimpleDescr]
+#if MIN_VERSION_ghc(8,0,0)
+extractRecordFields dflags (L _ _decl@ConDeclH98 {con_details = RecCon flds}) =
+#else
 extractRecordFields dflags (L _ _decl@(ConDecl {con_details=(RecCon flds)})) =
+#endif
     concatMap extractRecordFields' (unLoc710 flds)
     where
 #if MIN_VERSION_ghc(7,10,0)
@@ -442,7 +461,7 @@ extractRecordFields dflags (L _ _decl@(ConDecl {con_details=(RecCon flds)})) =
       where
       extractName name =
         SimpleDescr
-            (T.pack . getOccString $ unLoc name)
+            (T.pack . showSDoc dflags . ppr $ unLoc710 name)
             (Just (BS.pack (showSDocUnqual dflags $ ppr typ)))
             (srcSpanToLocation $ getLoc name)
             (case doc of

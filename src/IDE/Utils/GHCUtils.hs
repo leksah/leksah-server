@@ -131,7 +131,11 @@ getInstalledPackageInfos = do
 #endif
     case pkgDatabase dflags1 of
         Nothing -> return []
+#if MIN_VERSION_ghc(8,0,0)
+        Just fm -> return (fm >>= snd)
+#else
         Just fm -> return fm
+#endif
 
 findFittingPackages :: [Dependency] -> Ghc [PackageIdentifier]
 findFittingPackages dependencyList = do

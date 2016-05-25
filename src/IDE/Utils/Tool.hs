@@ -102,9 +102,11 @@ data ToolOutput = ToolInput Text
                 | ToolPrompt Text
                 | ToolExit ExitCode deriving(Eq, Show)
 
+#if !MIN_VERSION_process(1,4,0)
 instance NFData ExitCode where
     rnf ExitSuccess = rnf ()
     rnf (ExitFailure failureCode) = rnf failureCode
+#endif
 
 instance  NFData ToolOutput where
     rnf (ToolInput s) = rnf s

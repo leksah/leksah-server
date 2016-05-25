@@ -99,7 +99,11 @@ import Text.PrinterParser
 import Data.Char (isAlpha)
 import Control.DeepSeq (NFData(..))
 import PackageConfig (PackageConfig)
-#if MIN_VERSION_ghc(7,10,0)
+#if MIN_VERSION_ghc(8,0,0)
+import Module (UnitId)
+import PackageConfig (sourcePackageIdString, unitId)
+import Data.Maybe (fromJust)
+#elif MIN_VERSION_ghc(7,10,0)
 import Module (PackageKey)
 import PackageConfig (sourcePackageIdString, packageKey)
 import Data.Maybe (fromJust)
@@ -129,14 +133,19 @@ metadataVersion = 7
 
 data PackageIdAndKey = PackageIdAndKey {
       packId  :: PackageIdentifier
-#if MIN_VERSION_ghc(7,10,0)
+#if MIN_VERSION_ghc(8,0,0)
+    , packUnitId :: UnitId
+#elif MIN_VERSION_ghc(7,10,0)
     , packKey :: PackageKey
 #endif
     }
 
 getThisPackage :: PackageConfig -> PackageIdAndKey
 getThisPackage p = PackageIdAndKey
-#if MIN_VERSION_ghc(7,10,0)
+#if MIN_VERSION_ghc(8,0,0)
+                        (fromJust . simpleParse $ sourcePackageIdString p)
+                        (unitId p)
+#elif MIN_VERSION_ghc(7,10,0)
                         (fromJust . simpleParse $ sourcePackageIdString p)
                         (packageKey p)
 #else

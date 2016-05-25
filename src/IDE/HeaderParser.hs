@@ -26,6 +26,9 @@ import GHC hiding (ImportDecl)
 import FastString(unpackFS)
 import IDE.Utils.GHCUtils
 import Data.Maybe (mapMaybe)
+#if MIN_VERSION_ghc(8,0,0)
+import BasicTypes (StringLiteral(..))
+#endif
 #if MIN_VERSION_ghc(7,4,1)
 import Outputable(pprPrefixOcc, ppr)
 #else
@@ -98,7 +101,11 @@ transformImport dflags (L srcSpan importDecl) =
         modName =  moduleNameString $ unLoc $ ideclName importDecl
         pkgQual =  case ideclPkgQual importDecl of
                         Nothing -> Nothing
+#if MIN_VERSION_ghc(8,0,0)
+                        Just fs -> Just (sl_st fs)
+#else
                         Just fs -> Just (unpackFS fs)
+#endif
         impAs   =  case ideclAs importDecl of
                         Nothing -> Nothing
                         Just mn -> Just (moduleNameString mn)
@@ -114,7 +121,11 @@ transformEntity dflags (L _ (IEVar name))              = Just (IVar (T.pack $ sh
 #endif
 transformEntity dflags (L _ (IEThingAbs name))         = Just (IAbs (T.pack . showRdrName dflags $ unLoc710 name))
 transformEntity dflags (L _ (IEThingAll name))         = Just (IThingAll (T.pack . showRdrName dflags $ unLoc710 name))
+#if MIN_VERSION_ghc(8,0,0)
+transformEntity dflags (L _ (IEThingWith name _ list _)) = Just (IThingWith (T.pack . showRdrName dflags $ unLoc710 name)
+#else
 transformEntity dflags (L _ (IEThingWith name list))   = Just (IThingWith (T.pack . showRdrName dflags $ unLoc710 name)
+#endif
                                                         (map (T.pack . showRdrName dflags . unLoc710) list))
 transformEntity _ _                              = Nothing
 
