@@ -135,7 +135,9 @@ tests = test [
             sendTest t $ output `check` [
                 ToolInput "jfkdfjdkl",
                 ToolError "",
-#if __GLASGOW_HASKELL__ > 706
+#if __GLASGOW_HASKELL__ >= 800
+                ToolError "<interactive>:22:1: error: Variable not in scope: jfkdfjdkl",
+#elif __GLASGOW_HASKELL__ > 706
                 ToolError "<interactive>:23:1: Not in scope: ‘jfkdfjdkl’",
 #elif __GLASGOW_HASKELL__ > 702
                 ToolError "<interactive>:23:1: Not in scope: `jfkdfjdkl'",
@@ -161,7 +163,9 @@ tests = test [
                 ToolInput "",
                 ToolInput "jfkdfjdkl",
                 ToolError "",
-#if __GLASGOW_HASKELL__ > 706
+#if __GLASGOW_HASKELL__ >= 800
+                ToolError "<interactive>:35:1: error: Variable not in scope: jfkdfjdkl",
+#elif __GLASGOW_HASKELL__ > 706
                 ToolError "<interactive>:36:1: Not in scope: ‘jfkdfjdkl’",
 #elif __GLASGOW_HASKELL__ > 702
                 ToolError "<interactive>:38:1: Not in scope: `jfkdfjdkl'",

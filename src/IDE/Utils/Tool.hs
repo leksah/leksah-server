@@ -302,11 +302,11 @@ ghciParseFollowingPrompt = (
     <?> "ghciParseFollowingPrompt"
 
 marker :: Int -> Text
-marker n = "kMAKWRALZZbHdXfHUOAAYBB" <> T.pack (show n)
+marker n = "kMAKWRALZ" <> T.pack (show n)
 
 parseMarker :: AP.Parser Int
 parseMarker = (do
-        AP.string $ T.pack "kMAKWRALZZbHdXfHUOAAYBB"
+        AP.string $ T.pack "kMAKWRALZ"
         nums <- AP.takeWhile isDigit
         return . read $ T.unpack nums)
     <?> "parseMarker"
@@ -343,10 +343,12 @@ ghciParseExpectedError = (
         ghciParseExpectedErrorCols
         AP.string ":"
         AP.skipWhile (\c -> AP.isHorizontalSpace c || AP.isEndOfLine c)
-        AP.string "Not in scope: "
-        AP.char '`' <|> AP.char '‛' <|> AP.char '‘'
-        result <- parseMarker
-        AP.char '\'' <|> AP.char '’'
+        AP.string "Not in scope: " <|> AP.string "error: Variable not in scope: "
+        result <- (do
+            AP.char '`' <|> AP.char '‛' <|> AP.char '‘'
+            m <- parseMarker
+            AP.char '\'' <|> AP.char '’'
+            return m) <|> parseMarker
         AP.string "\n"
         return result))
     <?> "ghciParseExpectedError"
