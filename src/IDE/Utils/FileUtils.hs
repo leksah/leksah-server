@@ -196,7 +196,7 @@ allModules filePath = E.catch (do
         then do
             filesAndDirs <- getDirectoryContents filePath
             let filesAndDirs' = map (combine filePath)
-                                    $filter (\s -> s /= "." && s /= ".." && s /= "_darcs" && s /= "dist"
+                                    $filter (\s -> s /= "." && s /= ".." && s /= "_darcs" && s /= "dist" && s /= "dist-newstyle"
                                         && s /= "Setup.lhs") filesAndDirs
             dirs <-  filterM doesDirectoryExist filesAndDirs'
             files <-  filterM doesFileExist filesAndDirs'
