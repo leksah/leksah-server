@@ -512,14 +512,17 @@ newGhci' flags startupOutputHandler = do
     runInteractiveTool tool ghciCommandLineReader "ghci" flags Nothing
     return tool
 
-newGhci :: FilePath -> Maybe Text -> [Text] -> C.Sink ToolOutput IO () -> IO ToolState
-newGhci dir mbExe interactiveFlags startupOutputHandler = do
+newGhci :: FilePath -> Text -> Maybe Text -> [Text] -> C.Sink ToolOutput IO () -> IO ToolState
+newGhci dir packageName mbExe interactiveFlags startupOutputHandler = do
         tool <- newToolState
         writeChan (toolCommands tool) $
             ToolCommand (":set " <> T.unwords interactiveFlags <> "\n:set prompt " <> ghciPrompt) "" startupOutputHandler
         useStack <- doesFileExist $ dir </> "stack.yaml"
         runInteractiveTool tool ghciCommandLineReader (if useStack then "stack" else "cabal")
-            ((if useStack then "repl" else "new-repl") : maybeToList mbExe) (Just dir)
+            (if useStack
+                then ["repl", packageName <> maybe "" (":" <>) mbExe]
+                else "new-repl" : maybeToList mbExe)
+            (Just dir)
         return tool
 
 executeCommand :: ToolState -> Text -> Text -> C.Sink ToolOutput IO () -> IO ()
