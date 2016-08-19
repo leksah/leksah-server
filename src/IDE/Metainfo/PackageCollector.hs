@@ -167,8 +167,8 @@ collectPackage writeAscii prefs numPackages ((packageConfig, dbs), packageIndex)
             distExists <- doesDirectoryExist $ dirPath </> "dist"
             unless distExists $ do
                 setCurrentDirectory dirPath
-                E.catch (do runTool' "cabal" ["clean"] Nothing
-                            runTool' "cabal" ("configure":flags ++ map (("--package-db"<>) .T.pack) dbs) Nothing
+                E.catch (do runTool' "cabal" ["clean"] Nothing Nothing
+                            runTool' "cabal" ("configure":flags ++ map (("--package-db"<>) .T.pack) dbs) Nothing Nothing
                             return ())
                         (\ (_e :: E.SomeException) -> do
                             debugM "leksah-server" "Can't configure"

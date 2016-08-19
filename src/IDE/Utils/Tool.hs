@@ -149,17 +149,17 @@ interruptProcessGroupOf :: ProcessHandle -> IO ()
 interruptProcessGroupOf = interruptProcessGroup
 #endif
 
-runTool' :: FilePath -> [Text] -> Maybe FilePath -> IO ([ToolOutput], ProcessHandle)
-runTool' fp args mbDir = do
+runTool' :: FilePath -> [Text] -> Maybe FilePath -> Maybe [(String,String)] -> IO ([ToolOutput], ProcessHandle)
+runTool' fp args mbDir mbEnv = do
     debugM "leksah-server" $ "Start: " ++ show (fp, args)
-    (out,pid) <- runTool fp args mbDir
+    (out,pid) <- runTool fp args mbDir mbEnv
     output <- runResourceT $ out $$ CL.consume
     waitForProcess pid
     debugM "leksah-server" $ "End: " ++ show (fp, args)
     return (output,pid)
 
-runTool :: MonadIO m => FilePath -> [Text] -> Maybe FilePath -> IO (C.Source m ToolOutput, ProcessHandle)
-runTool executable arguments mbDir = do
+runTool :: MonadIO m => FilePath -> [Text] -> Maybe FilePath -> Maybe [(String,String)] -> IO (C.Source m ToolOutput, ProcessHandle)
+runTool executable arguments mbDir mbEnv = do
 #ifdef MIN_VERSION_unix
     -- As of GHC 7.10.1 both createProcess and the GHC GC use
     unblockSignals $ addSignal sigINT emptySignalSet
@@ -169,6 +169,7 @@ runTool executable arguments mbDir = do
           std_out = CreatePipe,
           std_err = CreatePipe,
           cwd = mbDir,
+          env = mbEnv,
 #ifdef MIN_VERSION_process_leksah
           new_group = True }
 #else

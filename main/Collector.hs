@@ -54,7 +54,7 @@ import IDE.HeaderParser(parseTheHeader)
 import Data.IORef
 import Control.Concurrent (MVar,putMVar)
 import IDE.Metainfo.PackageCollector(collectPackage)
-import Data.List (delete)
+import Data.List (nub, delete)
 import System.Directory
        (removeFile, doesFileExist, removeDirectoryRecursive,
         doesDirectoryExist)
@@ -271,11 +271,11 @@ collectSystem prefs writeAscii forceRebuild findSources dbLists = do
         when exists' (removeFile reportPath)
         return ()
     knownPackages       <-  findKnownPackages collectorPath
-    libDir <- getSysLibDir
+    libDir <- getSysLibDir VERSION_ghc
     debugM "leksah-server" $ "collectSystem knownPackages= " ++ show knownPackages
     packageInfos        <-  concat <$> forM dbLists (\dbs -> inGhcIO libDir [] [] dbs $  \ _ -> map (,dbs) <$> getInstalledPackageInfos)
     debugM "leksah-server" $ "collectSystem packageInfos= " ++ show (map (packId . getThisPackage . fst) packageInfos)
-    let newPackages = filter (\pi' -> not $ Set.member (packageIdentifierToString . packId . getThisPackage $ fst pi') knownPackages)
+    let newPackages = nub $ filter (\pi' -> not $ Set.member (packageIdentifierToString . packId . getThisPackage $ fst pi') knownPackages)
                             packageInfos
     if null newPackages
         then infoM "leksah-server" "Metadata collector has nothing to do"

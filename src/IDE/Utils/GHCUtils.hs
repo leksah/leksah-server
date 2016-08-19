@@ -217,7 +217,7 @@ myParseModule dflags src_filename maybe_src_buf
 
 myParseHeader :: FilePath -> String -> [Text] -> IO (Either Text (DynFlags, HsModule RdrName))
 myParseHeader fp _str opts = do
-  libDir <- getSysLibDir
+  libDir <- getSysLibDir VERSION_ghc
   inGhcIO libDir (opts++["-cpp"]) [] [] $ \ _dynFlags -> do
     session   <- getSession
 #if MIN_VERSION_ghc(7,2,0)

@@ -17,7 +17,7 @@ main
 ) where
 
 import System.Environment (getArgs)
-import IDE.Utils.VersionUtils (getHaddockVersion, getGhcVersion, getGhcInfo)
+import IDE.Utils.VersionUtils (getHaddockVersion, getDefaultGhcVersion, getGhcInfo)
 import qualified Data.Text as T (unpack)
 import Control.Applicative
 import Prelude
@@ -29,10 +29,10 @@ main = do
     if elem  "--version" args
         then putStrLn =<< T.unpack <$> getHaddockVersion
         else if elem  "--ghc-version" args
-                then putStrLn =<<  getGhcVersion
+                then putStrLn =<<  getDefaultGhcVersion
                 else if elem  "--info" args
-                        then putStrLn =<< T.unpack <$> getGhcInfo
+                        then putStrLn =<< T.unpack <$> (getGhcInfo =<< getDefaultGhcVersion)
                         else if elem  "--numeric-version" args
-                                then putStrLn =<<  getGhcVersion
+                                then putStrLn =<<  getDefaultGhcVersion
                                 else putStrLn $ unwords args
 

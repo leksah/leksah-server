@@ -40,7 +40,7 @@ import System.Log.Logger
        (setLevel, rootLoggerName, updateGlobalLogger)
 import System.Log (Priority(..))
 
-runSelf' args = runTool' "dist/build/test-tool/test-tool" args Nothing
+runSelf' args = runTool' "dist/build/test-tool/test-tool" args Nothing Nothing
 
 -- stderr and stdout may not be in sync
 check output expected = do

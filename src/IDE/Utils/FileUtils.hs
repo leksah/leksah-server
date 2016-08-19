@@ -41,6 +41,8 @@ module IDE.Utils.FileUtils (
 ,   autoExtractTarFiles
 ,   getInstalledPackageIds
 ,   getInstalledPackageIds'
+,   findProjectRoot
+,   getPackageDBs'
 ,   getPackageDBs
 ,   figureOutGhcOpts
 ,   figureOutHaddockOpts
@@ -51,16 +53,16 @@ module IDE.Utils.FileUtils (
 import Control.Applicative
 import Prelude hiding (readFile)
 import System.FilePath
-       (splitFileName, dropExtension, takeExtension,
+       (splitFileName, dropExtension, takeExtension, isDrive,
         combine, addExtension, (</>), normalise, splitPath, takeFileName,takeDirectory)
 import Distribution.ModuleName (toFilePath, ModuleName)
 import Control.Monad (when, foldM, filterM, forM)
 import Data.Maybe (mapMaybe, catMaybes)
 import Distribution.Simple.PreProcess.Unlit (unlit)
 import System.Directory
-       (canonicalizePath, doesDirectoryExist, doesFileExist,
-        setCurrentDirectory, getCurrentDirectory, getDirectoryContents,
-        createDirectory, getHomeDirectory)
+       (getAppUserDataDirectory, canonicalizePath, doesDirectoryExist,
+        doesFileExist, setCurrentDirectory, getCurrentDirectory,
+        getDirectoryContents, createDirectory, getHomeDirectory)
 import Text.ParserCombinators.Parsec.Language (haskellDef, haskell)
 import qualified Text.ParserCombinators.Parsec.Token as P
        (GenTokenParser(..), TokenParser, identStart)
@@ -69,7 +71,7 @@ import Text.ParserCombinators.Parsec
         (<?>), CharParser)
 import Data.Set (Set)
 import Data.List
-    (isPrefixOf, isSuffixOf, stripPrefix, nub)
+       (intercalate, isPrefixOf, isSuffixOf, stripPrefix, nub)
 import qualified Data.Set as  Set (empty, fromList)
 import Distribution.Package (PackageIdentifier)
 import Data.Char (ord)
@@ -89,6 +91,8 @@ import qualified Data.Text as T
 import Data.Monoid ((<>))
 import Data.Text (Text)
 import Control.DeepSeq (deepseq)
+import IDE.Utils.VersionUtils (getDefaultGhcVersion)
+import System.Environment (getEnvironment)
 
 haskellSrcExts :: [FilePath]
 haskellSrcExts = ["hs","lhs","chs","hs.pp","lhs.pp","chs.pp","hsc"]
@@ -347,7 +351,7 @@ cabalFileName filePath = E.catch (do
 
 getCabalUserPackageDir :: IO (Maybe FilePath)
 getCabalUserPackageDir = do
-    (!output,_) <- runTool' "cabal" ["help"] Nothing
+    (!output,_) <- runTool' "cabal" ["help"] Nothing Nothing
     output `deepseq` case T.stripPrefix "  " (toolline $ last output) of
         Just s | "config" `T.isSuffixOf` s -> return . Just . T.unpack $ T.take (T.length s - 6) s <> "packages"
         _ -> return Nothing
@@ -399,9 +403,9 @@ getCollectorPath = liftIO $ do
             createDirectory filePath
             return filePath
 
-getSysLibDir :: IO FilePath
-getSysLibDir = E.catch (do
-    (!output,_) <- runTool' "ghc" ["--print-libdir"] Nothing
+getSysLibDir :: FilePath -> IO FilePath
+getSysLibDir ver = E.catch (do
+    (!output,_) <- runTool' ("ghc-" ++ ver) ["--print-libdir"] Nothing Nothing
     let libDir = head [line | ToolOutput line <- output]
         libDir2 = if ord (T.last libDir) == 13
                     then T.init libDir
@@ -409,46 +413,79 @@ getSysLibDir = E.catch (do
     output `deepseq` return $ normalise $ T.unpack libDir2
     ) $ \ (e :: SomeException) -> error ("FileUtils>>getSysLibDir failed with " ++ show e)
 
-getInstalledPackageIds :: [FilePath] -> IO [PackageIdentifier]
-getInstalledPackageIds dirs = either (const []) id <$> getInstalledPackageIds' dirs
+getInstalledPackageIds :: [FilePath] -> [FilePath] -> IO [PackageIdentifier]
+getInstalledPackageIds ghcVers dirs = either (const []) id <$> getInstalledPackageIds' ghcVers dirs
 
-getInstalledPackageIds' :: [FilePath] -> IO (Either Text [PackageIdentifier])
-getInstalledPackageIds' dirs = E.catch (do
-    (!output, _) <- runTool' "ghc-pkg" ["list", "--simple-output"] Nothing
-    pids <- output `deepseq` return $ concatMap names output
+getInstalledPackageIds' :: [FilePath] -> [FilePath] -> IO (Either Text [PackageIdentifier])
+getInstalledPackageIds' ghcVers dirs = do
+    pids <- forM ghcVers $ \ghcVer -> E.catch (do
+            (!output, _) <- runTool' ("ghc-pkg-" ++ ghcVer) ["list", "--simple-output"] Nothing Nothing
+            output `deepseq` return $ concatMap names output
+        ) $ \ (_ :: SomeException) -> return []
     -- Do our best to get the stack package ids
     stackPids <- forM dirs $ \dir -> E.catch (do
-                    useStack <- liftIO . doesFileExist $ dir </> "stack.yaml"
-                    if useStack
-                        then do
-                            (!output', _) <- runTool' "stack" ["--stack-yaml", T.pack (dir </> "stack.yaml"), "exec", "ghc-pkg", "--", "list", "--simple-output"] Nothing
-                            output' `deepseq` return $ concatMap names output'
-                        else return []
-                 ) $ \ (_ :: SomeException) -> return []
-    return . Right . nub $ pids ++ concat stackPids
-    ) $ \ (e :: SomeException) -> return . Left . T.pack $ show e
+            useStack <- liftIO . doesFileExist $ dir </> "stack.yaml"
+            if useStack
+                then do
+                    (!output', _) <- runTool' "stack" ["--stack-yaml", T.pack (dir </> "stack.yaml"), "exec", "ghc-pkg", "--", "list", "--simple-output"] Nothing Nothing
+                    output' `deepseq` return $ concatMap names output'
+                else return []
+        ) $ \ (_ :: SomeException) -> return []
+    return . Right . nub . concat $ pids ++ stackPids
   where
     names (ToolOutput n) = mapMaybe (T.simpleParse . T.unpack) (T.words n)
     names _ = []
 
-getPackageDBs :: [FilePath] -> IO [[FilePath]]
-getPackageDBs dirs = do
-    dbs <- forM dirs $ \dir -> E.catch (do
-                    useStack <- liftIO . doesFileExist $ dir </> "stack.yaml"
-                    if useStack
-                        then do
-                            (!output, _) <- runTool' "stack" ["--stack-yaml", T.pack (dir </> "stack.yaml"), "path", "--ghc-package-path"] Nothing
-                            filterM doesDirectoryExist $ concatMap paths output
-                        else return []
-                 ) $ \ (_ :: SomeException) -> return []
-    return $ nub dbs
+findProjectRoot :: FilePath -> IO FilePath
+findProjectRoot curdir = do
+
+    -- Copied from cabal-install as it is not exposed
+    -- and until features like `cabal run` exist for `cabal new-build`
+    homedir <- getHomeDirectory
+
+    -- Search upwards. If we get to the users home dir or the filesystem root,
+    -- then use the current dir
+    let probe dir | isDrive dir || dir == homedir
+                  = return curdir -- implicit project root
+        probe dir = do
+          exists <- doesFileExist (dir </> "cabal.project")
+          if exists
+            then return dir       -- explicit project root
+            else probe (takeDirectory dir)
+
+    probe curdir
+   --TODO: [nice to have] add compat support for old style sandboxes
+
+getPackageDBs' :: FilePath -> FilePath -> IO [FilePath]
+getPackageDBs' ghcVersion dir =
+    E.catch (do
+        useStack <- liftIO . doesFileExist $ dir </> "stack.yaml"
+        if useStack
+            then do
+                (!output, _) <- runTool' "stack" ["--stack-yaml", T.pack (dir </> "stack.yaml"), "path", "--ghc-package-path"] Nothing Nothing
+                filterM doesDirectoryExist $ concatMap paths output
+            else do
+                projectRoot <- liftIO $ findProjectRoot dir
+                cabalDir <- liftIO $ getAppUserDataDirectory "cabal"
+                ghcLibDir <- liftIO $ getSysLibDir ghcVersion
+                filterM doesDirectoryExist
+                    [ projectRoot </> "dist-newstyle/packagedb" </> "ghc-" ++ ghcVersion
+                    , cabalDir </> "store" </> "ghc-" ++ ghcVersion </> "package.db"
+                    , ghcLibDir </> "package.conf.d"
+                    ]
+     ) $ \ (_ :: SomeException) -> return []
   where
     paths (ToolOutput n) = map T.unpack (T.splitOn ":" n)
     paths _ = []
 
+getPackageDBs :: [FilePath] -> IO [[FilePath]]
+getPackageDBs dirs = do
+    ghcVersion <- getDefaultGhcVersion
+    nub <$> forM dirs (getPackageDBs' ghcVersion)
+
 figureOutHaddockOpts :: IO [Text]
 figureOutHaddockOpts = do
-    (!output,_) <- runTool' "cabal" ["haddock", "--with-haddock=leksahecho", "--executables"] Nothing
+    (!output,_) <- runTool' "cabal" ["haddock", "--with-haddock=leksahecho", "--executables"] Nothing Nothing
     let opts = concat [words $ T.unpack l | ToolOutput l <- output]
     let res = filterOptGhc opts
     debugM "leksah-server" ("figureOutHaddockOpts " ++ show res)
@@ -460,19 +497,23 @@ figureOutHaddockOpts = do
                                     Nothing -> filterOptGhc r
                                     Just s'  -> s' : filterOptGhc r
 
-figureOutGhcOpts :: IO [Text]
-figureOutGhcOpts = do
+figureOutGhcOpts :: FilePath -> IO [Text]
+figureOutGhcOpts dir = do
     debugM "leksah-server" "figureOutGhcOpts"
-    (!output,_) <- runTool' "cabal" ["build","--with-ghc=leksahecho","--with-ghcjs=leksahecho"] Nothing
-    let res = case catMaybes [findMake $ T.unpack l | ToolOutput l <- output] of
-                options:_ -> words options
-                _         -> []
-    debugM "leksah-server" ("figureOutGhcOpts " ++ show res)
-    output `deepseq` return $ map T.pack res
-    where
-        findMake :: String -> Maybe String
-        findMake [] = Nothing
-        findMake line@(_:xs) =
-                case stripPrefix "--make " line of
-                    Nothing -> findMake xs
-                    s -> s
+    ghcVersion <- getDefaultGhcVersion
+    packageDBs <- liftIO $ getPackageDBs' ghcVersion dir
+    (!output,_) <- runTool' "cabal" ("configure" : map (("--package-db=" <>) . T.pack) packageDBs) Nothing Nothing
+    output `deepseq` do
+        (!output,_) <- runTool' "cabal" ["build","--with-ghc=leksahecho","--with-ghcjs=leksahecho"] Nothing Nothing
+        let res = case catMaybes [findMake $ T.unpack l | ToolOutput l <- output] of
+                    options:_ -> words options
+                    _         -> []
+        debugM "leksah-server" ("figureOutGhcOpts " ++ show res)
+        output `deepseq` return $ map T.pack res
+  where
+    findMake :: String -> Maybe String
+    findMake [] = Nothing
+    findMake line@(_:xs) =
+            case stripPrefix "--make " line of
+                Nothing -> findMake xs
+                s -> s

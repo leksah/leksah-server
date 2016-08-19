@@ -113,11 +113,10 @@ showSDocUnqual _ = O.showSDocUnqual
 showRdrName :: DynFlags -> RdrName -> Text
 showRdrName dflags r = T.pack . showSDoc dflags $ ppr r
 
--- | Test
 collectWorkspace :: PackageIdentifier -> [(Text,FilePath)] -> Bool -> Bool -> FilePath -> IO()
 collectWorkspace pid moduleList forceRebuild writeAscii dir = do
     debugM "leksah-server" $ "collectWorkspace called with modules " ++ show moduleList ++ " in folder " ++ dir
-    collectorPath <- liftIO $ getCollectorPath
+    collectorPath <- liftIO getCollectorPath
     let packageCollectorPath = collectorPath </> T.unpack (packageIdentifierToString pid)
     when forceRebuild $ do
         exists <- doesDirectoryExist packageCollectorPath
@@ -125,13 +124,13 @@ collectWorkspace pid moduleList forceRebuild writeAscii dir = do
     -- Construct directory
     liftIO $ createDirectoryIfMissing True packageCollectorPath
     setCurrentDirectory dir
-    opts1 <- filterOpts <$> figureOutGhcOpts
+    opts1 <- filterOpts <$> figureOutGhcOpts dir
     opts2 <- figureOutHaddockOpts
 
-    libDir <- getSysLibDir
-    debugM "leksah-server" $ ("before collect modules" ++ "\n\nopts1: " ++ show opts1 ++ "\n\n opt2: " ++ show opts2)
+    libDir <- getSysLibDir VERSION_ghc
+    debugM "leksah-server" $ "before collect modules" ++ "\n\nopts1: " ++ show opts1 ++ "\n\n opt2: " ++ show opts2
     mapM_ (collectModule libDir packageCollectorPath writeAscii pid opts1) moduleList
-    debugM "leksah-server" $ "after collect modules"
+    debugM "leksah-server" "after collect modules"
   where
     filterOpts :: [Text] -> [Text]
     filterOpts []    = []
@@ -676,8 +675,15 @@ uncommentData td@(TyData {tcdCons = conDecls}) = td{tcdCons = map uncommentDecl 
 uncommentData other                            = other
 
 uncommentDecl :: LConDecl a -> LConDecl a
+#if MIN_VERSION_ghc(8,0,1)
+uncommentDecl (L l cd@ConDeclGADT{}) =
+    L l cd{con_doc = Nothing}
+uncommentDecl (L l cd@ConDeclH98{}) =
+    L l cd{con_details= uncommentDetails (con_details cd), con_doc = Nothing}
+#else
 uncommentDecl (L l cd) =
     L l cd{con_details= uncommentDetails (con_details cd)}
+#endif
 
 uncommentDetails :: HsConDeclDetails a -> HsConDeclDetails a
 #if MIN_VERSION_ghc(7,10,0)

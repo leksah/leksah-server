@@ -128,7 +128,7 @@ findSourceForPackage prefs packageId = do
                     exists <- doesDirectoryExist fpUnpack
                     unless exists $ createDirectory fpUnpack
                     setCurrentDirectory fpUnpack
-                    runTool' "cabal" ["unpack", packageName] Nothing
+                    runTool' "cabal" ["unpack", packageName] Nothing Nothing
                     success <- doesDirectoryExist (fpUnpack </> packageName')
                     if not success
                         then return (Left "Failed to download and unpack source")
@@ -141,7 +141,7 @@ findSourceForPackage prefs packageId = do
 packageFromSource :: FilePath -> PackageConfig -> IO (Maybe PackageDescr, PackageCollectStats)
 packageFromSource cabalPath packageConfig = do
     setCurrentDirectory dirPath
-    ghcFlags <- figureOutGhcOpts
+    ghcFlags <- figureOutGhcOpts dirPath
     debugM "leksah-server" ("ghcFlags:  " ++ show ghcFlags)
     NewException.catch (inner ghcFlags) handler
     where
@@ -153,7 +153,7 @@ packageFromSource cabalPath packageConfig = do
             return (Nothing, PackageCollectStats packageName Nothing False False
                                             (Just ("Ghc failed to process: " <> T.pack (show e) <> " (" <> T.pack cabalPath <> ")")))
         inner ghcFlags = do
-            libDir <- getSysLibDir
+            libDir <- getSysLibDir VERSION_ghc
             inGhcIO libDir ghcFlags [Opt_Haddock] [] $ \ dflags -> do
                 (interfaces,_) <- processModules verbose (exportedMods ++ hiddenMods) [] []
                 liftIO $ print (length interfaces)
