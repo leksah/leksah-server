@@ -1,6 +1,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE LambdaCase #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.Utils.FileUtils
@@ -39,8 +41,7 @@ module IDE.Utils.FileUtils (
 ,   getCabalUserPackageDir
 ,   autoExtractCabalTarFiles
 ,   autoExtractTarFiles
-,   getInstalledPackageIds
-,   getInstalledPackageIds'
+,   getInstalledPackages
 ,   findProjectRoot
 ,   getPackageDBs'
 ,   getPackageDBs
@@ -73,7 +74,7 @@ import Data.Set (Set)
 import Data.List
        (intercalate, isPrefixOf, isSuffixOf, stripPrefix, nub)
 import qualified Data.Set as  Set (empty, fromList)
-import Distribution.Package (PackageIdentifier)
+import Distribution.Package (UnitId, PackageIdentifier)
 import Data.Char (ord)
 import Distribution.Text (simpleParse, display)
 
@@ -93,6 +94,9 @@ import Data.Text (Text)
 import Control.DeepSeq (deepseq)
 import IDE.Utils.VersionUtils (getDefaultGhcVersion)
 import System.Environment (getEnvironment)
+import Data.Aeson (eitherDecodeStrict')
+import IDE.Utils.CabalPlan (PlanJson(..), PlanItem(..))
+import qualified Data.ByteString as BS (readFile)
 
 haskellSrcExts :: [FilePath]
 haskellSrcExts = ["hs","lhs","chs","hs.pp","lhs.pp","chs.pp","hsc"]
@@ -413,28 +417,35 @@ getSysLibDir ver = E.catch (do
     output `deepseq` return $ normalise $ T.unpack libDir2
     ) $ \ (e :: SomeException) -> error ("FileUtils>>getSysLibDir failed with " ++ show e)
 
-getInstalledPackageIds :: [FilePath] -> [FilePath] -> IO [PackageIdentifier]
-getInstalledPackageIds ghcVers dirs = either (const []) id <$> getInstalledPackageIds' ghcVers dirs
-
-getInstalledPackageIds' :: [FilePath] -> [FilePath] -> IO (Either Text [PackageIdentifier])
-getInstalledPackageIds' ghcVers dirs = do
-    pids <- forM ghcVers $ \ghcVer -> E.catch (do
-            (!output, _) <- runTool' ("ghc-pkg-" ++ ghcVer) ["list", "--simple-output"] Nothing Nothing
-            output `deepseq` return $ concatMap names output
-        ) $ \ (_ :: SomeException) -> return []
-    -- Do our best to get the stack package ids
-    stackPids <- forM dirs $ \dir -> E.catch (do
-            useStack <- liftIO . doesFileExist $ dir </> "stack.yaml"
-            if useStack
-                then do
-                    (!output', _) <- runTool' "stack" ["--stack-yaml", T.pack (dir </> "stack.yaml"), "exec", "ghc-pkg", "--", "list", "--simple-output"] Nothing Nothing
-                    output' `deepseq` return $ concatMap names output'
-                else return []
-        ) $ \ (_ :: SomeException) -> return []
-    return . Right . nub . concat $ pids ++ stackPids
+getStackPackages :: FilePath -> IO [(UnitId, [FilePath])]
+getStackPackages dir = do
+    packageDBs <- getStackPackageDBs dir
+    (!output', _) <- runTool' "stack" ["--stack-yaml", T.pack (dir </> "stack.yaml"), "exec", "ghc-pkg", "--", "list", "--simple-output"] Nothing Nothing
+    output' `deepseq` return $ map (,packageDBs) $ concatMap names output'
   where
     names (ToolOutput n) = mapMaybe (T.simpleParse . T.unpack) (T.words n)
     names _ = []
+
+getCabalPackages :: FilePath -> FilePath -> IO [(UnitId, [FilePath])]
+getCabalPackages ghcVer dir = do
+    packageDBs <- getCabalPackageDBs ghcVer dir
+    projectRoot <- findProjectRoot dir
+    (eitherDecodeStrict' <$> BS.readFile (projectRoot </> "dist-newstyle" </> "cache" </> "plan.json"))
+        >>= \ case
+                Left _ -> return []
+                Right plan -> return . map (,packageDBs) $
+                    mapMaybe (T.simpleParse . T.unpack . piId) (pjPlan plan)
+
+-- | Find the packages that the packages in the workspace
+getInstalledPackages :: FilePath -> [FilePath] -> IO [(UnitId, [FilePath])]
+getInstalledPackages ghcVer dirs =
+    -- Do our best to get the stack package ids
+    nub . concat <$> forM dirs (\dir -> E.catch (do
+            useStack <- liftIO . doesFileExist $ dir </> "stack.yaml"
+            if useStack
+                then getStackPackages dir
+                else getCabalPackages ghcVer dir
+        ) $ \ (_ :: SomeException) -> return [])
 
 findProjectRoot :: FilePath -> IO FilePath
 findProjectRoot curdir = do
@@ -456,23 +467,32 @@ findProjectRoot curdir = do
     probe curdir
    --TODO: [nice to have] add compat support for old style sandboxes
 
+getCabalPackageDBs :: FilePath -> FilePath -> IO [FilePath]
+getCabalPackageDBs ghcVersion dir = do
+    projectRoot <- findProjectRoot dir
+    cabalDir <- getAppUserDataDirectory "cabal"
+    ghcLibDir <- getSysLibDir ghcVersion
+    filterM doesDirectoryExist
+        [ projectRoot </> "dist-newstyle/packagedb" </> "ghc-" ++ ghcVersion
+        , cabalDir </> "store" </> "ghc-" ++ ghcVersion </> "package.db"
+        , ghcLibDir </> "package.conf.d"
+        ]
+
+getStackPackageDBs :: FilePath -> IO [FilePath]
+getStackPackageDBs dir = do
+    (!output, _) <- runTool' "stack" ["--stack-yaml", T.pack (dir </> "stack.yaml"), "path", "--ghc-package-path"] Nothing Nothing
+    filterM doesDirectoryExist $ concatMap paths output
+  where
+    paths (ToolOutput n) = map T.unpack (T.splitOn ":" n)
+    paths _ = []
+
 getPackageDBs' :: FilePath -> FilePath -> IO [FilePath]
 getPackageDBs' ghcVersion dir =
     E.catch (do
         useStack <- liftIO . doesFileExist $ dir </> "stack.yaml"
         if useStack
-            then do
-                (!output, _) <- runTool' "stack" ["--stack-yaml", T.pack (dir </> "stack.yaml"), "path", "--ghc-package-path"] Nothing Nothing
-                filterM doesDirectoryExist $ concatMap paths output
-            else do
-                projectRoot <- liftIO $ findProjectRoot dir
-                cabalDir <- liftIO $ getAppUserDataDirectory "cabal"
-                ghcLibDir <- liftIO $ getSysLibDir ghcVersion
-                filterM doesDirectoryExist
-                    [ projectRoot </> "dist-newstyle/packagedb" </> "ghc-" ++ ghcVersion
-                    , cabalDir </> "store" </> "ghc-" ++ ghcVersion </> "package.db"
-                    , ghcLibDir </> "package.conf.d"
-                    ]
+            then getStackPackageDBs dir
+            else getCabalPackageDBs ghcVersion dir
      ) $ \ (_ :: SomeException) -> return []
   where
     paths (ToolOutput n) = map T.unpack (T.splitOn ":" n)

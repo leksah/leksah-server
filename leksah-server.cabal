@@ -15,7 +15,7 @@ description:
     The interface to GHC-API for leksah
 category: IDE
 author: Juergen "jutaro" Nicklisch-Franken, Hamish Mackenzie
-tested-with: GHC ==7.4 || ==7.6 || ==7.8
+tested-with: GHC ==7.10 || ==8.0
 data-files:
     data/prefscoll.lkshp
 
@@ -93,6 +93,7 @@ library
         build-depends:
             network >=2.2 && <2.6
     exposed-modules:
+        IDE.Utils.CabalPlan
         IDE.Utils.GHCUtils
         IDE.Utils.Utils
         IDE.Utils.Tool
@@ -133,9 +134,9 @@ library
         text >=0.11.3.1 && <1.3,
         HTTP >=4000.1.2 && <4000.4,
         process >=1.1 && <1.5,
-        base-compat >=0.9.0 && <0.10
-    default-language: Haskell98
-    default-extensions: CPP
+        base-compat >=0.9.0 && <0.10,
+        aeson >=0.11.2.0 && <0.12
+    default-language: Haskell2010
     hs-source-dirs: src
     other-modules:
         IDE.Metainfo.InterfaceCollector
@@ -238,8 +239,7 @@ executable leksah-server
         process >=1.1 && <1.5,
         leksah-server ==0.16.1.0,
         base-compat >=0.9.0 && <0.10
-    default-language: Haskell98
-    default-extensions: CPP
+    default-language: Haskell2010
     hs-source-dirs: main
     ghc-options: -rtsopts -Wall -fno-warn-unused-do-bind -ferror-spans
 
@@ -268,8 +268,7 @@ executable leksahecho
         text >=0.11.3.1 && <1.3,
         process >=1.1 && <1.5,
         leksah-server ==0.16.1.0
-    default-language: Haskell98
-    default-extensions: CPP
+    default-language: Haskell2010
     hs-source-dirs: main
     ghc-options: -Wall -fno-warn-unused-do-bind -ferror-spans
 
@@ -277,7 +276,7 @@ executable leksahtrue
     main-is: LeksahTrue.hs
     build-depends:
         base >=4.0.0.0 && <4.10
-    default-language: Haskell98
+    default-language: Haskell2010
     hs-source-dirs: main
 
 test-suite test-tool
@@ -292,6 +291,7 @@ test-suite test-tool
         conduit >=1.0.8 && <1.3,
         conduit-extra >=1.0.0.1 && <1.2,
         resourcet -any,
-        process >=1.1 && <1.5
-    default-language: Haskell98
+        process >=1.1 && <1.5,
+        doctest >=0.11.0 && <0.12
+    default-language: Haskell2010
     hs-source-dirs: tests

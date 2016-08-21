@@ -30,6 +30,7 @@ import System.Process (interruptProcessGroupOf, getProcessExitCode)
 import Test.HUnit
        ((@=?), (@?=), putTextToHandle, Counts(..), runTestTT, assertBool,
         runTestText, (~:), Testable(..), Test(..))
+import Test.DocTest (doctest)
 import System.IO (hPutStr, stdout, hPutStrLn, stderr, hFlush)
 import qualified Data.Conduit.List as EL (consume)
 import Control.Concurrent
@@ -219,6 +220,7 @@ tests = test [
                 ToolInput ":quit",
                 ToolOutput "Leaving GHCi.",
                 ToolExit ExitSuccess]
+            doneTesting t
         runTests t]
 
 main :: IO ()
@@ -226,7 +228,7 @@ main = do
     args <- getArgs
     case args of
         [] -> do
-            updateGlobalLogger rootLoggerName (\ l -> setLevel DEBUG l)
+            doctest ["-isrc", "src/IDE/Utils/CabalPlan.hs"]            -- updateGlobalLogger rootLoggerName (\ l -> setLevel DEBUG l)
             (Counts{failures=failures}, _) <- runTestText (putTextToHandle stderr False) tests
             if failures == 0
                 then exitSuccess

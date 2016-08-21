@@ -109,12 +109,12 @@ inGhcIO libDir flags' udynFlags dbs ghcAct = do
         parseGhcFlags :: DynFlags -> [Located String]
                   -> [Text] -> Ghc DynFlags
         parseGhcFlags dynflags flags_ _origFlags = do
-        (dynflags', rest, _) <- parseDynamicFlags dynflags flags_
-        if not (null rest)
-            then do
-                liftIO $ debugM "leksah-server" ("No dynamic GHC options: " ++ unwords (map unLoc rest))
-                return dynflags'
-            else return dynflags'
+            (dynflags', rest, _) <- parseDynamicFlags dynflags flags_
+            if not (null rest)
+                then do
+                    liftIO $ debugM "leksah-server" ("No dynamic GHC options: " ++ unwords (map unLoc rest))
+                    return dynflags'
+                else return dynflags'
 
 -- | Unload whatever is currently loaded.
 unload :: Ghc ()
