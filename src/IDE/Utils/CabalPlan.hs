@@ -124,14 +124,19 @@ toComp t0 = case T.splitOn ":" t0 of
               ["setup"]   -> ComponentSetup
               _           -> error "IDE.Utils.CabalPlan.toComp"
 
+-- |
+-- >>> display <$> (unitIdToPackageId =<< simpleParse "base-4.9.0.0")
+-- Just "base-4.9.0.0"
+-- >>> display <$> (unitIdToPackageId =<< simpleParse "QuickCheck-2.9.1-ec9a1c39266d75ed2c3314f6e846a8f11853eff43fc45db79c7256d9bfd94602")
+-- Just "QuickCheck-2.9.1"
 unitIdToPackageId :: UnitId -> Maybe PackageIdentifier
-unitIdToPackageId = (>>= simpleParse . T.unpack) . stripHashStuff . T.pack . display
+unitIdToPackageId = (>>= simpleParse . T.unpack) . takePackageId . T.pack . display
 
-stripHashStuff :: T.Text -> Maybe T.Text
-stripHashStuff t
+takePackageId :: T.Text -> Maybe T.Text
+takePackageId t
   | T.null pfx = Nothing
-  | T.all (`elem` ("0123456789." :: [Char])) sfx = Nothing -- assume hash-less
-  | T.all (`elem` ("0123456789abcdef" :: [Char])) sfx = Just (T.init pfx)
+  | T.all (`elem` ("0123456789." :: String)) sfx = Just t -- assume hash-less
+  | T.all (`elem` ("0123456789abcdef" :: String)) sfx = Just (T.init pfx)
   | otherwise = Nothing
   where
     (pfx, sfx) = T.breakOnEnd "-" t

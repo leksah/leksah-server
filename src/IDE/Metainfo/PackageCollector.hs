@@ -161,13 +161,14 @@ collectPackage writeAscii prefs numPackages ((packageConfig, dbs), packageIndex)
         runCabalConfigure fpSource = do
             let dirPath         = dropFileName fpSource
                 packageName'    = takeBaseName fpSource
-                flagsFor "base" = ["-finteger-gmp2"]
+                flagsFor "base" = ["-finteger-gmp", "-finteger-gmp2"]
                 flagsFor _      = []
                 flags           = flagsFor packageName'
             distExists <- doesDirectoryExist $ dirPath </> "dist"
             unless distExists $ do
                 setCurrentDirectory dirPath
                 E.catch (do runTool' "cabal" ["clean"] Nothing Nothing
+                            debugM "leksah" $ "fpSource = " <> show fpSource
                             runTool' "cabal" ("configure":flags ++ map (("--package-db"<>) .T.pack) dbs) Nothing Nothing
                             return ())
                         (\ (_e :: E.SomeException) -> do

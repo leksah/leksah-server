@@ -522,7 +522,10 @@ figureOutGhcOpts dir = do
     debugM "leksah-server" "figureOutGhcOpts"
     ghcVersion <- getDefaultGhcVersion
     packageDBs <- liftIO $ getPackageDBs' ghcVersion dir
-    (!output,_) <- runTool' "cabal" ("configure" : map (("--package-db=" <>) . T.pack) packageDBs) Nothing Nothing
+    flags <- doesFileExist (dir </> "base.cabal") >>= \case
+        True -> return ["-finteger-gmp", "-finteger-gmp2"]
+        False -> return []
+    (!output,_) <- runTool' "cabal" ("configure" : flags <> map (("--package-db=" <>) . T.pack) packageDBs) Nothing Nothing
     output `deepseq` do
         (!output,_) <- runTool' "cabal" ["build","--with-ghc=leksahecho","--with-ghcjs=leksahecho"] Nothing Nothing
         let res = case catMaybes [findMake $ T.unpack l | ToolOutput l <- output] of
