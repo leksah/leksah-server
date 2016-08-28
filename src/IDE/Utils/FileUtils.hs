@@ -96,6 +96,7 @@ import IDE.Utils.VersionUtils (getDefaultGhcVersion)
 import System.Environment (getEnvironment)
 import Data.Aeson (eitherDecodeStrict')
 import IDE.Utils.CabalPlan (PlanJson(..), PlanItem(..))
+import IDE.Utils.CabalProject (findProjectRoot, projectPackages)
 import qualified Data.ByteString as BS (readFile)
 
 haskellSrcExts :: [FilePath]
@@ -421,10 +422,11 @@ getStackPackages :: FilePath -> IO [(UnitId, [FilePath])]
 getStackPackages dir = do
     packageDBs <- getStackPackageDBs dir
     (!output', _) <- runTool' "stack" ["--stack-yaml", T.pack (dir </> "stack.yaml"), "exec", "ghc-pkg", "--", "list", "--simple-output"] Nothing Nothing
-    output' `deepseq` return $ map (,packageDBs) $ concatMap names output'
-  where
-    names (ToolOutput n) = mapMaybe (T.simpleParse . T.unpack) (T.words n)
-    names _ = []
+    output' `deepseq` return $ map (,packageDBs) $ concatMap ghcPkgOutputToPackages output'
+
+ghcPkgOutputToPackages :: ToolOutput -> [UnitId]
+ghcPkgOutputToPackages (ToolOutput n) = mapMaybe (T.simpleParse . T.unpack) (T.words n)
+ghcPkgOutputToPackages _ = []
 
 getCabalPackages :: FilePath -> FilePath -> IO [(UnitId, [FilePath])]
 getCabalPackages ghcVer dir = do
@@ -436,47 +438,46 @@ getCabalPackages ghcVer dir = do
                 Right plan -> return . map (,packageDBs) $
                     mapMaybe (T.simpleParse . T.unpack . piId) (pjPlan plan)
 
+
+getPackages :: [FilePath] -> IO [(UnitId, [FilePath])]
+getPackages packageDBs = do
+    (!output', _) <- runTool' "ghc-pkg" (["list", "--simple-output"] ++ map (("--package-db"<>) . T.pack) packageDBs) Nothing Nothing
+    output' `deepseq` return $ map (,packageDBs) $ concatMap ghcPkgOutputToPackages output'
+
 -- | Find the packages that the packages in the workspace
 getInstalledPackages :: FilePath -> [FilePath] -> IO [(UnitId, [FilePath])]
-getInstalledPackages ghcVer dirs =
+getInstalledPackages ghcVer dirs = do
+    globalDBs <- sequence [getGlobalPackageDB ghcVer, getStorePackageDB ghcVer]
+        >>= filterM doesDirectoryExist
+    globalPackages <- E.catch (getPackages globalDBs) $ \ (_ :: SomeException) -> return []
     -- Do our best to get the stack package ids
-    nub . concat <$> forM dirs (\dir -> E.catch (do
+    stackPackages <- forM dirs (\dir -> E.catch (do
             useStack <- liftIO . doesFileExist $ dir </> "stack.yaml"
             if useStack
                 then getStackPackages dir
-                else getCabalPackages ghcVer dir
+                else return []
         ) $ \ (_ :: SomeException) -> return [])
+    return . nub $ concat (globalPackages : stackPackages)
 
-findProjectRoot :: FilePath -> IO FilePath
-findProjectRoot curdir = do
+getGlobalPackageDB :: FilePath -> IO FilePath
+getGlobalPackageDB ghcVersion = do
+    ghcLibDir <- getSysLibDir ghcVersion
+    return $ ghcLibDir </> "package.conf.d"
 
-    -- Copied from cabal-install as it is not exposed
-    -- and until features like `cabal run` exist for `cabal new-build`
-    homedir <- getHomeDirectory
+getStorePackageDB :: FilePath -> IO FilePath
+getStorePackageDB ghcVersion = do
+    cabalDir <- getAppUserDataDirectory "cabal"
+    return $ cabalDir </> "store" </> "ghc-" ++ ghcVersion </> "package.db"
 
-    -- Search upwards. If we get to the users home dir or the filesystem root,
-    -- then use the current dir
-    let probe dir | isDrive dir || dir == homedir
-                  = return curdir -- implicit project root
-        probe dir = do
-          exists <- doesFileExist (dir </> "cabal.project")
-          if exists
-            then return dir       -- explicit project root
-            else probe (takeDirectory dir)
-
-    probe curdir
-   --TODO: [nice to have] add compat support for old style sandboxes
+getProjectPackageDB :: FilePath -> FilePath -> IO FilePath
+getProjectPackageDB ghcVersion dir = do
+    projectRoot <- findProjectRoot dir
+    return $ projectRoot </> "dist-newstyle/packagedb" </> "ghc-" ++ ghcVersion
 
 getCabalPackageDBs :: FilePath -> FilePath -> IO [FilePath]
-getCabalPackageDBs ghcVersion dir = do
-    projectRoot <- findProjectRoot dir
-    cabalDir <- getAppUserDataDirectory "cabal"
-    ghcLibDir <- getSysLibDir ghcVersion
-    filterM doesDirectoryExist
-        [ projectRoot </> "dist-newstyle/packagedb" </> "ghc-" ++ ghcVersion
-        , cabalDir </> "store" </> "ghc-" ++ ghcVersion </> "package.db"
-        , ghcLibDir </> "package.conf.d"
-        ]
+getCabalPackageDBs ghcVersion dir =
+    sequence [getGlobalPackageDB ghcVersion, getStorePackageDB ghcVersion, getProjectPackageDB ghcVersion dir]
+        >>= filterM doesDirectoryExist
 
 getStackPackageDBs :: FilePath -> IO [FilePath]
 getStackPackageDBs dir = do

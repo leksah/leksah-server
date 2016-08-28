@@ -19,14 +19,12 @@ main
 
 import System.Environment (getArgs)
 import System.Exit (exitWith, exitSuccess, exitFailure, ExitCode(..))
+import System.FilePath ((</>))
+import Data.Monoid ((<>))
 import IDE.Utils.Tool
        (toolProcess, executeGhciCommand, ToolOutput(..), runTool',
         newGhci')
-#ifdef MIN_VERSION_process_leksah
-import IDE.System.Process (interruptProcessGroup, getProcessExitCode)
-#else
 import System.Process (interruptProcessGroupOf, getProcessExitCode)
-#endif
 import Test.HUnit
        ((@=?), (@?=), putTextToHandle, Counts(..), runTestTT, assertBool,
         runTestText, (~:), Testable(..), Test(..))
@@ -40,8 +38,9 @@ import Control.Monad (forM_)
 import System.Log.Logger
        (setLevel, rootLoggerName, updateGlobalLogger)
 import System.Log (Priority(..))
-
-runSelf' args = runTool' "dist/build/test-tool/test-tool" args Nothing Nothing
+import IDE.Utils.CabalProject (findProjectRoot)
+import System.Directory (getCurrentDirectory)
+import qualified Data.Text as T (pack)
 
 -- stderr and stdout may not be in sync
 check output expected = do
@@ -64,40 +63,42 @@ runTests testMVar = loop
                 loop
             Nothing   -> return ()
 
-sendTest testMVar test = do
+sendTest testMVar test =
     liftIO $ putMVar testMVar $ Just test
 
-doneTesting testMVar = do
-    liftIO $ putMVar testMVar $ Nothing
+doneTesting testMVar =
+    liftIO $ putMVar testMVar Nothing
 
-tests = test [
+tests testTool =
+    let runSelf' args = runTool' testTool args Nothing Nothing
+    in test [
     "Exit Success" ~: do
         (output, _) <- runSelf' ["ExitSuccess"]
-        output `check` [ToolInput "dist/build/test-tool/test-tool ExitSuccess", ToolExit ExitSuccess],
+        output `check` [ToolInput $ T.pack testTool <> " ExitSuccess", ToolExit ExitSuccess],
     "Exit Failure" ~: do
         (output, _) <- runSelf' ["Exit42"]
-        output `check` [ToolInput "dist/build/test-tool/test-tool Exit42", ToolExit (ExitFailure 42)],
+        output `check` [ToolInput $ T.pack testTool <> " Exit42", ToolExit (ExitFailure 42)],
     "Single Blank Out Line" ~: do
         (output, _) <- runSelf' ["BlankLine", "StdOut"]
-        output `check` [ToolInput "dist/build/test-tool/test-tool BlankLine StdOut", ToolOutput "", ToolExit ExitSuccess],
+        output `check` [ToolInput $ T.pack testTool <> " BlankLine StdOut", ToolOutput "", ToolExit ExitSuccess],
     "Single Blank Err Line" ~: do
         (output, _) <- runSelf' ["BlankLine", "StdErr"]
-        output `check` [ToolInput "dist/build/test-tool/test-tool BlankLine StdErr", ToolError "", ToolExit ExitSuccess],
+        output `check` [ToolInput $ T.pack testTool <> " BlankLine StdErr", ToolError "", ToolExit ExitSuccess],
     "Hello Out" ~: do
         (output, _) <- runSelf' ["Hello", "StdOut"]
-        output `check` [ToolInput "dist/build/test-tool/test-tool Hello StdOut", ToolOutput "Hello World", ToolExit ExitSuccess],
+        output `check` [ToolInput $ T.pack testTool <> " Hello StdOut", ToolOutput "Hello World", ToolExit ExitSuccess],
     "Hello Err" ~: do
         (output, _) <- runSelf' ["Hello", "StdErr"]
-        output `check` [ToolInput "dist/build/test-tool/test-tool Hello StdErr", ToolError "Hello World", ToolExit ExitSuccess],
+        output `check` [ToolInput $ T.pack testTool <> " Hello StdErr", ToolError "Hello World", ToolExit ExitSuccess],
     "Both" ~: do
         (output, _) <- runSelf' ["ErrAndOut"]
-        output `check` [ToolInput "dist/build/test-tool/test-tool ErrAndOut", ToolError "Error", ToolOutput "Output", ToolExit ExitSuccess],
+        output `check` [ToolInput $ T.pack testTool <> " ErrAndOut", ToolError "Error", ToolOutput "Output", ToolExit ExitSuccess],
     "Unterminated Out" ~: do
         (output, _) <- runSelf' ["Unterminated", "StdOut"]
-        output `check` [ToolInput "dist/build/test-tool/test-tool Unterminated StdOut", ToolOutput "Unterminated", ToolExit ExitSuccess],
+        output `check` [ToolInput $ T.pack testTool <> " Unterminated StdOut", ToolOutput "Unterminated", ToolExit ExitSuccess],
     "Unterminated Err" ~: do
         (output, _) <- runSelf' ["Unterminated", "StdErr"]
-        output `check` [ToolInput "dist/build/test-tool/test-tool Unterminated StdErr", ToolError "Unterminated", ToolExit ExitSuccess],
+        output `check` [ToolInput $ T.pack testTool <> " Unterminated StdErr", ToolError "Unterminated", ToolExit ExitSuccess],
     "GHCi Failed Sart" ~: do
         t <- newEmptyMVar
         tool <- newGhci' ["MissingFile.hs"] $ do
@@ -225,11 +226,14 @@ tests = test [
 
 main :: IO ()
 main = do
+    projectRoot <- findProjectRoot =<< getCurrentDirectory
+    let testTool = projectRoot </> "dist-newstyle/build" </> ("leksah-server-" <> VERSION_leksah_server)
+                    </> "build/test-tool/test-tool"
     args <- getArgs
     case args of
         [] -> do
-            doctest ["-isrc", "src/IDE/Utils/CabalPlan.hs"]            -- updateGlobalLogger rootLoggerName (\ l -> setLevel DEBUG l)
-            (Counts{failures=failures}, _) <- runTestText (putTextToHandle stderr False) tests
+            doctest ["-isrc", "src/IDE/Utils/CabalPlan.hs", "src/IDE/Utils/CabalProject.hs"]            -- updateGlobalLogger rootLoggerName (\ l -> setLevel DEBUG l)
+            (Counts{failures=failures}, _) <- runTestText (putTextToHandle stderr False) (tests testTool)
             if failures == 0
                 then exitSuccess
                 else exitFailure
