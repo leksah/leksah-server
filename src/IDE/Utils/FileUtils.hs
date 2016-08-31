@@ -441,7 +441,7 @@ getCabalPackages ghcVer dir = do
 
 getPackages :: [FilePath] -> IO [(UnitId, [FilePath])]
 getPackages packageDBs = do
-    (!output', _) <- runTool' "ghc-pkg" (["list", "--simple-output"] ++ map (("--package-db"<>) . T.pack) packageDBs) Nothing Nothing
+    (!output', _) <- runTool' "ghc-pkg" (["list", "--simple-output"] ++ map (("--package-db="<>) . T.pack) packageDBs) Nothing Nothing
     output' `deepseq` return $ map (,packageDBs) $ concatMap ghcPkgOutputToPackages output'
 
 -- | Find the packages that the packages in the workspace
