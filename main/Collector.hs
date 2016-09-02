@@ -28,6 +28,7 @@ import Prelude.Compat
 import System.Console.GetOpt
     (ArgDescr(..), usageInfo, ArgOrder(..), getOpt, OptDescr(..))
 import System.Environment (getArgs)
+import System.FilePath ((</>), (<.>))
 import Control.Monad (when, forM)
 import Data.Version (showVersion)
 import IDE.Utils.FileUtils
@@ -55,7 +56,8 @@ import IDE.HeaderParser(parseTheHeader)
 import Data.IORef
 import Control.Concurrent (MVar,putMVar)
 import IDE.Metainfo.PackageCollector(collectPackage)
-import Data.List (nub, delete)
+import Data.List (nub, delete, sortBy)
+import Data.Ord (comparing)
 import System.Directory
        (removeFile, doesFileExist, removeDirectoryRecursive,
         doesDirectoryExist)
@@ -85,6 +87,7 @@ data Flag =    CollectSystem
              | LogFile Text
              | Forever
              | EndWithLast
+             | PackageDir FilePath
        deriving (Show,Eq)
 
 options :: [OptDescr Flag]
@@ -113,6 +116,8 @@ options =   [
                 "Don't end the server when last connection ends"
          ,   Option ['c'] ["endWithLast"] (NoArg EndWithLast)
                 "End the server when last connection ends"
+         ,   Option ['p'] ["packageDir"] (ReqArg (PackageDir) "PackageDir")
+                "Package directory to include in collection (like a workspace package)"
 
     ]
 
@@ -187,7 +192,7 @@ main =  withSocketsDo $ catch inner handler
                         if elem CollectSystem o
                             then do
                                 debugM "leksah-server" "collectSystem"
-                                collectSystem prefs debug rebuild sources []
+                                collectSystem prefs debug rebuild sources =<< getPackageDBs [d | PackageDir d <- o]
                             else
                                 case servers of
                                     (Nothing:_)  -> do
@@ -276,16 +281,21 @@ collectSystem prefs writeAscii forceRebuild findSources dbLists = do
     debugM "leksah-server" $ "collectSystem knownPackages= " ++ show knownPackages
     packageInfos        <-  concat <$> forM dbLists (\dbs -> inGhcIO libDir [] [] dbs $  \ _ -> map (,dbs) <$> getInstalledPackageInfos)
     debugM "leksah-server" $ "collectSystem packageInfos= " ++ show (map (packId . getThisPackage . fst) packageInfos)
-    let newPackages = nub $ filter (\pi' -> not $ Set.member (packageIdentifierToString . packId . getThisPackage $ fst pi') knownPackages)
+    let pkgId = packageIdentifierToString . packId . getThisPackage
+        newPackages = sortBy (comparing (pkgId. fst)) . nub $
+                        filter (\pi' -> not $ Set.member (pkgId $ fst pi') knownPackages)
                             packageInfos
     if null newPackages
         then infoM "leksah-server" "Metadata collector has nothing to do"
         else do
             when findSources $ liftIO $ buildSourceForPackageDB prefs
             infoM "leksah-server" "update_toolbar 0.0"
-            stats <- mapM (collectPackage writeAscii prefs (length newPackages))
-                            (zip newPackages [1 .. length newPackages])
-            writeStats stats
+            stats <- forM (zip newPackages [1 .. length newPackages]) $ \(package, n) -> do
+                let pid = T.unpack . pkgId $ fst package
+                liftIO (doesFileExist $ collectorPath </> pid <.> leksahMetadataSystemFileExtension) >>= \case
+                    True -> debugM "leksah-server" ("Already created metadata for " <> pid) >> return Nothing
+                    False -> Just <$> collectPackage writeAscii prefs (length newPackages) (package, n)
+            writeStats $ catMaybes stats
     infoM "leksah-server" "Metadata collection has finished"
 
 writeStats :: [PackageCollectStats] -> IO ()

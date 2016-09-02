@@ -439,10 +439,14 @@ getCabalPackages ghcVer dir = do
                     mapMaybe (T.simpleParse . T.unpack . piId) (pjPlan plan)
 
 
-getPackages :: [FilePath] -> IO [(UnitId, [FilePath])]
-getPackages packageDBs = do
+getPackages' :: [FilePath] -> IO [UnitId]
+getPackages' packageDBs = do
     (!output', _) <- runTool' "ghc-pkg" (["list", "--simple-output"] ++ map (("--package-db="<>) . T.pack) packageDBs) Nothing Nothing
-    output' `deepseq` return $ map (,packageDBs) $ concatMap ghcPkgOutputToPackages output'
+    output' `deepseq` return $ concatMap ghcPkgOutputToPackages output'
+
+getPackages :: [FilePath] -> IO [(UnitId, [FilePath])]
+getPackages packageDBs =
+    map (,packageDBs) <$> getPackages' packageDBs
 
 -- | Find the packages that the packages in the workspace
 getInstalledPackages :: FilePath -> [FilePath] -> IO [(UnitId, [FilePath])]
@@ -455,7 +459,11 @@ getInstalledPackages ghcVer dirs = do
             useStack <- liftIO . doesFileExist $ dir </> "stack.yaml"
             if useStack
                 then getStackPackages dir
-                else return []
+                else do
+                    projectDB <- getProjectPackageDB ghcVer dir
+                    doesDirectoryExist projectDB >>= \case
+                        False -> return []
+                        True  -> map (,globalDBs<>[projectDB]) <$> getPackages' [projectDB]
         ) $ \ (_ :: SomeException) -> return [])
     return . nub $ concat (globalPackages : stackPackages)
 
@@ -502,7 +510,9 @@ getPackageDBs' ghcVersion dir =
 getPackageDBs :: [FilePath] -> IO [[FilePath]]
 getPackageDBs dirs = do
     ghcVersion <- getDefaultGhcVersion
-    nub <$> forM dirs (getPackageDBs' ghcVersion)
+    globalDBs <- sequence [getGlobalPackageDB ghcVersion, getStorePackageDB ghcVersion]
+        >>= filterM doesDirectoryExist
+    nub . (globalDBs:) <$> forM dirs (getPackageDBs' ghcVersion)
 
 figureOutHaddockOpts :: IO [Text]
 figureOutHaddockOpts = do
