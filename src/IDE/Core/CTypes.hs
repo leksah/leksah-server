@@ -125,7 +125,7 @@ import Distribution.Package(PackageName(..))
 --
 
 leksahVersion, configDirName :: FilePath
-leksahVersion = "0.15"
+leksahVersion = "0.16"
 configDirName = ".leksah-" <> leksahVersion
 
 metadataVersion :: Integer
