@@ -128,7 +128,7 @@ findSourceForPackage prefs packageId = do
                     exists <- doesDirectoryExist fpUnpack
                     unless exists $ createDirectory fpUnpack
                     setCurrentDirectory fpUnpack
-                    runTool' "cabal" ["unpack", packageName] Nothing Nothing
+                    _ <- runTool' "cabal" ["unpack", packageName] Nothing Nothing
                     success <- doesDirectoryExist (fpUnpack </> packageName')
                     if not success
                         then return (Left "Failed to download and unpack source")
@@ -265,6 +265,19 @@ transformToDescrs dflags pm = concatMap transformToDescr
         ,   dscExported'    =   True}]
 #endif
 
+#if MIN_VERSION_ghc(8,0,0)
+    transformToDescr (L loc (SigD (ClassOpSig _ names typ)), mbComment, _subCommentList) =
+        map (\name ->
+            Real RealDescr {
+            dscName'        =   T.pack . getOccString $ unLoc name
+        ,   dscMbTypeStr'   =   Just . BS.pack $ getOccString (unLoc name) <> " :: " <> showSDocUnqual dflags (ppr typ)
+        ,   dscMbModu'      =   Just pm
+        ,   dscMbLocation'  =   srcSpanToLocation loc
+        ,   dscMbComment'   =   toComment dflags mbComment []
+        ,   dscTypeHint'    =   PatternSynonymDescr
+        ,   dscExported'    =   True}) names
+#endif
+
     transformToDescr (L _loc (SigD _), _mbComment, _subCommentList) = []
 
 #if MIN_VERSION_ghc(7,6,0)
@@ -392,23 +405,27 @@ extractMethods dflags sigs docs =
 
 extractMethod :: DynFlags -> (LHsDecl Name, Maybe NDoc) -> [SimpleDescr]
 #if MIN_VERSION_ghc(8,0,0)
-extractMethod dflags (L loc (SigD ts@(TypeSig names _typ)), mbDoc) = map extractName names
+extractMethod dflags (L loc (SigD ts@(TypeSig names _typ)), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names
+extractMethod dflags (L loc (SigD ts@(PatSynSig name _typ)), mbDoc) = [extractMethodName dflags loc ts mbDoc name]
+extractMethod dflags (L loc (SigD ts@(ClassOpSig _ names _typ)), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names
 #elif MIN_VERSION_ghc(7,10,0)
-extractMethod dflags (L loc (SigD ts@(TypeSig names _typ _)), mbDoc) = map extractName names
+extractMethod dflags (L loc (SigD ts@(TypeSig names _typ _)), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names
 #elif MIN_VERSION_ghc(7,2,0)
-extractMethod dflags (L loc (SigD ts@(TypeSig names _typ)), mbDoc) = map extractName names
+extractMethod dflags (L loc (SigD ts@(TypeSig names _typ)), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names
 #else
-extractMethod dflags (L loc (SigD ts@(TypeSig name' _typ)), mbDoc) = [extractName name']
+extractMethod dflags (L loc (SigD ts@(TypeSig name' _typ)), mbDoc) = [extractMethodName dflags loc ts mbDoc name']
 #endif
-  where
-  extractName name =
+extractMethod _ _ = []
+
+extractMethodName :: (NamedThing a, Outputable o) => DynFlags
+                           -> SrcSpan -> o -> Maybe NDoc -> GenLocated l a -> SimpleDescr
+extractMethodName dflags loc ts mbDoc name =
     SimpleDescr
         (T.pack . getOccString $ unLoc name)
         (Just . BS.pack . showSDocUnqual dflags $ ppr ts)
         (srcSpanToLocation loc)
         (toComment dflags mbDoc [])
         True
-extractMethod _dflags (_, _mbDoc) = []
 
 extractConstructor :: DynFlags -> LConDecl Name -> [SimpleDescr]
 #if MIN_VERSION_ghc(8,0,0)
@@ -432,7 +449,7 @@ extractConstructor dflags decl@(L loc (ConDecl {con_name = name', con_doc = doc}
         (srcSpanToLocation loc)
         (case doc of
             Nothing -> Nothing
-            Just (L _ d) -> Just . BS.pack . T.unpack $ printHsDoc d)
+            Just (L _ d') -> Just . BS.pack . T.unpack $ printHsDoc d')
         True
 
 #if MIN_VERSION_ghc(7,10,0)
@@ -468,6 +485,21 @@ extractRecordFields dflags (L _ _decl@(ConDecl {con_details=(RecCon flds)})) =
                 Nothing -> Nothing
                 Just (L _ d) -> Just . BS.pack . T.unpack $ printHsDoc d)
             True
+#if MIN_VERSION_ghc(8,0,0)
+extractRecordFields dflags (L _ _decl@ConDeclGADT
+        {con_names = names, con_type = typ, con_doc = doc}) =
+    map extractName names
+  where
+    extractName name =
+        SimpleDescr
+            (T.pack . showSDoc dflags . ppr $ unLoc710 name)
+            (Just (BS.pack (showSDocUnqual dflags $ ppr typ)))
+            (srcSpanToLocation $ getLoc name)
+            (case doc of
+                Nothing -> Nothing
+                Just (L _ d) -> Just . BS.pack . T.unpack $ printHsDoc d)
+            True
+#endif
 extractRecordFields _ _ = []
 
 toComment :: DynFlags -> Maybe NDoc -> [NDoc] -> Maybe ByteString

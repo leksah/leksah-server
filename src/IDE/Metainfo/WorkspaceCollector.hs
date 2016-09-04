@@ -740,23 +740,27 @@ extractMethods dflags sigs docs =
 
 extractMethod :: OutputableBndr alpha => DynFlags -> (LHsDecl alpha, Maybe (NDoc)) -> [SimpleDescr]
 #if MIN_VERSION_ghc(8,0,0)
-extractMethod dflags ((L loc (SigD ts@(TypeSig names _typ))), mbDoc) = map extractName names
+extractMethod dflags ((L loc (SigD ts@(TypeSig names _typ))), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names
+extractMethod dflags ((L loc (SigD ts@(PatSynSig name _typ))), mbDoc) = [extractMethodName dflags loc ts mbDoc name]
+extractMethod dflags ((L loc (SigD ts@(ClassOpSig _ names _typ))), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names
 #elif MIN_VERSION_ghc(7,10,0)
-extractMethod dflags ((L loc (SigD ts@(TypeSig names _typ _))), mbDoc) = map extractName names
+extractMethod dflags ((L loc (SigD ts@(TypeSig names _typ _))), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names
 #elif MIN_VERSION_ghc(7,2,0)
-extractMethod dflags ((L loc (SigD ts@(TypeSig names _typ))), mbDoc) = map extractName names
+extractMethod dflags ((L loc (SigD ts@(TypeSig names _typ))), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names
 #else
-extractMethod dflags ((L loc (SigD ts@(TypeSig name' _typ))), mbDoc) = [extractName name']
+extractMethod dflags ((L loc (SigD ts@(TypeSig name' _typ))), mbDoc) = [extractMethodName dflags loc ts mbDoc name']
 #endif
-  where
-  extractName name =
+extractMethod _ _ = []
+
+extractMethodName :: (Outputable o1, Outputable o2) => DynFlags
+                           -> SrcSpan -> o1 -> Maybe NDoc -> GenLocated l o2 -> SimpleDescr
+extractMethodName dflags loc ts mbDoc name =
     SimpleDescr
         (T.pack . showSDoc dflags . ppr $ unLoc name)
         (Just . BS.pack . showSDocUnqual dflags $ ppr ts)
         (srcSpanToLocation loc)
         (toComment mbDoc [])
         True
-extractMethod _ (_, _mbDoc) = []
 
 extractConstructor :: DynFlags -> Located (ConDecl RdrName) -> [SimpleDescr]
 #if MIN_VERSION_ghc(8,0,0)
@@ -806,6 +810,21 @@ extractRecordFields dflags (L _ _decl@(ConDecl {con_details = RecCon flds})) =
                 Nothing -> Nothing
                 Just (L _ d) -> Just . BS.pack . T.unpack $ printHsDoc d)
             True
+#if MIN_VERSION_ghc(8,0,0)
+extractRecordFields dflags (L _ _decl@ConDeclGADT
+        {con_names = names, con_type = typ, con_doc = doc}) =
+    map extractName names
+  where
+    extractName name =
+        SimpleDescr
+            (T.pack . showSDoc dflags . ppr $ unLoc710 name)
+            (Just (BS.pack (showSDocUnqual dflags $ ppr typ)))
+            (srcSpanToLocation $ getLoc name)
+            (case doc of
+                Nothing -> Nothing
+                Just (L _ d) -> Just . BS.pack . T.unpack $ printHsDoc d)
+            True
+#endif
 extractRecordFields _ _ = []
 
 attachComments :: [LSig RdrName] -> [MyLDocDecl] -> [(LHsDecl RdrName, Maybe (NDoc))]
