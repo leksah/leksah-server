@@ -47,7 +47,7 @@ getDefaultGhcVersion = E.catch (do
 
 ghcExeName :: FilePath -> FilePath
 #ifdef mingw32_HOST_OS
-ghcExeName _ = "ghc"
+ghcExeName ver = "ghc-" <> ver <> ".exe"
 #else
 ghcExeName = ("ghc-" <>)
 #endif
