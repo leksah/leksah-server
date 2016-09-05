@@ -54,7 +54,7 @@ module IDE.Utils.FileUtils (
 import Control.Applicative
 import Prelude hiding (readFile)
 import System.FilePath
-       (splitFileName, dropExtension, takeExtension, isDrive,
+       (splitFileName, dropExtension, takeExtension,
         combine, addExtension, (</>), normalise, splitPath, takeFileName,takeDirectory)
 import Distribution.ModuleName (toFilePath, ModuleName)
 import Control.Monad (when, foldM, filterM, forM)
@@ -72,9 +72,9 @@ import Text.ParserCombinators.Parsec
         (<?>), CharParser)
 import Data.Set (Set)
 import Data.List
-       (intercalate, isPrefixOf, isSuffixOf, stripPrefix, nub)
+       (isPrefixOf, isSuffixOf, stripPrefix, nub)
 import qualified Data.Set as  Set (empty, fromList)
-import Distribution.Package (UnitId, PackageIdentifier)
+import Distribution.Package (UnitId)
 import Data.Char (ord)
 import Distribution.Text (simpleParse, display)
 
@@ -92,11 +92,10 @@ import qualified Data.Text as T
 import Data.Monoid ((<>))
 import Data.Text (Text)
 import Control.DeepSeq (deepseq)
-import IDE.Utils.VersionUtils (getDefaultGhcVersion)
-import System.Environment (getEnvironment)
+import IDE.Utils.VersionUtils (ghcExeName, getDefaultGhcVersion)
 import Data.Aeson (eitherDecodeStrict')
 import IDE.Utils.CabalPlan (PlanJson(..), PlanItem(..))
-import IDE.Utils.CabalProject (findProjectRoot, projectPackages)
+import IDE.Utils.CabalProject (findProjectRoot)
 import qualified Data.ByteString as BS (readFile)
 
 haskellSrcExts :: [FilePath]
@@ -410,7 +409,7 @@ getCollectorPath = liftIO $ do
 
 getSysLibDir :: FilePath -> IO FilePath
 getSysLibDir ver = E.catch (do
-    (!output,_) <- runTool' ("ghc-" ++ ver) ["--print-libdir"] Nothing Nothing
+    (!output,_) <- runTool' (ghcExeName ver) ["--print-libdir"] Nothing Nothing
     let libDir = head [line | ToolOutput line <- output]
         libDir2 = if ord (T.last libDir) == 13
                     then T.init libDir
@@ -503,9 +502,6 @@ getPackageDBs' ghcVersion dir =
             then getStackPackageDBs dir
             else getCabalPackageDBs ghcVersion dir
      ) $ \ (_ :: SomeException) -> return []
-  where
-    paths (ToolOutput n) = map T.unpack (T.splitOn ":" n)
-    paths _ = []
 
 getPackageDBs :: [FilePath] -> IO [[FilePath]]
 getPackageDBs dirs = do

@@ -18,6 +18,7 @@ module IDE.Utils.VersionUtils (
 ,   getDefaultGhcVersion
 ,   getGhcInfo
 ,   supportedGhcVersions
+,   ghcExeName
 ) where
 
 import IDE.Utils.Tool (ToolOutput(..), runTool')
@@ -28,6 +29,7 @@ import Control.Exception as E (SomeException, catch)
 import qualified Data.Text as T (unlines, unpack, init, last)
 import Data.Text (Text)
 import Control.DeepSeq (deepseq)
+import Data.Monoid ((<>))
 
 supportedGhcVersions :: [FilePath]
 supportedGhcVersions = nub ["7.10.3", "8.0.1", VERSION_ghc]
@@ -43,9 +45,16 @@ getDefaultGhcVersion = E.catch (do
     output `deepseq` return $ T.unpack vers2
     ) $ \ (e :: SomeException) -> error $ "FileUtils>>getGhcVersion failed with " ++ show e
 
+ghcExeName :: FilePath -> FilePath
+#ifdef mingw32_HOST_OS
+ghcExeName _ = "ghc"
+#else
+ghcExeName = ("ghc-" <>)
+#endif
+
 getGhcInfo :: FilePath -> IO Text
 getGhcInfo ver = E.catch (do
-    (!output,_) <- runTool' ("ghc-" ++ ver) ["--info"] Nothing Nothing
+    (!output,_) <- runTool' (ghcExeName ver) ["--info"] Nothing Nothing
     output `deepseq` return $ T.unlines [l | ToolOutput l <- output]
     ) $ \ (e :: SomeException) -> error $ "FileUtils>>getGhcInfo failed with " ++ show e
 
