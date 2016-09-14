@@ -173,8 +173,14 @@ hasSavedConfigFile fn = do
     savedConfigFile <- getConfigFilePathForSave fn
     doesFileExist savedConfigFile
 
-
-getConfigFilePathForLoad :: FilePath -> Maybe FilePath -> FilePath -> IO FilePath
+-- | Gets a config file. If the second argument is Nothing
+-- first looks in the config dir (~/.leksah-x/), if it's not present
+-- the data directory at the given location is checked (this is an argument
+-- because `getDataDir` has to be called in Leksah code.
+getConfigFilePathForLoad :: FilePath -- ^ Config filename with extension
+                         -> Maybe FilePath -- ^ Optional directory to check first
+                         -> FilePath -- ^ Data dir to check if not present in config dir
+                         -> IO FilePath
 getConfigFilePathForLoad fn mbFilePath dataDir = do
     mbCd <- case mbFilePath of
                 Just p -> return (Just p)
