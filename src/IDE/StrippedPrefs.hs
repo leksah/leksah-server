@@ -50,7 +50,7 @@ defaultPrefs :: Prefs
 defaultPrefs = Prefs {
         sourceDirectories   =   []
     ,   unpackDirectory     =   Just ("~" </> configDirName </> "packageSources")
-    ,   retrieveURL         =   "http://www.leksah.org/"
+    ,   retrieveURL         =   "http://leksah.github.io/"
     ,   retrieveStrategy    =   RetrieveThenBuild
     ,   serverPort          =   11111
     ,   endWithLastConn     =   True
