@@ -474,11 +474,12 @@ getOutput clr inp out err pid = do
                                     loop (counter+1) errSynced line
                                 (_, False, Just syncCmd) -> do
                                     liftIO $ do
-                                        debugM "leksah-server" $ "sendErrors - Sync " ++ T.unpack (syncCmd counter)
-                                        hPutStrLn inp $ syncCmd counter
+                                        let errN = counter `rem` 10
+                                        debugM "leksah-server" $ "sendErrors - Sync " ++ T.unpack (syncCmd errN)
+                                        hPutStrLn inp $ syncCmd errN
                                         hFlush inp
-                                        waitForError counter
-                                        debugM "leksah-server" $ "sendErrors - Synced " ++ show counter
+                                        waitForError errN
+                                        debugM "leksah-server" $ "sendErrors - Synced " ++ show errN
                                     loop (counter+1) True line
                                 (_, True, Just _) -> do
                                     liftIO $ putMVar mvar $ RawToolOutput (ToolPrompt promptLine)
