@@ -522,7 +522,7 @@ newGhci dir packageName mbExe interactiveFlags startupOutputHandler = do
         useStack <- doesFileExist $ dir </> "stack.yaml"
         runInteractiveTool tool ghciCommandLineReader (if useStack then "stack" else "cabal")
             (if useStack
-                then ["repl", packageName <> maybe "" (":" <>) mbExe]
+                then ["repl", packageName <> maybe ":lib" (":exe:" <>) mbExe]
                 else "new-repl" : maybeToList mbExe)
             (Just dir)
         return tool
