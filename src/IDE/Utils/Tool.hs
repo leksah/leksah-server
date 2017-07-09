@@ -56,7 +56,7 @@ import Control.Concurrent
         getChanContents, dupChan)
 import Control.Monad (when, unless)
 import Control.Monad.IO.Class (liftIO, MonadIO)
-import Data.Maybe (maybeToList)
+import Data.Maybe (fromMaybe, maybeToList)
 import System.Process
        (showCommandForUser, proc, waitForProcess, ProcessHandle,
         createProcess, CreateProcess(..), interruptProcessGroupOf,
@@ -70,8 +70,8 @@ import System.Log.Logger (debugM)
 import System.Exit (ExitCode(..))
 import System.IO
        (hClose, hFlush, Handle, hSetBuffering, BufferMode(..))
-import System.Directory (doesFileExist)
-import System.FilePath ((</>))
+import System.Directory (getHomeDirectory, doesFileExist)
+import System.FilePath ((</>), dropTrailingPathSeparator)
 import Data.Conduit as C
        ((=$), ($$), ($=))
 import qualified Data.Conduit as C
@@ -94,6 +94,7 @@ import Control.Arrow (Arrow(..))
 #ifdef MIN_VERSION_unix
 import System.Posix.Signals
        (emptySignalSet, sigINT, addSignal, unblockSignals)
+import Data.List (stripPrefix)
 #endif
 
 data ToolOutput = ToolInput Text
@@ -177,7 +178,11 @@ runTool executable arguments mbDir mbEnv = do
 #endif
     output <- getOutputNoPrompt inp out err pid
     return (do
-        C.yield . ToolInput . T.pack $ showCommandForUser executable (map T.unpack arguments)
+        home <- liftIO getHomeDirectory
+        let friendlyDir d = case stripPrefix home d of
+                                Just rest -> "~" <> rest
+                                Nothing -> d
+        C.yield . ToolInput . ((fromMaybe "" (T.pack . friendlyDir . dropTrailingPathSeparator <$> mbDir) <> "$ ") <>) . T.pack $ showCommandForUser executable (map T.unpack arguments)
         output, pid)
 
 newToolState :: IO ToolState
