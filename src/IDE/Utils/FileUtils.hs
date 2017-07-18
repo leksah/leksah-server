@@ -537,7 +537,7 @@ figureOutGhcOpts dir = do
     packageDBs <- liftIO $ getPackageDBs' ghcVersion dir
     flags <- doesFileExist (dir </> "base.cabal") >>= \case
         True -> return ["-finteger-gmp", "-finteger-gmp2"]
-        False -> return []
+        False -> return ["-f-overloaded-methods", "-f-overloaded-properties", "-f-overloaded-signals"]
     (!output,_) <- runTool' "cabal" ("configure" : flags <> map (("--package-db=" <>) . T.pack) packageDBs) Nothing Nothing
     output `deepseq` do
         (!output,_) <- runTool' "cabal" ["build","--with-ghc=leksahecho","--with-ghcjs=leksahecho"] Nothing Nothing

@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -143,6 +144,9 @@ getIFaceInfos p modules _session = do
 
 -------------------------------------------------------------------------
 
+converModuleName :: Module.ModuleName -> ModuleName
+converModuleName = fromJust . simpleParse . moduleNameString
+
 extractInfo :: DynFlags -> [(ModIface, FilePath)] -> [(ModIface, FilePath)] -> PackageIdAndKey ->
                     [PackageIdentifier] -> PackageDescr
 extractInfo dflags ifacesExp ifacesHid pid buildDepends =
@@ -155,52 +159,40 @@ extractInfo dflags ifacesExp ifacesHid pid buildDepends =
     ,   pdBuildDepends      =   buildDepends
     ,   pdMbSourcePath      =   Nothing}
 
-extractExportedDescrH :: DynFlags -> PackageIdAndKey -> ModIface -> [Descr]
+extractExportedDescrH :: DynFlags -> PackageIdAndKey -> ModIface -> [((ModuleName, OccName), Descr)]
 extractExportedDescrH dflags pid iface =
-    let mid                 =   (fromJust . simpleParse . moduleNameString . moduleName) (mi_module iface)
+    let mid                 =   converModuleName . moduleName $ mi_module iface
         exportedNames       =   Set.fromList
-#if MIN_VERSION_Cabal(1,11,0)
-                                $ map (occNameString . nameOccName)
+                                $ map nameOccName
                                     $ concatMap availNames
                                         $ mi_exports iface
-#else
-                                $ map occNameString
-                                    $ concatMap availNames
-                                        $ concatMap snd (mi_exports iface)
-#endif
-        exportedDecls       =   filter (\ ifdecl -> occNameString (ifName ifdecl) `Set.member` exportedNames)
+        exportedDecls       =   filter (\ ifdecl -> ifName ifdecl `Set.member` exportedNames)
                                                             (map snd (mi_decls iface))
-    in  concatMap (extractIdentifierDescr dflags pid [mid]) exportedDecls
+    in  concatMap (extractIdentifierDescr dflags pid mid) exportedDecls
 
 
 extractExportedDescrR :: DynFlags
     -> PackageIdAndKey
-    -> [Descr]
+    -> [((ModuleName, OccName), Descr)]
     -> ModIface
     -> ModuleDescr
 extractExportedDescrR dflags pid hidden iface =
-    let mid             =   (fromJust . simpleParse . moduleNameString . moduleName) (mi_module iface)
-        exportedNames   =   Set.fromList . map T.pack
-#if MIN_VERSION_Cabal(1,11,0)
-                                $ map (occNameString . nameOccName)
+    let mid             =   converModuleName . moduleName $ mi_module iface
+        exportedNames   =   Set.fromList
+                                $ map (\n -> (converModuleName . moduleName $ nameModule n, nameOccName n))
                                     $ concatMap availNames
                                         $ mi_exports iface
-#else
-                                $ map occNameString
-                                    $ concatMap availNames
-                                        $ concatMap snd (mi_exports iface)
-#endif
-        exportedDecls   =   filter (\ ifdecl -> (T.pack . occNameString $ ifName ifdecl)
+        exportedDecls   =   filter (\ ifdecl -> (converModuleName . moduleName $ mi_module iface, ifName ifdecl)
                                                     `Set.member` exportedNames)
                                                             (map snd (mi_decls iface))
-        ownDecls        =   concatMap (extractIdentifierDescr dflags pid [mid]) exportedDecls
-        otherDecls      =   exportedNames `Set.difference` Set.fromList (map dscName ownDecls)
-        reexported      =   map (Reexported . ReexportedDescr (Just (PM (packId pid) mid)))
-                                 $ filter (\k -> dscName k `Set.member` otherDecls) hidden
+        ownDecls        =   concatMap (extractIdentifierDescr dflags pid mid) exportedDecls
+        otherDecls      =   exportedNames `Set.difference` Set.fromList (map fst ownDecls)
+        reexported      =   map (Reexported . ReexportedDescr (Just (PM (packId pid) mid)) . snd)
+                                 $ filter (\k -> fst k `Set.member` otherDecls) hidden
         inst            =   concatMap (extractInstances dflags (PM (packId pid) mid)) (mi_insts iface)
         uses            =   Map.fromList . catMaybes $ map (extractUsages dflags) (mi_usages iface)
         declsWithExp    =   map withExp ownDecls
-        withExp (Real d) =  Real $ d{dscExported' = Set.member (dscName' d) exportedNames}
+        withExp (n, Real d) =  Real $ d{dscExported' = Set.member n exportedNames}
         withExp _        =  error "Unexpected Reexported"
     in  ModuleDescr {
                     mdModuleId          =   PM (packId pid) mid
@@ -208,22 +200,19 @@ extractExportedDescrR dflags pid hidden iface =
                 ,   mdReferences        =   uses
                 ,   mdIdDescriptions    =   declsWithExp ++ inst ++ reexported}
 
-extractIdentifierDescr :: DynFlags -> PackageIdAndKey -> [ModuleName] -> IfaceDecl -> [Descr]
-extractIdentifierDescr dflags package modules decl
-   = if null modules
-      then []
-      else
-        let descr = RealDescr{
+extractIdentifierDescr :: DynFlags -> PackageIdAndKey -> ModuleName -> IfaceDecl -> [((ModuleName, OccName), Descr)]
+extractIdentifierDescr dflags package mid decl
+   =    let descr = RealDescr{
                     dscName'           =   T.pack . unpackFS . occNameFS $ ifName decl
                 ,   dscMbTypeStr'      =   Just . BS.pack . unlines . nonEmptyLines . filterExtras . showSDocUnqual dflags $ ppr decl
-                ,   dscMbModu'         =   Just (PM (packId package) (last modules))
+                ,   dscMbModu'         =   Just (PM (packId package) mid)
                 ,   dscMbLocation'     =   Nothing
                 ,   dscMbComment'      =   Nothing
                 ,   dscTypeHint'       =   VariableDescr
                 ,   dscExported'       =   True
                 }
-        in case decl of
-            (IfaceId {}) -> map Real [descr]
+        in map ((mid, ifName decl),) $ case decl of
+            (IfaceId {}) -> [Real descr]
             (IfaceData {ifName=name, ifCons=ifCons'})
                 -> let d = case ifCons' of
                             IfDataTyCon _decls

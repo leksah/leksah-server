@@ -30,8 +30,13 @@ import IDE.Metainfo.SourceCollectorH
 import System.Log.Logger (errorM, debugM, infoM)
 import IDE.Metainfo.InterfaceCollector (collectPackageFromHI)
 import IDE.Core.CTypes
-       (metadataVersion, PackageDescr(..), leksahVersion,
-        packageIdentifierToString, getThisPackage, packId)
+       (dscTypeHint, descrType, dscName, modu, sdExported, sdComment,
+        sdLocation, sdType, sdName, SimpleDescr(..), TypeDescr(..),
+        dsrDescr, dsrMbModu, ReexportedDescr(..), Descr(..), dscExported',
+        dscTypeHint', dscMbComment', dscMbLocation', dscMbModu',
+        dscMbTypeStr', dscName', RealDescr(..), Descr, metadataVersion,
+        PackageDescr(..), leksahVersion, packageIdentifierToString,
+        getThisPackage, packId, ModuleDescr(..))
 import IDE.Utils.FileUtils (getCollectorPath)
 import System.Directory (doesDirectoryExist, setCurrentDirectory)
 import IDE.Utils.Utils
@@ -59,6 +64,9 @@ import qualified Data.ByteString as BS (writeFile, empty)
 import qualified Paths_leksah_server (version)
 import Distribution.System (buildArch, buildOS)
 import Control.Monad (unless)
+import qualified Data.Map as Map
+       (fromListWith, fromList, keys, lookup)
+import Data.List (delete, nub)
 
 collectPackage :: Bool -> Prefs -> Int -> ((PackageConfig, [FilePath]), Int) -> IO PackageCollectStats
 collectPackage writeAscii prefs numPackages ((packageConfig, dbs), packageIndex) = do
@@ -80,12 +88,11 @@ collectPackage writeAscii prefs numPackages ((packageConfig, dbs), packageIndex)
                 BuildThenRetrieve -> do
                     debugM "leksah-server" $ "Build (then retrieve) " <> T.unpack packageName <> " in " <> fpSource
                     build fpSource >>= \case
-                        (True, bstat) -> return bstat
-                        (False, bstat) ->
+                        (Nothing, bstat) -> return bstat
+                        (Just packageDescrHi, bstat) ->
                             retrieve fpSource >>= \case
                                 Just stats -> return stats
                                 Nothing -> do
-                                    packageDescrHi <- collectPackageFromHI packageConfig dbs
                                     writeExtractedPackage False packageDescrHi
                                     return bstat{modulesTotal = Just (length (pdModules packageDescrHi))}
                 NeverRetrieve -> do
@@ -128,22 +135,22 @@ collectPackage writeAscii prefs numPackages ((packageConfig, dbs), packageIndex)
                             debugM "leksah-server" . T.unpack $ "collectPackage: Can't retreive = " <> packageName
                             return Nothing
 
-        build :: FilePath -> IO (Bool, PackageCollectStats)
+        build :: FilePath -> IO (Maybe PackageDescr, PackageCollectStats)
         build fpSource = do
             runCabalConfigure fpSource
+            packageDescrHi <- collectPackageFromHI packageConfig dbs
             mbPackageDescrPair <- packageFromSource fpSource packageConfig
             case mbPackageDescrPair of
                 (Just packageDescrS, bstat) -> do
-                    writePackageDesc packageDescrS fpSource
-                    return (True, bstat{modulesTotal = Just (length (pdModules packageDescrS))})
-                (Nothing, bstat) -> return (False, bstat)
+                    writeMerged packageDescrS packageDescrHi fpSource
+                    return (Nothing, bstat{modulesTotal = Just (length (pdModules packageDescrS))})
+                (Nothing, bstat) -> return (Just packageDescrHi, bstat)
 
         buildOnly :: FilePath -> IO PackageCollectStats
         buildOnly fpSource =
             build fpSource >>= \case
-                (True, bstat) -> return bstat
-                (False, bstat) -> do
-                    packageDescrHi <- collectPackageFromHI packageConfig dbs
+                (Nothing, bstat) -> return bstat
+                (Just packageDescrHi, bstat) -> do
                     writeExtractedPackage False packageDescrHi
                     return bstat{modulesTotal = Just (length (pdModules packageDescrHi))}
 
@@ -155,8 +162,9 @@ collectPackage writeAscii prefs numPackages ((packageConfig, dbs), packageIndex)
         userAgent = concat [ "leksah-server/", display Paths_leksah_server.version
                            , " (", display buildOS, "; ", display buildArch, ")"
                            ]
-        writePackageDesc packageDescr fpSource = do
-            liftIO $ writeExtractedPackage writeAscii packageDescr
+        writeMerged packageDescrS packageDescrHi fpSource = do
+            let mergedPackageDescr = mergePackageDescrs packageDescrHi packageDescrS
+            liftIO $ writeExtractedPackage writeAscii mergedPackageDescr
             liftIO $ writePackagePath (dropFileName fpSource) packageName
         runCabalConfigure fpSource = do
             let dirPath         = dropFileName fpSource
@@ -189,4 +197,127 @@ writePackagePath fp packageName = do
     collectorPath   <- liftIO getCollectorPath
     let filePath    =  collectorPath </> T.unpack packageName <.> leksahMetadataPathFileExtension
     liftIO $ writeFile filePath fp
+
+--------------Merging of .hi and .hs parsing / parsing and typechecking results
+
+mergePackageDescrs :: PackageDescr -> PackageDescr -> PackageDescr
+mergePackageDescrs packageDescrHI packageDescrS = PackageDescr {
+        pdPackage           =   pdPackage packageDescrHI
+    ,   pdMbSourcePath      =   pdMbSourcePath packageDescrS
+    ,   pdModules           =   mergeModuleDescrs (pdModules packageDescrHI) (pdModules packageDescrS)
+    ,   pdBuildDepends      =   pdBuildDepends packageDescrHI}
+
+mergeModuleDescrs :: [ModuleDescr] -> [ModuleDescr] -> [ModuleDescr]
+mergeModuleDescrs hiList srcList =  map mergeIt allNames
+    where
+        mergeIt :: String -> ModuleDescr
+        mergeIt str = case (Map.lookup str hiDict, Map.lookup str srcDict) of
+                        (Just mdhi, Nothing) -> mdhi
+                        (Nothing, Just mdsrc) -> mdsrc
+                        (Just mdhi, Just mdsrc) -> mergeModuleDescr mdhi mdsrc
+                        (Nothing, Nothing) -> error "Collector>>mergeModuleDescrs: impossible"
+        allNames = nub $ Map.keys hiDict ++  Map.keys srcDict
+        hiDict = Map.fromList $ zip ((map (display . modu . mdModuleId)) hiList) hiList
+        srcDict = Map.fromList $ zip ((map (display . modu . mdModuleId)) srcList) srcList
+
+mergeModuleDescr :: ModuleDescr -> ModuleDescr -> ModuleDescr
+mergeModuleDescr hiDescr srcDescr = ModuleDescr {
+        mdModuleId          = mdModuleId hiDescr
+    ,   mdMbSourcePath      = mdMbSourcePath srcDescr
+    ,   mdReferences        = mdReferences hiDescr
+    ,   mdIdDescriptions    = mergeDescrs (mdIdDescriptions hiDescr) (mdIdDescriptions srcDescr)}
+
+mergeDescrs :: [Descr] -> [Descr] -> [Descr]
+mergeDescrs hiList srcList =  concatMap mergeIt allNames
+    where
+        mergeIt :: Text -> [Descr]
+        mergeIt pm = case (Map.lookup pm hiDict, Map.lookup pm srcDict) of
+                        (Just mdhi, Nothing) -> mdhi
+                        (Nothing, Just mdsrc) -> mdsrc
+                        (Just mdhi, Just mdsrc) -> map (\ (a,b) -> mergeDescr a b) $ makePairs mdhi mdsrc
+                        (Nothing, Nothing) -> error "Collector>>mergeModuleDescrs: impossible"
+        allNames   = nub $ Map.keys hiDict ++  Map.keys srcDict
+        hiDict     = Map.fromListWith (++) $ zip ((map dscName) hiList) (map (\ e -> [e]) hiList)
+        srcDict    = Map.fromListWith (++) $ zip ((map dscName) srcList)(map (\ e -> [e]) srcList)
+
+makePairs :: [Descr] -> [Descr] -> [(Maybe Descr,Maybe Descr)]
+makePairs (hd:tl) srcList = (Just hd, theMatching)
+                            : makePairs tl (case theMatching of
+                                                Just tm -> delete tm srcList
+                                                Nothing -> srcList)
+    where
+        theMatching          = findMatching hd srcList
+        findMatching ele (hd':tail')
+            | matches ele hd' = Just hd'
+            | otherwise       = findMatching ele tail'
+        findMatching _ele []  = Nothing
+        matches :: Descr -> Descr -> Bool
+        matches d1 d2 = (descrType . dscTypeHint) d1 == (descrType . dscTypeHint) d2
+makePairs [] rest = map (\ a -> (Nothing, Just a)) rest
+
+mergeDescr :: Maybe Descr -> Maybe Descr -> Descr
+mergeDescr (Just descr) Nothing = descr
+mergeDescr Nothing (Just descr) = descr
+mergeDescr (Just (Real rdhi)) (Just (Real rdsrc)) =
+    Real RealDescr {
+        dscName'        = dscName' rdhi
+    ,   dscMbTypeStr'   = dscMbTypeStr' rdsrc
+    ,   dscMbModu'      = dscMbModu' rdsrc
+    ,   dscMbLocation'  = dscMbLocation' rdsrc
+    ,   dscMbComment'   = dscMbComment' rdsrc
+    ,   dscTypeHint'    = mergeTypeDescr (dscTypeHint' rdhi) (dscTypeHint' rdsrc)
+    ,   dscExported'    = True
+    }
+mergeDescr (Just (Reexported rdhi)) (Just rdsrc) =
+    Reexported $ ReexportedDescr {
+        dsrMbModu       = dsrMbModu rdhi
+    ,   dsrDescr        = mergeDescr (Just (dsrDescr rdhi)) (Just rdsrc)
+    }
+mergeDescr _ _ =  error "Collector>>mergeDescr: impossible"
+
+--mergeTypeHint :: Maybe TypeDescr -> Maybe TypeDescr -> Maybe TypeDescr
+--mergeTypeHint Nothing Nothing         = Nothing
+--mergeTypeHint Nothing jtd             = jtd
+--mergeTypeHint jtd Nothing             = jtd
+--mergeTypeHint (Just tdhi) (Just tdhs) = Just (mergeTypeDescr tdhi tdhs)
+
+mergeTypeDescr :: TypeDescr -> TypeDescr -> TypeDescr
+mergeTypeDescr (DataDescr constrListHi fieldListHi) (DataDescr constrListSrc fieldListSrc) =
+    DataDescr (mergeSimpleDescrs constrListHi constrListSrc) (mergeSimpleDescrs fieldListHi fieldListSrc)
+mergeTypeDescr (NewtypeDescr constrHi mbFieldHi) (NewtypeDescr constrSrc mbFieldSrc)       =
+    NewtypeDescr (mergeSimpleDescr constrHi constrSrc) (mergeMbDescr mbFieldHi mbFieldSrc)
+mergeTypeDescr (ClassDescr superHi methodsHi) (ClassDescr _superSrc methodsSrc)            =
+    ClassDescr superHi (mergeSimpleDescrs methodsHi methodsSrc)
+mergeTypeDescr (InstanceDescr _bindsHi) (InstanceDescr bindsSrc)                           =
+    InstanceDescr bindsSrc
+mergeTypeDescr descrHi _                                                                   =
+    descrHi
+
+mergeSimpleDescrs :: [SimpleDescr] -> [SimpleDescr] -> [SimpleDescr]
+mergeSimpleDescrs hiList srcList =  map mergeIt allNames
+    where
+        mergeIt :: Text -> SimpleDescr
+        mergeIt pm = case mergeMbDescr (Map.lookup pm hiDict) (Map.lookup pm srcDict) of
+                        Just mdhi -> mdhi
+                        Nothing   -> error "Collector>>mergeSimpleDescrs: impossible"
+        allNames   = nub $ Map.keys hiDict ++  Map.keys srcDict
+        hiDict     = Map.fromList $ zip ((map sdName) hiList) hiList
+        srcDict    = Map.fromList $ zip ((map sdName) srcList) srcList
+
+mergeSimpleDescr :: SimpleDescr -> SimpleDescr -> SimpleDescr
+mergeSimpleDescr sdHi sdSrc = SimpleDescr {
+    sdName      = sdName sdHi,
+    sdType      = sdType sdHi,
+    sdLocation  = sdLocation sdSrc,
+    sdComment   = sdComment sdSrc,
+    sdExported  = sdExported sdSrc}
+
+mergeMbDescr :: Maybe SimpleDescr -> Maybe SimpleDescr -> Maybe SimpleDescr
+mergeMbDescr (Just mdhi) Nothing      =  Just mdhi
+mergeMbDescr Nothing (Just mdsrc)     =  Just mdsrc
+mergeMbDescr (Just mdhi) (Just mdsrc) =  Just (mergeSimpleDescr mdhi mdsrc)
+mergeMbDescr Nothing Nothing          =  Nothing
+
+
+
 
