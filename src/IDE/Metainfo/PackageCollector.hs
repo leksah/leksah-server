@@ -170,18 +170,17 @@ collectPackage writeAscii prefs numPackages ((packageConfig, dbs), packageIndex)
             let dirPath         = dropFileName fpSource
                 packageName'    = takeBaseName fpSource
                 flagsFor "base" = ["-finteger-gmp", "-finteger-gmp2"]
+                flagsFor ('g':'i':'-':_) = ["-f-overloaded-methods", "-f-overloaded-properties", "-f-overloaded-signals"]
                 flagsFor _      = []
                 flags           = flagsFor packageName'
-            distExists <- doesDirectoryExist $ dirPath </> "dist"
-            unless distExists $ do
-                setCurrentDirectory dirPath
-                E.catch (do runTool' "cabal" ["clean"] Nothing Nothing
-                            debugM "leksah" $ "fpSource = " <> show fpSource
-                            runTool' "cabal" ("configure":flags ++ map (("--package-db="<>) .T.pack) dbs) Nothing Nothing
-                            return ())
-                        (\ (_e :: E.SomeException) -> do
-                            debugM "leksah-server" "Can't configure"
-                            return ())
+            setCurrentDirectory dirPath
+            E.catch (do runTool' "cabal" ["clean"] Nothing Nothing
+                        debugM "leksah" $ "fpSource = " <> show fpSource
+                        runTool' "cabal" ("configure":flags ++ map (("--package-db="<>) .T.pack) dbs) Nothing Nothing
+                        return ())
+                    (\ (_e :: E.SomeException) -> do
+                        debugM "leksah-server" "Can't configure"
+                        return ())
 
 writeExtractedPackage :: MonadIO m => Bool -> PackageDescr -> m ()
 writeExtractedPackage writeAscii pd = do

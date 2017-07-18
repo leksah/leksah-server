@@ -292,7 +292,7 @@ collectSystem prefs writeAscii forceRebuild findSources dbLists = do
             infoM "leksah-server" "update_toolbar 0.0"
             stats <- forM (zip newPackages [1 .. length newPackages]) $ \(package, n) -> do
                 let pid = T.unpack . pkgId $ fst package
-                liftIO (doesFileExist $ collectorPath </> pid <.> leksahMetadataSystemFileExtension) >>= \case
+                liftIO (doesFileExist $ collectorPath </> pid <.> leksahMetadataPathFileExtension) >>= \case
                     True -> debugM "leksah-server" ("Already created metadata for " <> pid) >> return Nothing
                     False -> Just <$> collectPackage writeAscii prefs (length newPackages) (package, n)
             writeStats $ catMaybes stats

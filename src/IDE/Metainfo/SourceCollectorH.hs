@@ -37,7 +37,7 @@ import Haddock.Interface
 #else
 import Documentation.Haddock
 #endif
-import Distribution.Text (simpleParse)
+import Distribution.Text (simpleParse, display)
 #if MIN_VERSION_ghc(7,6,0)
 import InstEnv (ClsInst(..))
 #else
@@ -69,8 +69,8 @@ import IDE.Utils.GHCUtils (inGhcIO)
 import qualified Control.Exception as NewException (SomeException, catch)
 import IDE.Utils.Tool
 import Control.Monad (unless)
-import IDE.Utils.FileUtils (figureOutGhcOpts, myCanonicalizePath, getSysLibDir)
-import Distribution.Package(PackageIdentifier)
+import IDE.Utils.FileUtils (figureOutGhcOpts', myCanonicalizePath, getSysLibDir)
+import Distribution.Package(PackageIdentifier, pkgName)
 import GHC hiding(Id,Failed,Succeeded,ModuleName)
 import Distribution.ModuleName (components)
 import System.Log.Logger (warningM, debugM)
@@ -132,7 +132,7 @@ findSourceForPackage prefs packageId = do
                     success <- doesDirectoryExist (fpUnpack </> packageName')
                     if not success
                         then return (Left "Failed to download and unpack source")
-                        else return (Right (fpUnpack </> packageName' </>  takeWhile (/= '-') packageName' <.> "cabal"))
+                        else return (Right (fpUnpack </> packageName' </> display (pkgName packageId) <.> "cabal"))
     where
         packageName = packageIdentifierToString packageId
         packageName' = T.unpack packageName
@@ -141,7 +141,7 @@ findSourceForPackage prefs packageId = do
 packageFromSource :: FilePath -> PackageConfig -> IO (Maybe PackageDescr, PackageCollectStats)
 packageFromSource cabalPath packageConfig = do
     setCurrentDirectory dirPath
-    ghcFlags <- figureOutGhcOpts dirPath
+    ghcFlags <- figureOutGhcOpts' dirPath
     debugM "leksah-server" ("ghcFlags:  " ++ show ghcFlags)
     NewException.catch (inner ghcFlags) handler
     where
