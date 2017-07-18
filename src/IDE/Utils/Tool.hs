@@ -90,11 +90,11 @@ import Data.Char (isDigit)
 import Data.Text (replace, Text)
 import Data.Monoid ((<>))
 import Data.Text.IO (hPutStrLn)
+import Data.List (stripPrefix)
 import Control.Arrow (Arrow(..))
 #ifdef MIN_VERSION_unix
 import System.Posix.Signals
        (emptySignalSet, sigINT, addSignal, unblockSignals)
-import Data.List (stripPrefix)
 #endif
 
 data ToolOutput = ToolInput Text
