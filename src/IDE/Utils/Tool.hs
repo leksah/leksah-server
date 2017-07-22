@@ -56,7 +56,7 @@ import Control.Concurrent
         getChanContents, dupChan)
 import Control.Monad (when, unless)
 import Control.Monad.IO.Class (liftIO, MonadIO)
-import Data.Maybe (fromMaybe, maybeToList)
+import Data.Maybe (fromMaybe)
 import System.Process
        (showCommandForUser, proc, waitForProcess, ProcessHandle,
         createProcess, CreateProcess(..), interruptProcessGroupOf,
@@ -70,8 +70,8 @@ import System.Log.Logger (debugM)
 import System.Exit (ExitCode(..))
 import System.IO
        (hClose, hFlush, Handle, hSetBuffering, BufferMode(..))
-import System.Directory (getHomeDirectory, doesFileExist)
-import System.FilePath ((</>), dropTrailingPathSeparator)
+import System.Directory (getHomeDirectory)
+import System.FilePath (dropTrailingPathSeparator)
 import Data.Conduit as C
        ((=$), ($$), ($=))
 import qualified Data.Conduit as C
@@ -519,18 +519,13 @@ newGhci' flags startupOutputHandler = do
     runInteractiveTool tool ghciCommandLineReader "ghci" flags Nothing
     return tool
 
-newGhci :: FilePath -> Text -> Maybe Text -> [Text] -> C.Sink ToolOutput IO () -> IO ToolState
-newGhci dir packageName mbExe interactiveFlags startupOutputHandler = do
-        tool <- newToolState
-        writeChan (toolCommands tool) $
-            ToolCommand (":set " <> T.unwords interactiveFlags <> "\n:set prompt " <> ghciPrompt) "" startupOutputHandler
-        useStack <- doesFileExist $ dir </> "stack.yaml"
-        runInteractiveTool tool ghciCommandLineReader (if useStack then "stack" else "cabal")
-            (if useStack
-                then ["repl", packageName <> maybe ":lib" (":exe:" <>) mbExe]
-                else "new-repl" : maybeToList mbExe)
-            (Just dir)
-        return tool
+newGhci :: FilePath -> [Text] -> FilePath -> [Text] -> C.Sink ToolOutput IO () -> IO ToolState
+newGhci executable arguments dir interactiveFlags startupOutputHandler = do
+    tool <- newToolState
+    writeChan (toolCommands tool) $
+        ToolCommand (":set " <> T.unwords interactiveFlags <> "\n:set prompt " <> ghciPrompt) "" startupOutputHandler
+    runInteractiveTool tool ghciCommandLineReader executable arguments (Just dir)
+    return tool
 
 executeCommand :: ToolState -> Text -> Text -> C.Sink ToolOutput IO () -> IO ()
 executeCommand tool command rawCommand handler =
