@@ -41,6 +41,7 @@ module IDE.Utils.FileUtils (
 ,   getCabalUserPackageDir
 ,   autoExtractCabalTarFiles
 ,   autoExtractTarFiles
+,   getCabalPackages
 ,   getInstalledPackages
 ,   findProjectRoot
 ,   getPackageDBs'
@@ -303,9 +304,9 @@ symbol = (T.pack <$>) . P.symbol lexer . T.unpack
 moduleNameParser :: CharParser () Text
 moduleNameParser = do
     whiteSpace
-    many skipPreproc
+    _ <- many skipPreproc
     whiteSpace
-    symbol "module"
+    _ <- symbol "module"
     lexeme mident
     <?> "module identifier"
 
@@ -313,8 +314,8 @@ skipPreproc :: CharParser () ()
 skipPreproc =
     try (do
         whiteSpace
-        char '#'
-        many (noneOf "\n")
+        _ <- char '#'
+        _ <- many (noneOf "\n")
         return ())
     <?> "preproc"
 
@@ -395,7 +396,7 @@ autoExtractTarFiles' filePath =
                              command = "tar -zxf " ++ fn in do
                                 setCurrentDirectory dir
                                 handle   <- runCommand command
-                                waitForProcess handle
+                                _ <- waitForProcess handle
                                 return ())
                     decompressionTargets
             mapM_ autoExtractTarFiles' dirs
@@ -539,13 +540,13 @@ figureOutGhcOpts dir = do
     flags <- doesFileExist (dir </> "base.cabal") >>= \case
         True -> return ["-finteger-gmp", "-finteger-gmp2"]
         False -> return ["-f-overloaded-methods", "-f-overloaded-properties", "-f-overloaded-signals"]
-    (!output,_) <- runTool' "cabal" ("configure" : flags <> map (("--package-db=" <>) . T.pack) packageDBs) Nothing Nothing
+    (!output,_) <- runTool' "cabal" ("configure" : flags <> map (("--package-db=" <>) . T.pack) packageDBs) (Just dir) Nothing
     output `deepseq` figureOutGhcOpts' dir
 
 figureOutGhcOpts' :: FilePath -> IO [Text]
 figureOutGhcOpts' dir = do
     debugM "leksah-server" "figureOutGhcOpts'"
-    (!output,_) <- runTool' "cabal" ["build","--with-ghc=leksahecho","--with-ghcjs=leksahecho"] Nothing Nothing
+    (!output,_) <- runTool' "cabal" ["build","--with-ghc=leksahecho","--with-ghcjs=leksahecho"] (Just dir) Nothing
     let res = case catMaybes [findMake $ T.unpack l | ToolOutput l <- output] of
                 options:_ -> words options
                 _         -> []

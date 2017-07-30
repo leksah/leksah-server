@@ -57,7 +57,7 @@ serverSocket :: Server -> IO (Socket, Server)
 serverSocket server = do
         sock <- serverSocket' server
         setSocketOption sock ReuseAddr 1
-        bindSocket sock (serverAddr server)
+        bind sock (serverAddr server)
         infoM "leksah-server" $ "Bind " ++ show (serverAddr server)
         listen sock maxListenQueue
         return (sock, server)

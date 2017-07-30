@@ -212,8 +212,8 @@ extractIdentifierDescr dflags package mid decl
                 ,   dscExported'       =   True
                 }
         in map ((mid, ifName decl),) $ case decl of
-            (IfaceId {}) -> [Real descr]
-            (IfaceData {ifName=name, ifCons=ifCons'})
+            IfaceId{} -> [Real descr]
+            IfaceData{ifName = name, ifCons = ifCons'}
                 -> let d = case ifCons' of
                             IfDataTyCon _decls
 #if MIN_VERSION_ghc(8,0,0)
@@ -253,7 +253,7 @@ extractIdentifierDescr dflags package mid decl
 #endif
                     in [Real (descr{dscTypeHint' = d})]
 #if MIN_VERSION_ghc(7,6,0)
-            (IfaceClass {ifCtxt = context, ifSigs = ifSigs'} )
+            IfaceClass{ifCtxt = context, ifSigs = ifSigs'}
 #else
             (IfaceClass context _ _ _ _ ifSigs' _ )
 #endif
@@ -262,22 +262,22 @@ extractIdentifierDescr dflags package mid decl
                                 superclasses        =   extractSuperClassNames context
                             in [Real $ descr{dscTypeHint' = ClassDescr superclasses classOpsID}]
 #if MIN_VERSION_ghc(7,6,0)
-            (IfaceAxiom {})
+            IfaceAxiom {}
                         ->  [Real descr]
 #endif
 #if MIN_VERSION_ghc(7,10,0)
-            (IfaceSynonym {})
+            IfaceSynonym {}
                         ->  [Real $ descr{dscTypeHint' = TypeDescr}]
-            (IfaceFamily {})
+            IfaceFamily {}
                         ->  [Real $ descr{dscTypeHint' = TypeDescr}]
 #else
-            (IfaceSyn {})
+            IfaceSyn {}
                         ->  [Real $ descr{dscTypeHint' = TypeDescr}]
-            (IfaceForeign {})
-                        ->  [Real $ descr]
+            IfaceForeign{}
+                        ->  [Real descr]
 #endif
 #if MIN_VERSION_ghc(7,8,0)
-            (IfacePatSyn {})
+            IfacePatSyn {}
                         ->  [Real descr{dscTypeHint' = PatternSynonymDescr}]
 #endif
 

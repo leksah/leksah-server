@@ -155,7 +155,7 @@ runTool' fp args mbDir mbEnv = do
     debugM "leksah-server" $ "Start: " ++ show (fp, args)
     (out,pid) <- runTool fp args mbDir mbEnv
     output <- runResourceT $ out $$ CL.consume
-    waitForProcess pid
+    _ <- waitForProcess pid
     debugM "leksah-server" $ "End: " ++ show (fp, args)
     return (output,pid)
 
@@ -220,7 +220,7 @@ runInteractiveTool tool clr executable arguments mbDir = do
     putMVar (toolProcessMVar tool) pid
     output <- getOutput clr inp out err pid
 
-    forkIO $ do
+    _ <- forkIO $ do
         case initialCommand clr of
             Just cmd -> hPutStrLn inp cmd >> hFlush inp
             Nothing  -> return ()

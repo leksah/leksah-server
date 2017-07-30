@@ -185,16 +185,16 @@ packageDescriptionParser :: CharParser () (Maybe PackageIdentifier)
 packageDescriptionParser = try (do
     whiteSpace
     str <- many (noneOf ":")
-    char ':'
+    _ <- char ':'
     return (packageIdentifierFromString (T.pack str)))
     <?> "packageDescriptionParser"
 
 filePathParser :: CharParser () FilePath
 filePathParser = try (do
     whiteSpace
-    char '"'
+    _ <- char '"'
     str <- many (noneOf "\"")
-    char '"'
+    _ <- char '"'
     return str)
     <?> "filePathParser"
 
@@ -227,22 +227,22 @@ cabalMinimalParser = do
 
 cabalMinimalP :: CharParser () (Either Text Text)
 cabalMinimalP =
-    do  try $(symbol "name:" <|> symbol "Name:")
+    do  _ <- try $ symbol "name:" <|> symbol "Name:"
         whiteSpace
         name       <-  many $noneOf " \n"
-        many $noneOf "\n"
-        char '\n'
+        _ <- many $noneOf "\n"
+        _ <- char '\n'
         return . Right $ T.pack name
     <|> do
-            try $(symbol "version:" <|> symbol "Version:")
+            _ <- try $ symbol "version:" <|> symbol "Version:"
             whiteSpace
             versionString    <-  many $noneOf " \n"
-            many $noneOf "\n"
-            char '\n'
+            _ <- many $noneOf "\n"
+            _ <- char '\n'
             return . Left $ T.pack versionString
     <|> do
-            many $noneOf "\n"
-            char '\n'
+            _ <- many $noneOf "\n"
+            _ <- char '\n'
             cabalMinimalP
     <?> "cabal minimal"
 
