@@ -265,7 +265,7 @@ runInteractiveTool tool clr executable arguments mbDir = do
             return ((True, synced, mbSyncCmd, n, promptLine), if synced then [] else [o])
         writeCommandOutput (RawToolOutput (ToolPrompt _)) (_, _, mbSyncCmd, n, promptLine) = do
             debugM "leksah-server" "Synced Prompt - Ready For Next Command"
-            tryTakeMVar (currentToolCommand tool)
+            _ <- tryTakeMVar (currentToolCommand tool)
             return ((False, False, mbSyncCmd, n+1, promptLine), [ToolPrompt promptLine])
         writeCommandOutput (RawToolOutput o@(ToolExit _)) s = do
             debugM "leksah-server" "Tool Exit"
@@ -312,27 +312,27 @@ marker n = "kMAKWRALZ" <> T.pack (show n)
 
 parseMarker :: AP.Parser Int
 parseMarker = (do
-        AP.string $ T.pack "kMAKWRALZ"
+        _ <- AP.string $ T.pack "kMAKWRALZ"
         nums <- AP.takeWhile isDigit
         return . read $ T.unpack nums)
     <?> "parseMarker"
 
 ghciParseExpectedErrorCols :: AP.Parser ()
 ghciParseExpectedErrorCols = (do
-        AP.string $ T.pack "0-"
-        AP.digit
-        AP.digit
+        _ <- AP.string $ T.pack "0-"
+        _ <- AP.digit
+        _ <- AP.digit
         return ())
     <|> (do
-        AP.string $ T.pack "1-"
-        AP.digit
-        AP.digit
+        _ <- AP.string $ T.pack "1-"
+        _ <- AP.digit
+        _ <- AP.digit
         return ())
     <|> (do
-        AP.string $ T.pack "0"
+        _ <- AP.string $ T.pack "0"
         return ())
     <|> (do
-        AP.string $ T.pack "1"
+        _ <- AP.string $ T.pack "1"
         return ())
     <?> "ghciParseExpectedErrorCols"
 
@@ -343,19 +343,19 @@ manyTill' p end = scan
 ghciParseExpectedError :: AP.Parser (Text, Int)
 ghciParseExpectedError = (
       first T.pack <$> AP.satisfy (/='\n') `manyTill'` (do
-        AP.string "\n<interactive>:"
-        AP.takeWhile1 isDigit
-        AP.string ":"
+        _ <- AP.string "\n<interactive>:"
+        _ <- AP.takeWhile1 isDigit
+        _ <- AP.string ":"
         ghciParseExpectedErrorCols
-        AP.string ":"
-        AP.skipWhile (\c -> AP.isHorizontalSpace c || AP.isEndOfLine c)
-        AP.string "Not in scope: " <|> AP.string "error: Variable not in scope: "
+        _ <- AP.string ":"
+        _ <- AP.skipWhile (\c -> AP.isHorizontalSpace c || AP.isEndOfLine c)
+        _ <- AP.string "Not in scope: " <|> AP.string "error: Variable not in scope: "
         result <- (do
-            AP.char '`' <|> AP.char '‛' <|> AP.char '‘'
+            _ <- AP.char '`' <|> AP.char '‛' <|> AP.char '‘'
             m <- parseMarker
-            AP.char '\'' <|> AP.char '’'
+            _ <- AP.char '\'' <|> AP.char '’'
             return m) <|> parseMarker
-        AP.string "\n"
+        _ <- AP.string "\n"
         return result))
     <?> "ghciParseExpectedError"
 
@@ -402,10 +402,10 @@ getOutput clr inp out err pid = do
     hSetBuffering err NoBuffering
     mvar <- newEmptyMVar
     foundExpectedError <- liftIO newEmptyMVar
-    forkIO $ do
+    _ <- forkIO $ do
         readError mvar err foundExpectedError
         putMVar mvar ToolErrClosed
-    forkIO $ do
+    _ <- forkIO $ do
         readOutput mvar out foundExpectedError
         putMVar mvar ToolOutClosed
     return $ enumOutput mvar
@@ -504,7 +504,7 @@ getOutput clr inp out err pid = do
 
 fromRawOutput :: RawToolOutput -> [ToolOutput]
 fromRawOutput (RawToolOutput output) = [output]
-fromRawOutput (_) = []
+fromRawOutput _ = []
 
 getOutputNoPrompt :: MonadIO m => Handle -> Handle -> Handle -> ProcessHandle -> IO (C.Source m ToolOutput)
 getOutputNoPrompt inp out err pid = do

@@ -26,7 +26,9 @@ import GHC hiding (ImportDecl)
 import FastString(unpackFS)
 import IDE.Utils.GHCUtils
 import Data.Maybe (mapMaybe)
-#if MIN_VERSION_ghc(8,0,0)
+#if MIN_VERSION_ghc(8,2,0)
+import BasicTypes (StringLiteral(..), SourceText(..))
+#elif MIN_VERSION_ghc(8,0,0)
 import BasicTypes (StringLiteral(..))
 #endif
 #if MIN_VERSION_ghc(7,4,1)
@@ -51,12 +53,25 @@ showSDocUnqual :: DynFlags -> O.SDoc -> String
 showSDocUnqual _ = O.showSDocUnqual
 #endif
 
+#if !MIN_VERSION_ghc(8,2,0)
+ieLWrappedName :: a -> a
+ieLWrappedName = id
+#endif
+
 #if MIN_VERSION_ghc(7,10,0)
 unLoc710 :: GenLocated l e -> e
 unLoc710 = unLoc
 #else
 unLoc710 :: a -> a
 unLoc710 = id
+#endif
+
+#if MIN_VERSION_ghc(8,2,0)
+unLoc82 :: GenLocated l e -> e
+unLoc82 = unLoc
+#else
+unLoc82 :: a -> a
+unLoc82 = id
 #endif
 
 showRdrName :: DynFlags -> RdrName -> String
@@ -100,15 +115,17 @@ transformImport dflags (L srcSpan importDecl) =
     where
         modName =  moduleNameString $ unLoc $ ideclName importDecl
         pkgQual =  case ideclPkgQual importDecl of
-                        Nothing -> Nothing
-#if MIN_VERSION_ghc(8,0,0)
+#if MIN_VERSION_ghc(8,2,0)
+                        Just StringLiteral { sl_st = SourceText s } -> Just s
+#elif MIN_VERSION_ghc(8,0,0)
                         Just fs -> Just (sl_st fs)
 #else
                         Just fs -> Just (unpackFS fs)
 #endif
+                        _ -> Nothing
         impAs   =  case ideclAs importDecl of
                         Nothing -> Nothing
-                        Just mn -> Just (moduleNameString mn)
+                        Just mn -> Just (moduleNameString $ unLoc82 mn)
         specs =    case ideclHiding importDecl of
                         Nothing -> Nothing
                         Just (hide, list) -> Just (ImportSpecList hide (mapMaybe (transformEntity dflags) (unLoc710 list)))
@@ -119,14 +136,14 @@ transformEntity dflags (L _ (IEVar name))              = Just (IVar (T.pack $ sh
 #else
 transformEntity dflags (L _ (IEVar name))              = Just (IVar (T.pack $ showSDoc dflags (pprHsVar name)))
 #endif
-transformEntity dflags (L _ (IEThingAbs name))         = Just (IAbs (T.pack . showRdrName dflags $ unLoc710 name))
-transformEntity dflags (L _ (IEThingAll name))         = Just (IThingAll (T.pack . showRdrName dflags $ unLoc710 name))
+transformEntity dflags (L _ (IEThingAbs name))         = Just (IAbs (T.pack . showRdrName dflags . unLoc710 $ ieLWrappedName name))
+transformEntity dflags (L _ (IEThingAll name))         = Just (IThingAll (T.pack . showRdrName dflags . unLoc710 $ ieLWrappedName name))
 #if MIN_VERSION_ghc(8,0,0)
-transformEntity dflags (L _ (IEThingWith name _ list _)) = Just (IThingWith (T.pack . showRdrName dflags $ unLoc710 name)
+transformEntity dflags (L _ (IEThingWith name _ list _)) = Just (IThingWith (T.pack . showRdrName dflags . unLoc710 $ ieLWrappedName name)
 #else
 transformEntity dflags (L _ (IEThingWith name list))   = Just (IThingWith (T.pack . showRdrName dflags $ unLoc710 name)
 #endif
-                                                        (map (T.pack . showRdrName dflags . unLoc710) list))
+                                                        (map (T.pack . showRdrName dflags . unLoc710 . ieLWrappedName) list))
 transformEntity _ _                              = Nothing
 
 #if MIN_VERSION_ghc(7,2,0)

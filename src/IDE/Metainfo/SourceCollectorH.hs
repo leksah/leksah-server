@@ -54,7 +54,12 @@ import IDE.Metainfo.WorkspaceCollector
 import PackageConfig (PackageConfig)
 import Distribution.Verbosity (verbose)
 #if MIN_VERSION_ghc(7,10,0)
+#if MIN_VERSION_ghc(8,2,0)
+import GHC.PackageDb (exposedModules, hiddenModules)
+import Module (ModuleName, Module)
+#else
 import GHC.PackageDb (exposedModules, hiddenModules, exposedName)
+#endif
 import Documentation.Haddock.Types (_doc)
 #else
 import qualified Distribution.InstalledPackageInfo as IPI
@@ -87,6 +92,11 @@ import Name
 import Data.Text (Text)
 import qualified Data.Text as T (unpack, pack)
 import Data.Monoid ((<>))
+
+#if MIN_VERSION_ghc(8,2,0)
+exposedName :: (ModuleName, Maybe Module) -> ModuleName
+exposedName = fst
+#endif
 
 type HsDoc a = Doc a
 
@@ -250,19 +260,21 @@ transformToDescrs dflags pm = concatMap transformToDescr
             ,   dscExported'    =   True}
 
 #if MIN_VERSION_ghc(7,8,0)
-#if MIN_VERSION_ghc(8,0,0)
-    transformToDescr (L loc (SigD (PatSynSig name typ)), mbComment, _subCommentList) =
+#if MIN_VERSION_ghc(8,2,0)
+    transformToDescr (L loc (SigD (PatSynSig names typ)), mbComment, _subCommentList) = (<$> names) $ \name ->
+#elif MIN_VERSION_ghc(8,0,0)
+    transformToDescr (L loc (SigD (PatSynSig name typ)), mbComment, _subCommentList) = pure $
 #else
-    transformToDescr (L loc (SigD (PatSynSig name _ _ _ typ)), mbComment, _subCommentList) =
+    transformToDescr (L loc (SigD (PatSynSig name _ _ _ typ)), mbComment, _subCommentList) = pure $
 #endif
-            [Real RealDescr {
+            Real RealDescr {
             dscName'        =   T.pack . getOccString $ unLoc name
         ,   dscMbTypeStr'   =   Just . BS.pack $ getOccString (unLoc name) <> " :: " <> showSDocUnqual dflags (ppr typ)
         ,   dscMbModu'      =   Just pm
         ,   dscMbLocation'  =   srcSpanToLocation loc
         ,   dscMbComment'   =   toComment dflags mbComment []
         ,   dscTypeHint'    =   PatternSynonymDescr
-        ,   dscExported'    =   True}]
+        ,   dscExported'    =   True}
 #endif
 
 #if MIN_VERSION_ghc(8,0,0)
@@ -342,8 +354,8 @@ transformToDescrs dflags pm = concatMap transformToDescr
         constructors    =   concatMap (extractConstructor dflags) lConDecl
         fields          =   nub $ concatMap (extractRecordFields dflags) lConDecl
         name            =   getOccString (unLoc lid)
-        derivings Nothing = []
-        derivings (Just _l) = []
+        derivings :: HsDeriving Name -> [Descr]
+        derivings _l = [] -- concatMap (extractDeriving dflags pm name) (unLoc710 l)
 
 #if !MIN_VERSION_ghc(7,6,0)
     transformToDescr ((L loc (TyClD typ@(TyData NewType _ tcdLName' _ _ _ lConDecl tcdDerivs'))), mbComment,_subCommentList) =
@@ -406,7 +418,11 @@ extractMethods dflags sigs docs =
 extractMethod :: DynFlags -> (LHsDecl Name, Maybe NDoc) -> [SimpleDescr]
 #if MIN_VERSION_ghc(8,0,0)
 extractMethod dflags (L loc (SigD ts@(TypeSig names _typ)), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names
+#if MIN_VERSION_ghc(8,2,0)
+extractMethod dflags (L loc (SigD ts@(PatSynSig names _typ)), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names
+#else
 extractMethod dflags (L loc (SigD ts@(PatSynSig name _typ)), mbDoc) = [extractMethodName dflags loc ts mbDoc name]
+#endif
 extractMethod dflags (L loc (SigD ts@(ClassOpSig _ names _typ)), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names
 #elif MIN_VERSION_ghc(7,10,0)
 extractMethod dflags (L loc (SigD ts@(TypeSig names _typ _)), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names

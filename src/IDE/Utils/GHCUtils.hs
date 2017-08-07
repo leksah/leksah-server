@@ -40,7 +40,11 @@ import qualified Parser as P (parseModule,parseHeader)
 import HscStats (ppSourceStats)
 import SrcLoc (mkRealSrcLoc)
 import IDE.Utils.FileUtils (getSysLibDir)
+#if MIN_VERSION_ghc(8,2,0)
+import DynFlags (DumpFlag(..), gopt_set, PkgConfRef(..), PackageDBFlag(..))
+#else
 import DynFlags (DumpFlag(..), gopt_set, PkgConfRef(..))
+#endif
 import System.Log.Logger(debugM)
 import Control.Monad.IO.Class (MonadIO(..))
 import Data.Text (Text)
@@ -59,7 +63,11 @@ inGhcIO libDir flags' udynFlags dbs ghcAct = do
             hscTarget = HscNothing,
             ghcMode   = CompManager,
             ghcLink   = NoLink,
+#if MIN_VERSION_ghc(8,2,0)
+            packageDBFlags = map (PackageDB . PkgConfFile) dbs ++ packageDBFlags dynflags'
+#else
             extraPkgConfs = (map PkgConfFile dbs++) . extraPkgConfs dynflags'
+#endif
             }
         dynflags''' <- parseGhcFlags dynflags'' (map (noLoc . T.unpack) flags') flags'
         _ <- setSessionDynFlags dynflags'''
@@ -137,7 +145,11 @@ myParseModule dflags src_filename maybe_src_buf
 
         POk pst rdr_module -> do {
 
-      let {ms@(warnings, errors) = getMessages pst};
+      let {ms@(warnings, errors) = getMessages pst
+#if MIN_VERSION_ghc(8,2,0)
+                                               dflags
+#endif
+                                               };
       printBagOfErrors dflags errors;
       unless (errorsFound dflags ms) $ printBagOfErrors dflags warnings;
       -- when (errorsFound dflags ms) $ exitWith (ExitFailure 1);
@@ -191,7 +203,11 @@ myParseModuleHeader dflags src_filename maybe_src_buf
 
         POk pst rdr_module -> do {
 
-      let {ms@(warnings, errors) = getMessages pst};
+      let {ms@(warnings, errors) = getMessages pst
+#if MIN_VERSION_ghc(8,2,0)
+                                               dflags
+#endif
+                                               };
       printBagOfErrors dflags errors;
       unless (errorsFound dflags ms) $ printBagOfErrors dflags warnings;
       -- when (errorsFound dflags ms) $ exitWith (ExitFailure 1);

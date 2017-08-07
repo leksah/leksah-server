@@ -38,7 +38,7 @@ import IDE.Core.CTypes
         PackageDescr(..), leksahVersion, packageIdentifierToString,
         getThisPackage, packId, ModuleDescr(..))
 import IDE.Utils.FileUtils (getCollectorPath)
-import System.Directory (doesDirectoryExist, setCurrentDirectory)
+import System.Directory (setCurrentDirectory)
 import IDE.Utils.Utils
        (leksahMetadataPathFileExtension,
         leksahMetadataSystemFileExtension)
@@ -63,7 +63,6 @@ import Network.HTTP.Headers (HeaderName(..))
 import qualified Data.ByteString as BS (writeFile, empty)
 import qualified Paths_leksah_server (version)
 import Distribution.System (buildArch, buildOS)
-import Control.Monad (unless)
 import qualified Data.Map as Map
        (fromListWith, fromList, keys, lookup)
 import Data.List (delete, nub)
@@ -174,9 +173,9 @@ collectPackage writeAscii prefs numPackages ((packageConfig, dbs), packageIndex)
                 flagsFor _      = []
                 flags           = flagsFor packageName'
             setCurrentDirectory dirPath
-            E.catch (do runTool' "cabal" ["clean"] Nothing Nothing
+            E.catch (do _ <- runTool' "cabal" ["clean"] Nothing Nothing
                         debugM "leksah" $ "fpSource = " <> show fpSource
-                        runTool' "cabal" ("configure":flags ++ map (("--package-db="<>) .T.pack) dbs) Nothing Nothing
+                        _ <- runTool' "cabal" ("configure":flags ++ map (("--package-db="<>) .T.pack) dbs) Nothing Nothing
                         return ())
                     (\ (_e :: E.SomeException) -> do
                         debugM "leksah-server" "Can't configure"

@@ -100,7 +100,11 @@ import Data.Char (isAlpha)
 import Control.DeepSeq (NFData(..))
 import PackageConfig (PackageConfig)
 #if MIN_VERSION_ghc(8,0,0)
+#if MIN_VERSION_ghc(8,2,0)
+import Module (InstalledUnitId)
+#else
 import Module (UnitId)
+#endif
 import PackageConfig (sourcePackageIdString, unitId)
 import Data.Maybe (fromJust)
 #elif MIN_VERSION_ghc(7,10,0)
@@ -133,7 +137,9 @@ metadataVersion = 7
 
 data PackageIdAndKey = PackageIdAndKey {
       packId  :: PackageIdentifier
-#if MIN_VERSION_ghc(8,0,0)
+#if MIN_VERSION_ghc(8,2,0)
+    , packUnitId :: InstalledUnitId
+#elif MIN_VERSION_ghc(8,0,0)
     , packUnitId :: UnitId
 #elif MIN_VERSION_ghc(7,10,0)
     , packKey :: PackageKey
@@ -637,8 +643,10 @@ instance NFData PackModule where
     rnf pd =  rnf (pack pd)
                     `seq`   rnf (modu pd)
 
+#if !MIN_VERSION_Cabal(2,0,0)
 instance NFData ModuleName where
     rnf =  rnf . components
+#endif
 
 #if !MIN_VERSION_ghc(7,7,0)
 instance NFData PackageName where

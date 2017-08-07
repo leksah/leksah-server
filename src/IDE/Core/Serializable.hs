@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -27,13 +28,27 @@ import Distribution.Text (simpleParse,display)
 import Control.Monad (liftM)
 import Data.Maybe (fromJust)
 import Data.Binary.Shared (BinaryShared(..))
-import Distribution.Package (PackageName(..),PackageIdentifier(..))
-import Data.Version (Version(..))
+#if MIN_VERSION_Cabal(2,0,0)
+import Distribution.Package (PackageName, unPackageName, mkPackageName, PackageIdentifier(..))
+import Distribution.Version (Version, versionNumbers, mkVersion)
+#else
+import Distribution.Package (PackageName(..), unPackageName, PackageIdentifier(..))
+import Distribution.Version (Version(..))
+#endif
 import Distribution.ModuleName (ModuleName)
 
 import IDE.Core.CTypes
 import Data.Text (Text)
 import qualified Data.Text as T (pack, unpack)
+
+#if !MIN_VERSION_Cabal(2,0,0)
+versionNumbers :: Version -> [Int]
+versionNumbers = versionBranch
+mkPackageName :: String -> PackageName
+mkPackageName = PackageName
+mkVersion :: [Int] -> Version
+mkVersion = (`Version` [])
+#endif
 
 -----------------------------------------------------------
 
@@ -62,13 +77,13 @@ instance BinaryShared PackageIdentifier where
                 return (PackageIdentifier name' version'))
 
 instance BinaryShared Version where
-    put =   putShared (\ (Version branch' tags') -> do
-                put branch'
-                put tags')
+    put =   putShared (\ v -> do
+                put (versionNumbers v)
+                put ([] :: [String])) -- Tags used to go here
     get =   getShared (do
                 branch'              <- get
-                tags'                <- get
-                return (Version branch' tags'))
+                (_ :: [String])         <- get
+                return (mkVersion branch'))
 
 instance BinaryShared PackageDescr where
     put =   putShared (\ (PackageDescr packagePD' exposedModulesPD' buildDependsPD'
@@ -244,8 +259,8 @@ instance BinaryShared ModuleName where
     get    =  liftM (fromJust . simpleParse) get
 
 instance BinaryShared PackageName where
-    put (PackageName pn) =  put pn
-    get  =  liftM PackageName get
+    put pn =  put (unPackageName pn)
+    get  =  liftM mkPackageName get
 
 
 
