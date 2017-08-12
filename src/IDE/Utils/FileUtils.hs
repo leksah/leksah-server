@@ -44,6 +44,7 @@ module IDE.Utils.FileUtils (
 ,   getCabalPackages
 ,   getInstalledPackages
 ,   findProjectRoot
+,   cabalProjectBuildDir
 ,   getPackageDBs'
 ,   getPackageDBs
 ,   figureOutGhcOpts
@@ -57,7 +58,8 @@ import Control.Applicative
 import Prelude hiding (readFile)
 import System.FilePath
        (splitFileName, dropExtension, takeExtension,
-        combine, addExtension, (</>), normalise, splitPath, takeFileName,takeDirectory)
+        combine, addExtension, (</>), normalise, splitPath, takeFileName,
+        takeDirectory)
 import Distribution.ModuleName (toFilePath, ModuleName)
 import Control.Monad (when, foldM, filterM, forM)
 import Data.Maybe (mapMaybe, catMaybes)
@@ -445,6 +447,32 @@ getCabalPackages ghcVer dir = do
                 Right plan -> return . map (,packageDBs) $
                     mapMaybe (T.simpleParse . T.unpack . piId) (pjPlan plan)
 
+cabalProjectBuildDir :: FilePath -> IO (FilePath, FilePath -> FilePath)
+cabalProjectBuildDir projectRoot = do
+    let distNewstyle = projectRoot </> "dist-newstyle"
+        planFile = distNewstyle </> "cache" </> "plan.json"
+        defaultDir = (distNewstyle </> "build", const "build")
+    doesFileExist planFile >>= \case
+        False -> do
+            debugM "leksah" $ "cabal plan not found : " <> planFile
+            return defaultDir
+        True ->
+            (eitherDecodeStrict' <$> BS.readFile planFile)
+                >>= \ case
+                        Right PlanJson { pjCabalVersion = v } | "1.24." `isPrefixOf` v ->
+                            return defaultDir
+                        Right PlanJson
+                            { pjCompilerId = Just compilerId
+                            , pjOS = Just os
+                            , pjArch = Just arch
+                            } -> return (distNewstyle </> "build" </> arch <> "-" <> os </> compilerId,
+                                    \component -> "c" </> component </> "build")
+                        Right plan -> do
+                            errorM "leksah" $ "Unexpected cabal plan : " <> show plan
+                            return defaultDir
+                        Left err -> do
+                            errorM "leksah" $ "Error parsing cabal plan : " <> err
+                            return defaultDir
 
 getPackages' :: [FilePath] -> IO [UnitId]
 getPackages' packageDBs = do

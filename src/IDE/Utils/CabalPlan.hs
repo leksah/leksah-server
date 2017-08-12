@@ -20,13 +20,14 @@ module IDE.Utils.CabalPlan (
 import GHC.Generics (Generic)
 import Data.List (sortOn)
 import qualified Data.Set as S (fromList, Set)
-import qualified Data.Map as M (Map, toList)
+import qualified Data.Map as M (empty, Map, toList)
 import Data.Text (Text)
 import qualified Data.Text as T
        (breakOnEnd, init, all, null, Text, pack, unpack, splitOn)
-import Data.Aeson (FromJSON(..), withObject, (.:))
+import Data.Aeson (FromJSON(..), withObject, (.:), (.:?))
 import Distribution.Package (PackageIdentifier, UnitId)
 import Distribution.Text (display, simpleParse)
+import Data.Maybe (fromMaybe)
 
 -- $setup
 -- >>> import Data.Aeson (eitherDecodeStrict')
@@ -73,11 +74,21 @@ import Distribution.Text (display, simpleParse)
 -- Right (PlanJson {pjPlan = [PlanItem {piId = "Cabal-1.24.0.0", piType = "pre-existing", piComps = [(ComponentLib,fromList ["array-0.5.1.1","base-4.9.0.0"])]},PlanItem {piId = "QuickCheck-2.9.1-ec9a1c39266d75ed2c3314f6e846a8f11853eff43fc45db79c7256d9bfd94602", piType = "configured", piComps = [(ComponentLib,fromList ["base-4.9.0.0","containers-0.5.7.1","random-1.1-fe6ccf72ebd63a2d68570bb45b42bd08df5570c6151cb9af54907d40ef9af454"])]}]})
 data PlanJson = PlanJson
      { pjPlan :: [PlanItem]
+     , pjCabalVersion :: String
+     , pjCabalLibVersion :: String
+     , pjCompilerId :: Maybe String
+     , pjOS :: Maybe String
+     , pjArch :: Maybe String
      } deriving Show
 
 instance FromJSON PlanJson where
     parseJSON = withObject "PlanJson" $ \o ->
       PlanJson <$> o .: "install-plan"
+               <*> o .: "cabal-version"
+               <*> o .: "cabal-lib-version"
+               <*> o .:? "compiler-id"
+               <*> o .:? "os"
+               <*> o .:? "arch"
 
 type PID = Text
 
@@ -92,7 +103,7 @@ instance FromJSON PlanItem where
     parseJSON = withObject "PlanItem" $ \o ->
       PlanItem <$> o .: "id"
                <*> o .: "type"
-               <*> (doComps <$> o .: "components")
+               <*> (doComps . fromMaybe M.empty <$> o .:? "components")
       where
         doComps :: M.Map Text CompInfo -> [(Component, S.Set PID)]
         doComps m = sortOn fst [ (toComp k, S.fromList v) | (k,CompInfo v) <- M.toList m ]
