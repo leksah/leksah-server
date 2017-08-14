@@ -15,7 +15,7 @@ description:
     The interface to GHC-API for leksah
 category: IDE
 author: Juergen "jutaro" Nicklisch-Franken, Hamish Mackenzie
-tested-with: GHC ==7.10 || ==8.0
+tested-with: GHC == 8.2.1, GHC == 8.0.2
 data-files:
     data/prefscoll.lkshp
 
