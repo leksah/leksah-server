@@ -99,13 +99,16 @@ import HsImpExp (ieWrappedName)
 #endif
 
 #if !MIN_VERSION_ghc(8,2,0)
-mkPackageName :: String -> PackageName
-mkPackageName = PackageName
 ieWrappedName :: RdrName -> RdrName
 ieWrappedName = id
 type OutputableBndrId = OutputableBndr
 toInstalledUnitId :: GHC.UnitId -> GHC.UnitId
 toInstalledUnitId = id
+#endif
+
+#if !MIN_VERSION_Cabal(2,0,0)
+mkPackageName :: String -> PackageName
+mkPackageName = PackageName
 #endif
 
 type NDecl = LHsDecl RdrName

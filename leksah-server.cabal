@@ -84,7 +84,7 @@ library
 
     if os(windows)
         build-depends:
-            Win32 >=2.2.0.0 && <2.4
+            Win32 >=2.2.0.0 && <2.6
         extra-libraries:
             kernel32
             pango-1.0
@@ -207,7 +207,7 @@ executable leksah-server
 
     if os(windows)
         build-depends:
-            Win32 >=2.2.0.0 && <2.4
+            Win32 >=2.2.0.0 && <2.6
         extra-libraries:
             kernel32
             pango-1.0
