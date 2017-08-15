@@ -95,14 +95,17 @@ exposedName = fst
 nameOccName82 :: Name -> OccName
 nameOccName82 = nameOccName
 #else
-mkPackageName :: String -> PackageName
-mkPackageName = PackageName
 nameOccName82 :: OccName -> OccName
 nameOccName82 = id
 flSelector :: OccName -> OccName
 flSelector = id
 ifConName :: IfaceConDecl -> OccName
 ifConName = ifConOcc
+#endif
+
+#if !MIN_VERSION_Cabal(2,0,0)
+mkPackageName :: String -> PackageName
+mkPackageName = PackageName
 #endif
 
 #if !MIN_VERSION_ghc(7,6,0)
