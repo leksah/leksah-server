@@ -522,6 +522,13 @@ newGhci' flags startupOutputHandler = do
 newGhci :: FilePath -> [Text] -> FilePath -> [Text] -> C.Sink ToolOutput IO () -> IO ToolState
 newGhci executable arguments dir interactiveFlags startupOutputHandler = do
     tool <- newToolState
+    home <- liftIO getHomeDirectory
+    let friendlyDir d = case stripPrefix home d of
+                            Just rest -> "~" <> rest
+                            Nothing -> d
+    debugM "leksah-server" $ "newGhci " <>
+        friendlyDir (dropTrailingPathSeparator dir) <> "$ " <> showCommandForUser executable (map T.unpack arguments)
+
     writeChan (toolCommands tool) $
         ToolCommand (":set " <> T.unwords interactiveFlags <> "\n:set prompt " <> ghciPrompt) "" startupOutputHandler
     runInteractiveTool tool ghciCommandLineReader executable arguments (Just dir)
