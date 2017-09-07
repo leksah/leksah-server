@@ -368,7 +368,7 @@ ghciCommandLineReader    = CommandLineReader {
     initialCommand       = Just $ ":set prompt " <> ghciPrompt,
     parseInitialPrompt   = ghciParseInitialPrompt,
     parseFollowingPrompt = ghciParseFollowingPrompt,
-    errorSyncCommand     = Just $ \count -> marker count,
+    errorSyncCommand     = Just $ \count -> ":module\n" <> marker count,
     parseExpectedError   = ghciParseExpectedError,
     outputSyncCommand    = Just $ \count -> ":set prompt \"" <> marker count <> "\\n\"\n:set prompt " <> ghciPrompt,
     isExpectedOutput     = ghciIsExpectedOutput
@@ -429,6 +429,7 @@ getOutput clr inp out err pid = do
     readError mvar errors foundExpectedError = do
         CB.sourceHandle errors $= CT.decode CT.utf8
                     $= CL.map (T.filter (/= '\r'))
+--                    $= CL.map (\x -> trace ("E : " <> show x) x)
                     $= CL.sequence (sinkParser (parseError $ parseExpectedError clr))
                     $$ sendErrors
         hClose errors
