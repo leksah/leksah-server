@@ -531,7 +531,8 @@ newGhci executable arguments dir interactiveFlags startupOutputHandler = do
         friendlyDir (dropTrailingPathSeparator dir) <> "$ " <> showCommandForUser executable (map T.unpack arguments)
 
     writeChan (toolCommands tool) $
-        ToolCommand (":set " <> T.unwords interactiveFlags <> "\n:set prompt " <> ghciPrompt) "" startupOutputHandler
+        ToolCommand (":set prompt " <> ghciPrompt) "" startupOutputHandler
+    executeGhciCommand tool (":set " <> T.unwords interactiveFlags) startupOutputHandler
     runInteractiveTool tool ghciCommandLineReader executable arguments (Just dir)
     return tool
 
