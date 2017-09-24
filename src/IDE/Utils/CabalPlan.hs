@@ -108,7 +108,7 @@ instance FromJSON PlanItem where
         doComps :: M.Map Text CompInfo -> [(Component, S.Set PID)]
         doComps m = sortOn fst [ (toComp k, S.fromList v) | (k,CompInfo v) <- M.toList m ]
 
-data CompInfo = CompInfo [PID]
+newtype CompInfo = CompInfo [PID]
 
 instance FromJSON CompInfo where
     parseJSON = withObject "CompInfo" $ \o -> CompInfo <$> o .: "depends"

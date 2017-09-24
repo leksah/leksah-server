@@ -447,11 +447,11 @@ getCabalPackages ghcVer dir = do
                 Right plan -> return . map (,packageDBs) $
                     mapMaybe (T.simpleParse . T.unpack . piId) (pjPlan plan)
 
-cabalProjectBuildDir :: FilePath -> IO (FilePath, FilePath -> FilePath)
+cabalProjectBuildDir :: FilePath -> IO (FilePath, FilePath -> FilePath -> FilePath)
 cabalProjectBuildDir projectRoot = do
     let distNewstyle = projectRoot </> "dist-newstyle"
         planFile = distNewstyle </> "cache" </> "plan.json"
-        defaultDir = (distNewstyle </> "build", const "build")
+        defaultDir = (distNewstyle </> "build", const $ const "build")
     doesFileExist planFile >>= \case
         False -> do
             debugM "leksah" $ "cabal plan not found : " <> planFile
@@ -462,11 +462,18 @@ cabalProjectBuildDir projectRoot = do
                         Right PlanJson { pjCabalVersion = v } | "1.24." `isPrefixOf` v ->
                             return defaultDir
                         Right PlanJson
+                            { pjCabalVersion = v
+                            , pjCompilerId = Just compilerId
+                            , pjOS = Just os
+                            , pjArch = Just arch
+                            } | "2.0." `isPrefixOf` v -> return (distNewstyle </> "build" </> arch <> "-" <> os </> compilerId,
+                                    \_ctype component -> "c" </> component </> "build")
+                        Right PlanJson
                             { pjCompilerId = Just compilerId
                             , pjOS = Just os
                             , pjArch = Just arch
                             } -> return (distNewstyle </> "build" </> arch <> "-" <> os </> compilerId,
-                                    \component -> "c" </> component </> "build")
+                                    \ctype component -> ctype </> component </> "build")
                         Right plan -> do
                             errorM "leksah" $ "Unexpected cabal plan : " <> show plan
                             return defaultDir
