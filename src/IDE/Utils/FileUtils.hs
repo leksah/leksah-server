@@ -447,9 +447,9 @@ getCabalPackages ghcVer dir = do
                 Right plan -> return . map (,packageDBs) $
                     mapMaybe (T.simpleParse . T.unpack . piId) (pjPlan plan)
 
-cabalProjectBuildDir :: FilePath -> IO (FilePath, FilePath -> FilePath -> FilePath)
-cabalProjectBuildDir projectRoot = do
-    let distNewstyle = projectRoot </> "dist-newstyle"
+cabalProjectBuildDir :: FilePath -> FilePath -> IO (FilePath, FilePath -> FilePath -> FilePath)
+cabalProjectBuildDir projectRoot buildDir = do
+    let distNewstyle = projectRoot </> buildDir
         planFile = distNewstyle </> "cache" </> "plan.json"
         defaultDir = (distNewstyle </> "build", const $ const "build")
     doesFileExist planFile >>= \case
