@@ -8,7 +8,14 @@
 mkDerivation {
   pname = "leksah-server";
   version = "0.16.1.0";
-  src = ./.;
+  src =
+    builtins.filterSource (path: type: # FIXME: How to re-use .gitignore? https://git.io/vSo80
+      nixpkgs.lib.all (i: toString i != path) [ ./.DS_Store ./default.nix ]
+        && nixpkgs.lib.all (i: i != baseNameOf path) [ ".git" "dist-newstyle" "cabal.project.local" "dist" ".stack-work" ".vagrant" ".DS_Store" ]
+        && nixpkgs.lib.all (i: !(nixpkgs.lib.hasSuffix i path)) [ ".lkshf" ]
+        && nixpkgs.lib.all (i: !(nixpkgs.lib.hasPrefix i path)) [ ".ghc.environment." ]
+        # TODO: what else?
+      ) ./.;
   isLibrary = true;
   isExecutable = true;
   libraryHaskellDepends = [
