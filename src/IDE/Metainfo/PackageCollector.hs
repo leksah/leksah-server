@@ -169,7 +169,7 @@ collectPackage writeAscii prefs numPackages ((packageConfig, dbs), packageIndex)
             let dirPath         = dropFileName fpSource
                 packageName'    = takeBaseName fpSource
                 flagsFor "base" = ["-finteger-gmp", "-finteger-gmp2"]
-                flagsFor ('g':'i':'-':_) = ["-f-overloaded-methods", "-f-overloaded-properties", "-f-overloaded-signals"]
+                flagsFor ('g':'i':'-':_) = ["-f-enable-overloading", "-f-overloaded-methods", "-f-overloaded-properties", "-f-overloaded-signals"]
                 flagsFor _      = []
                 flags           = flagsFor packageName'
             setCurrentDirectory dirPath

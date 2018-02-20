@@ -168,12 +168,15 @@ data ServerCommand =
             scExtract    :: Bool,
             scPackageDBs :: [[FilePath]]}
     |   WorkspaceCommand {
-            wcRebuild  :: Bool,
-            wcPackage  :: PackageIdentifier,
-            wcPath     :: FilePath,
-            wcModList  :: [(Text,FilePath)]}
+            wcRebuild     :: Bool,
+            wcPackage     :: PackageIdentifier,
+            wcProject     :: FilePath,
+            wcPackageFile :: FilePath,
+            wcModList     :: [(Text,FilePath)]}
     |   ParseHeaderCommand {
-            hcFilePath :: FilePath}
+            hcProject     :: FilePath,
+            hcPackageFile :: FilePath,
+            hcFilePath    :: FilePath}
     deriving (Eq,Ord,Show,Read)
 
 data ServerAnswer = ServerOK

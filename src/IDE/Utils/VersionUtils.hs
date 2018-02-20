@@ -32,7 +32,7 @@ import Control.DeepSeq (deepseq)
 import Data.Monoid ((<>))
 
 supportedGhcVersions :: [FilePath]
-supportedGhcVersions = nub ["7.10.3", "8.0.1", VERSION_ghc]
+supportedGhcVersions = nub ["8.0.2", "8.2.2", VERSION_ghc]
 
 getDefaultGhcVersion :: IO FilePath
 getDefaultGhcVersion = E.catch (do

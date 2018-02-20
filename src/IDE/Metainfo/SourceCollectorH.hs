@@ -92,6 +92,7 @@ import Name
 import Data.Text (Text)
 import qualified Data.Text as T (unpack, pack)
 import Data.Monoid ((<>))
+import Data.Maybe (listToMaybe, fromMaybe)
 
 #if MIN_VERSION_ghc(8,2,0)
 exposedName :: (ModuleName, Maybe Module) -> ModuleName
@@ -151,7 +152,7 @@ findSourceForPackage prefs packageId = do
 packageFromSource :: FilePath -> PackageConfig -> IO (Maybe PackageDescr, PackageCollectStats)
 packageFromSource cabalPath packageConfig = do
     setCurrentDirectory dirPath
-    ghcFlags <- figureOutGhcOpts' dirPath
+    ghcFlags <- figureOutGhcOpts' Nothing cabalPath
     debugM "leksah-server" ("ghcFlags:  " ++ show ghcFlags)
     NewException.catch (inner ghcFlags) handler
     where
@@ -163,7 +164,7 @@ packageFromSource cabalPath packageConfig = do
             return (Nothing, PackageCollectStats packageName Nothing False False
                                             (Just ("Ghc failed to process: " <> T.pack (show e) <> " (" <> T.pack cabalPath <> ")")))
         inner ghcFlags = do
-            libDir <- getSysLibDir VERSION_ghc
+            libDir <- getSysLibDir Nothing VERSION_ghc
             inGhcIO libDir ghcFlags [Opt_Haddock] [] $ \ dflags -> do
                 (interfaces,_) <- processModules verbose (exportedMods ++ hiddenMods) [] []
                 liftIO $ print (length interfaces)
@@ -198,11 +199,10 @@ interfaceToModuleDescr dflags _dirPath pid interface =
         -- ifaceOrigFilename points at the hs output file (not chs file)
         -- So if possible we look up one of the things in the module and
         -- get the file it is located in.
-        filepath   = head $
+        filepath   = fromMaybe (ifaceOrigFilename interface) $ listToMaybe
             [locationFile loc | Real RealDescr{dscMbLocation' = Just loc,
                 dscMbModu' = Just dscMod} <- descrs, dscMod == PM pid modName,
                 filenameMatchesModule (locationFile loc)]
-            ++ [ifaceOrigFilename interface]
         modName    = forceJust ((simpleParse . moduleNameString . moduleName . ifaceMod) interface)
                         "Can't parse module name"
         filenameMatchesModule fn = components modName `isSuffixOf` splitDirectories (dropExtension fn)

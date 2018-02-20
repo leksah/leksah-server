@@ -87,7 +87,7 @@ data Flag =    CollectSystem
              | LogFile Text
              | Forever
              | EndWithLast
-             | PackageDir FilePath
+             | ProjectFile FilePath
        deriving (Show,Eq)
 
 options :: [OptDescr Flag]
@@ -116,8 +116,8 @@ options =   [
                 "Don't end the server when last connection ends"
          ,   Option ['c'] ["endWithLast"] (NoArg EndWithLast)
                 "End the server when last connection ends"
-         ,   Option ['p'] ["packageDir"] (ReqArg (PackageDir) "PackageDir")
-                "Package directory to include in collection (like a workspace package)"
+         ,   Option ['p'] ["projectFile"] (ReqArg ProjectFile "ProjectFile")
+                "Project file to include in collection"
 
     ]
 
@@ -192,7 +192,7 @@ main =  withSocketsDo $ catch inner handler
                         if elem CollectSystem o
                             then do
                                 debugM "leksah-server" "collectSystem"
-                                collectSystem prefs debug rebuild sources =<< getPackageDBs [d | PackageDir d <- o]
+                                collectSystem prefs debug rebuild sources =<< getPackageDBs [p | ProjectFile p <- o]
                             else
                                 case servers of
                                     (Nothing:_)  -> do
@@ -248,17 +248,17 @@ doCommands' prefs connRef (h,n,p) mvar = do
                         (\ (e :: SomeException) -> do
                             hPutStrLn h (show (ServerFailed (T.pack $ show e)))
                             hFlush h)
-                    WorkspaceCommand rebuild package path modList ->
+                    WorkspaceCommand rebuild package project packageFile modList ->
                         catch (do
-                            collectWorkspace package modList rebuild False path
+                            collectWorkspace package modList rebuild False project packageFile
                             hPutStrLn h (show ServerOK)
                             hFlush h)
                         (\ (e :: SomeException) -> do
                             hPutStrLn h (show (ServerFailed (T.pack $ show e)))
                             hFlush h)
-                    ParseHeaderCommand filePath ->
+                    ParseHeaderCommand project packageFile filePath ->
                         catch (do
-                            res <- parseTheHeader filePath
+                            res <- parseTheHeader project packageFile filePath
                             hPutStrLn h (show res)
                             hFlush h)
                         (\ (e :: SomeException) -> do
@@ -277,7 +277,7 @@ collectSystem prefs writeAscii forceRebuild findSources dbLists = do
         when exists' (removeFile reportPath)
         return ()
     knownPackages       <-  findKnownPackages collectorPath
-    libDir <- getSysLibDir VERSION_ghc
+    libDir <- getSysLibDir Nothing VERSION_ghc
     debugM "leksah-server" $ "collectSystem knownPackages= " ++ show knownPackages
     packageInfos        <-  concat <$> forM dbLists (\dbs -> inGhcIO libDir [] [] dbs $  \ _ -> map (,dbs) <$> getInstalledPackageInfos)
     debugM "leksah-server" $ "collectSystem packageInfos= " ++ show (map (packId . getThisPackage . fst) packageInfos)

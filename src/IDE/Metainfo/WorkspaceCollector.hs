@@ -135,9 +135,9 @@ showSDocUnqual _ = O.showSDocUnqual
 showRdrName :: DynFlags -> RdrName -> Text
 showRdrName dflags r = T.pack . showSDoc dflags $ ppr r
 
-collectWorkspace :: PackageIdentifier -> [(Text,FilePath)] -> Bool -> Bool -> FilePath -> IO()
-collectWorkspace pid moduleList forceRebuild writeAscii dir = do
-    debugM "leksah-server" $ "collectWorkspace called with modules " ++ show moduleList ++ " in folder " ++ dir
+collectWorkspace :: PackageIdentifier -> [(Text,FilePath)] -> Bool -> Bool -> FilePath -> FilePath -> IO()
+collectWorkspace pid moduleList forceRebuild writeAscii project package = do
+    debugM "leksah-server" $ "collectWorkspace called with modules " ++ show moduleList ++ " in project " ++ project ++ " package " ++ package
     collectorPath <- liftIO getCollectorPath
     let packageCollectorPath = collectorPath </> T.unpack (packageIdentifierToString pid)
     when forceRebuild $ do
@@ -145,11 +145,11 @@ collectWorkspace pid moduleList forceRebuild writeAscii dir = do
         when exists $ removeDirectoryRecursive packageCollectorPath
     -- Construct directory
     liftIO $ createDirectoryIfMissing True packageCollectorPath
-    setCurrentDirectory dir
-    opts1 <- filterOpts <$> figureOutGhcOpts dir
-    opts2 <- figureOutHaddockOpts
+    setCurrentDirectory (dropFileName package)
+    opts1 <- filterOpts <$> figureOutGhcOpts (Just project) package
+    opts2 <- figureOutHaddockOpts package
 
-    libDir <- getSysLibDir VERSION_ghc
+    libDir <- getSysLibDir Nothing VERSION_ghc
     debugM "leksah-server" $ "before collect modules" ++ "\n\nopts1: " ++ show opts1 ++ "\n\n opt2: " ++ show opts2
     mapM_ (collectModule libDir packageCollectorPath writeAscii pid opts1) moduleList
     debugM "leksah-server" "after collect modules"
@@ -159,7 +159,7 @@ collectWorkspace pid moduleList forceRebuild writeAscii dir = do
     filterOpts (o:_:r) | o `elem` ["-link-js-lib", "-js-lib-outputdir", "-js-lib-src", "-package-id"] = filterOpts r
     filterOpts (o:r) = o:filterOpts r
 
-collectModule :: FilePath -> FilePath -> Bool -> PackageIdentifier -> [Text] -> (Text,FilePath) -> IO()
+collectModule :: Maybe FilePath -> FilePath -> Bool -> PackageIdentifier -> [Text] -> (Text,FilePath) -> IO()
 collectModule libDir collectorPackagePath writeAscii pid opts (modId,sourcePath) =
     case parseModuleKey (T.unpack modId) sourcePath of
         Nothing -> errorM "leksah-server" (T.unpack $ "Can't parse module name " <> modId)
@@ -181,7 +181,7 @@ collectModule libDir collectorPackagePath writeAscii pid opts (modId,sourcePath)
                 else errorM "leksah-server" ("source file not found " ++ sourcePath)
 
 
-collectModule' :: FilePath -> FilePath -> FilePath -> Bool -> PackageIdentifier -> [Text] -> ModuleName -> IO()
+collectModule' :: Maybe FilePath -> FilePath -> FilePath -> Bool -> PackageIdentifier -> [Text] -> ModuleName -> IO()
 collectModule' libDir sourcePath destPath writeAscii pid opts moduleName' = gcatch (
    inGhcIO libDir (opts++["-cpp"]) [Opt_Haddock] [] $ \ dynFlags -> do
         session         <-  getSession

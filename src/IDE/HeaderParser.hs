@@ -45,6 +45,8 @@ import IDE.Utils.FileUtils (figureOutHaddockOpts)
 import Control.Monad.IO.Class (MonadIO(..))
 import System.IO.Strict (readFile)
 import qualified Data.Text as T (pack)
+import System.Directory (setCurrentDirectory)
+import System.FilePath (dropFileName)
 
 #if !MIN_VERSION_ghc(7,6,0)
 showSDoc :: DynFlags -> O.SDoc -> String
@@ -77,10 +79,11 @@ unLoc82 = id
 showRdrName :: DynFlags -> RdrName -> String
 showRdrName dflags r = showSDoc dflags (ppr r)
 
-parseTheHeader :: FilePath -> IO ServerAnswer
-parseTheHeader filePath = do
+parseTheHeader :: FilePath -> FilePath -> FilePath -> IO ServerAnswer
+parseTheHeader project package filePath = do
+    setCurrentDirectory $ dropFileName package
     text        <- readFile filePath
-    opts        <- figureOutHaddockOpts
+    opts        <- figureOutHaddockOpts package
     parseResult <- liftIO $ myParseHeader filePath text (filterOpts opts)
     case parseResult of
         Left str                                      -> return (ServerFailed str)

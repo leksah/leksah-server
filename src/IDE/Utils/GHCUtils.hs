@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 -----------------------------------------------------------------------------
@@ -52,8 +53,9 @@ import qualified Data.Text as T (pack, unpack)
 import Data.Monoid ((<>))
 import Data.Function (on)
 
-inGhcIO :: FilePath -> [Text] -> [GeneralFlag] -> [FilePath] -> (DynFlags -> Ghc a) -> IO a
-inGhcIO libDir flags' udynFlags dbs ghcAct = do
+inGhcIO :: Maybe FilePath -> [Text] -> [GeneralFlag] -> [FilePath] -> (DynFlags -> Ghc a) -> IO a
+inGhcIO Nothing _ _ _ _ = error $ "Could not find system lib dir for GHC " <> VERSION_ghc <> " (used to build Leksah)"
+inGhcIO (Just libDir) flags' udynFlags dbs ghcAct = do
     debugM "leksah-server" $ "inGhcIO called with: " ++ show flags'
 --    (restFlags, _) <-   parseStaticFlags (map noLoc flags')
     runGhc (Just libDir) $ do
@@ -164,19 +166,21 @@ myParseModule dflags src_filename maybe_src_buf
       }}
 
 myParseHeader :: FilePath -> String -> [Text] -> IO (Either Text (DynFlags, HsModule RdrName))
-myParseHeader fp _str opts = do
-  libDir <- getSysLibDir VERSION_ghc
-  inGhcIO libDir (opts++["-cpp"]) [] [] $ \ _dynFlags -> do
-    session   <- getSession
-    (dynFlags',fp')    <-  liftIO $ preprocess session (fp,Nothing)
-    liftIO $ do
-        stringBuffer  <-  hGetStringBuffer fp'
-        parseResult   <-  myParseModuleHeader dynFlags' fp (Just stringBuffer)
-        case parseResult of
-            Right (L _ mod') -> return (Right (dynFlags', mod'))
-            Left errMsg         -> do
-                let str =  "Failed to parse " <> T.pack (show errMsg)
-                return (Left str)
+myParseHeader fp _str opts =
+  getSysLibDir Nothing VERSION_ghc >>= \case
+    Nothing -> return . Left $ "Could not find system lib dir for GHC " <> VERSION_ghc <> " (used to build Leksah)"
+    Just libDir ->
+      inGhcIO (Just libDir) (opts++["-cpp"]) [] [] $ \ _dynFlags -> do
+        session   <- getSession
+        (dynFlags',fp')    <-  liftIO $ preprocess session (fp,Nothing)
+        liftIO $ do
+            stringBuffer  <-  hGetStringBuffer fp'
+            parseResult   <-  myParseModuleHeader dynFlags' fp (Just stringBuffer)
+            case parseResult of
+                Right (L _ mod') -> return (Right (dynFlags', mod'))
+                Left errMsg         -> do
+                    let str =  "Failed to parse " <> T.pack (show errMsg)
+                    return (Left str)
 
  ---------------------------------------------------------------------
 --  | Parser function copied here, because it is not exported
