@@ -499,11 +499,12 @@ newGhci executable arguments dir interactiveFlags startupOutputHandler = do
     let friendlyDir d = case stripPrefix home d of
                             Just rest -> "~" <> rest
                             Nothing -> d
-    debugM "leksah-server" $ "newGhci " <>
-        friendlyDir (dropTrailingPathSeparator dir) <> "$ " <> showCommandForUser executable (map T.unpack arguments)
+        startupCommand = friendlyDir (dropTrailingPathSeparator dir) <> "$ "
+                         <> showCommandForUser executable (map T.unpack arguments)
+    debugM "leksah-server" $ "newGhci " <> startupCommand
 
     writeChan (toolCommands tool) $
-        ToolCommand (":set prompt " <> ghciPrompt) "" startupOutputHandler
+        ToolCommand (":set prompt " <> ghciPrompt) (T.pack startupCommand) startupOutputHandler
     executeGhciCommand tool (":set " <> T.unwords interactiveFlags) startupOutputHandler
     runInteractiveTool tool ghciCommandLineReader executable arguments (Just dir)
     return tool
