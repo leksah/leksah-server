@@ -279,7 +279,11 @@ collectSystem prefs writeAscii forceRebuild findSources dbLists = do
     knownPackages       <-  findKnownPackages collectorPath
     libDir <- getSysLibDir Nothing VERSION_ghc
     debugM "leksah-server" $ "collectSystem knownPackages= " ++ show knownPackages
-    packageInfos        <-  concat <$> forM dbLists (\dbs -> inGhcIO libDir [] [] dbs $  \ _ -> map (,dbs) <$> getInstalledPackageInfos)
+    packageInfos        <-  concat <$> forM dbLists (\dbs ->
+            (inGhcIO libDir [] [] dbs $  \ _ -> map (,dbs) <$> getInstalledPackageInfos)
+        `catch` (\(e :: SomeException) -> do
+            debugM "leksah-server" $ "collectSystem error " <> show e
+            return []))
     debugM "leksah-server" $ "collectSystem packageInfos= " ++ show (map (packId . getThisPackage . fst) packageInfos)
     let pkgId = packageIdentifierToString . packId . getThisPackage
         newPackages = sortBy (comparing (pkgId. fst)) . nub $
