@@ -83,7 +83,7 @@ parseTheHeader :: FilePath -> FilePath -> FilePath -> IO ServerAnswer
 parseTheHeader project package filePath = do
     setCurrentDirectory $ dropFileName package
     text        <- readFile filePath
-    opts        <- figureOutHaddockOpts package
+    opts        <- figureOutHaddockOpts (Just project) package
     parseResult <- liftIO $ myParseHeader filePath text (filterOpts opts)
     case parseResult of
         Left str                                      -> return (ServerFailed str)

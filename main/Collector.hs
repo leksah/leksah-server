@@ -266,7 +266,7 @@ doCommands' prefs connRef (h,n,p) mvar = do
                             hFlush h)
             doCommands' prefs connRef (h,n,p) mvar
 
-collectSystem :: Prefs -> Bool -> Bool -> Bool -> [[FilePath]] -> IO()
+collectSystem :: Prefs -> Bool -> Bool -> Bool -> [(Maybe FilePath, [FilePath])] -> IO()
 collectSystem prefs writeAscii forceRebuild findSources dbLists = do
     collectorPath       <- getCollectorPath
     when forceRebuild $ do
@@ -279,8 +279,8 @@ collectSystem prefs writeAscii forceRebuild findSources dbLists = do
     knownPackages       <-  findKnownPackages collectorPath
     libDir <- getSysLibDir Nothing VERSION_ghc
     debugM "leksah-server" $ "collectSystem knownPackages= " ++ show knownPackages
-    packageInfos        <-  concat <$> forM dbLists (\dbs ->
-            (inGhcIO libDir [] [] dbs $  \ _ -> map (,dbs) <$> getInstalledPackageInfos)
+    packageInfos        <-  concat <$> forM dbLists (\(mbPackege, dbs) ->
+            inGhcIO libDir [] [] dbs (\ _ -> map (,(mbPackege, dbs)) <$> getInstalledPackageInfos)
         `catch` (\(e :: SomeException) -> do
             debugM "leksah-server" $ "collectSystem error " <> show e
             return []))

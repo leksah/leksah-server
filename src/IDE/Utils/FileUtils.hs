@@ -23,6 +23,7 @@ module IDE.Utils.FileUtils (
 ,   allHaskellSourceFiles
 ,   isEmptyDirectory
 ,   cabalFileName
+,   runProjectTool
 ,   allCabalFiles
 ,   getConfigFilePathForLoad
 ,   hasSavedConfigFile
@@ -605,16 +606,16 @@ getPackageDBs' ghcVersion mbProject =
             _ -> getCabalPackageDBs mbProject ghcVersion
      ) $ \ (_ :: SomeException) -> return []
 
-getPackageDBs :: [FilePath] -> IO [[FilePath]]
+getPackageDBs :: [FilePath] -> IO [(Maybe FilePath, [FilePath])]
 getPackageDBs projects = do
     ghcVersion <- getDefaultGhcVersion
     globalDBs <- sequence [getGlobalPackageDB Nothing ghcVersion, Just <$> getStorePackageDB ghcVersion]
         >>= filterM doesDirectoryExist . catMaybes
-    nub . (globalDBs:) <$> forM projects (getPackageDBs' ghcVersion . Just)
+    nub . ((Nothing, globalDBs):) <$> forM projects (\p -> (Just p,) <$> getPackageDBs' ghcVersion (Just p))
 
-figureOutHaddockOpts :: FilePath -> IO [Text]
-figureOutHaddockOpts package = do
-    (!output,_) <- runTool' "cabal" ["haddock", "--with-haddock=leksahecho", "--executables"] (Just $ dropFileName package) Nothing
+figureOutHaddockOpts :: Maybe FilePath -> FilePath -> IO [Text]
+figureOutHaddockOpts mbProject package = do
+    (!output,_) <- runProjectTool mbProject "cabal" ["haddock", "--with-haddock=leksahecho", "--executables"] (Just $ dropFileName package) Nothing
     let opts = concat [words $ T.unpack l | ToolOutput l <- output]
     let res = filterOptGhc opts
     debugM "leksah-server" ("figureOutHaddockOpts " ++ show res)
@@ -634,13 +635,13 @@ figureOutGhcOpts mbProject package = do
     let flags = if takeBaseName package == "base"
                     then ["-finteger-gmp", "-finteger-gmp2"]
                     else ["-f-enable-overloading", "-f-overloaded-methods", "-f-overloaded-properties", "-f-overloaded-signals"]
-    (!output,_) <- runTool' "cabal" ("configure" : flags <> map (("--package-db=" <>) . T.pack) packageDBs) (Just $ dropFileName package) Nothing
+    (!output,_) <- runProjectTool mbProject "cabal" ("configure" : flags <> map (("--package-db=" <>) . T.pack) packageDBs) (Just $ dropFileName package) Nothing
     output `deepseq` figureOutGhcOpts' mbProject package
 
 figureOutGhcOpts' :: Maybe FilePath -> FilePath -> IO [Text]
 figureOutGhcOpts' mbProject package = do
     debugM "leksah-server" "figureOutGhcOpts'"
-    (!output,_) <- runTool' "cabal" ["build","--with-ghc=leksahecho","--with-ghcjs=leksahecho"] (Just $ dropFileName package) Nothing
+    (!output,_) <- runProjectTool mbProject "cabal" ["build","--with-ghc=leksahecho","--with-ghcjs=leksahecho"] (Just $ dropFileName package) Nothing
     let res = case catMaybes [findMake $ T.unpack l | ToolOutput l <- output] of
                 options:_ -> words options
                 _         -> []

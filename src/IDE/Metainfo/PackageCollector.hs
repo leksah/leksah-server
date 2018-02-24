@@ -37,7 +37,7 @@ import IDE.Core.CTypes
         dscMbTypeStr', dscName', RealDescr(..), Descr, metadataVersion,
         PackageDescr(..), leksahVersion, packageIdentifierToString,
         getThisPackage, packId, ModuleDescr(..))
-import IDE.Utils.FileUtils (getCollectorPath)
+import IDE.Utils.FileUtils (runProjectTool, getCollectorPath)
 import System.Directory (setCurrentDirectory)
 import IDE.Utils.Utils
        (leksahMetadataPathFileExtension,
@@ -67,8 +67,8 @@ import qualified Data.Map as Map
        (fromListWith, fromList, keys, lookup)
 import Data.List (delete, nub)
 
-collectPackage :: Bool -> Prefs -> Int -> ((PackageConfig, [FilePath]), Int) -> IO PackageCollectStats
-collectPackage writeAscii prefs numPackages ((packageConfig, dbs), packageIndex) = do
+collectPackage :: Bool -> Prefs -> Int -> ((PackageConfig, (Maybe FilePath, [FilePath])), Int) -> IO PackageCollectStats
+collectPackage writeAscii prefs numPackages ((packageConfig, (mbProject, dbs)), packageIndex) = do
     infoM "leksah-server" ("update_toolbar " ++ show
         ((fromIntegral packageIndex / fromIntegral numPackages) :: Double))
     eitherStrFp    <- findSourceForPackage prefs pid
@@ -138,7 +138,7 @@ collectPackage writeAscii prefs numPackages ((packageConfig, dbs), packageIndex)
         build fpSource = do
             runCabalConfigure fpSource
             packageDescrHi <- collectPackageFromHI packageConfig dbs
-            mbPackageDescrPair <- packageFromSource fpSource packageConfig
+            mbPackageDescrPair <- packageFromSource mbProject dbs fpSource packageConfig
             case mbPackageDescrPair of
                 (Just packageDescrS, bstat) -> do
                     writeMerged packageDescrS packageDescrHi fpSource
@@ -175,7 +175,7 @@ collectPackage writeAscii prefs numPackages ((packageConfig, dbs), packageIndex)
             setCurrentDirectory dirPath
             E.catch (do _ <- runTool' "cabal" ["clean"] Nothing Nothing
                         debugM "leksah" $ "fpSource = " <> show fpSource
-                        _ <- runTool' "cabal" ("configure":flags ++ map (("--package-db="<>) .T.pack) dbs) Nothing Nothing
+                        _ <- runProjectTool mbProject "cabal" ("configure":flags ++ map (("--package-db="<>) .T.pack) dbs) Nothing Nothing
                         return ())
                     (\ (_e :: E.SomeException) -> do
                         debugM "leksah-server" "Can't configure"

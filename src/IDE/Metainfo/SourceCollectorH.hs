@@ -149,10 +149,10 @@ findSourceForPackage prefs packageId = do
         packageName' = T.unpack packageName
 
 
-packageFromSource :: FilePath -> PackageConfig -> IO (Maybe PackageDescr, PackageCollectStats)
-packageFromSource cabalPath packageConfig = do
+packageFromSource :: Maybe FilePath -> [FilePath] -> FilePath -> PackageConfig -> IO (Maybe PackageDescr, PackageCollectStats)
+packageFromSource mbProject dbs cabalPath packageConfig = do
     setCurrentDirectory dirPath
-    ghcFlags <- figureOutGhcOpts' Nothing cabalPath
+    ghcFlags <- figureOutGhcOpts' mbProject cabalPath
     debugM "leksah-server" ("ghcFlags:  " ++ show ghcFlags)
     NewException.catch (inner ghcFlags) handler
     where
@@ -165,7 +165,7 @@ packageFromSource cabalPath packageConfig = do
                                             (Just ("Ghc failed to process: " <> T.pack (show e) <> " (" <> T.pack cabalPath <> ")")))
         inner ghcFlags = do
             libDir <- getSysLibDir Nothing VERSION_ghc
-            inGhcIO libDir ghcFlags [Opt_Haddock] [] $ \ dflags -> do
+            inGhcIO libDir ghcFlags [Opt_Haddock] dbs $ \ dflags -> do
                 (interfaces,_) <- processModules verbose (exportedMods ++ hiddenMods) [] []
                 liftIO $ print (length interfaces)
                 let mods = map (interfaceToModuleDescr dflags dirPath (packId $ getThisPackage packageConfig)) interfaces

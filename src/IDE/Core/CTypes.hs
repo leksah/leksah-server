@@ -166,7 +166,7 @@ data ServerCommand =
             scRebuild    :: Bool,
             scSources    :: Bool,
             scExtract    :: Bool,
-            scPackageDBs :: [[FilePath]]}
+            scPackageDBs :: [(Maybe FilePath, [FilePath])]}
     |   WorkspaceCommand {
             wcRebuild     :: Bool,
             wcPackage     :: PackageIdentifier,

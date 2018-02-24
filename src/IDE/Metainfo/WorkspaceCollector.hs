@@ -147,7 +147,7 @@ collectWorkspace pid moduleList forceRebuild writeAscii project package = do
     liftIO $ createDirectoryIfMissing True packageCollectorPath
     setCurrentDirectory (dropFileName package)
     opts1 <- filterOpts <$> figureOutGhcOpts (Just project) package
-    opts2 <- figureOutHaddockOpts package
+    opts2 <- figureOutHaddockOpts (Just project) package
 
     libDir <- getSysLibDir Nothing VERSION_ghc
     debugM "leksah-server" $ "before collect modules" ++ "\n\nopts1: " ++ show opts1 ++ "\n\n opt2: " ++ show opts2
