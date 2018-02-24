@@ -355,7 +355,7 @@ extractFieldNames :: OccName -> Text
 extractFieldNames occName' = T.pack . unpackFS $occNameFS occName'
 
 extractClassOp :: DynFlags -> IfaceClassOp -> SimpleDescr
-extractClassOp dflags (IfaceClassOp occName' _dm ty) = SimpleDescr (T.pack . unpackFS . occNameFS $ nameOccName82 occName')
+extractClassOp dflags (IfaceClassOp occName' ty _dm) = SimpleDescr (T.pack . unpackFS . occNameFS $ nameOccName82 occName')
                                                 (Just (BS.pack $ showSDocUnqual dflags (ppr ty)))
                                                 Nothing Nothing True
 
