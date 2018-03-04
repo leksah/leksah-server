@@ -83,7 +83,7 @@ import Data.List
        (isPrefixOf, isSuffixOf, stripPrefix, nub)
 import qualified Data.Set as  Set (empty, fromList)
 import Distribution.Package (UnitId)
-import Data.Char (ord)
+import Data.Char (ord, isAlphaNum)
 import Distribution.Text (simpleParse, display)
 
 import IDE.Utils.Utils
@@ -111,6 +111,7 @@ import qualified Data.Text.IO as T (writeFile, readFile)
 import Text.Read.Compat (readMaybe)
 import qualified Data.Map as M (insert, fromList, toList, lookup)
 import System.Process (showCommandForUser)
+import System.Environment (getEnvironment)
 
 haskellSrcExts :: [FilePath]
 haskellSrcExts = ["hs","lhs","chs","hs.pp","lhs.pp","chs.pp","hsc"]
@@ -377,9 +378,14 @@ loadNixCache = liftIO $ do
         True -> fromMaybe mempty . readMaybe . T.unpack <$> T.readFile filePath
         False -> return mempty
 
+includeInNixCache :: String -> Bool
+includeInNixCache name = not (null name)
+    && all (\c -> isAlphaNum c || c == '_') name
+    && name `notElem` ["POSIXLY_CORRECT", "SHELLOPTS"]
+
 saveNixCache :: MonadIO m => FilePath -> Text -> [ToolOutput] -> m (Map String String)
 saveNixCache project compiler out = liftIO $ do
-    let newEnv = M.fromList $ mapMaybe (\case
+    let newEnv = M.fromList . filter (includeInNixCache . fst) $ mapMaybe (\case
             ToolOutput line -> Just . second (drop 1) . span (/='=') $ T.unpack line
             _ -> Nothing) out
     configDir <- getConfigDir
