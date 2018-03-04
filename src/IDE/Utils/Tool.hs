@@ -94,6 +94,8 @@ import Data.List (stripPrefix)
 #ifdef MIN_VERSION_unix
 import System.Posix.Signals
        (emptySignalSet, sigINT, addSignal, unblockSignals)
+import qualified Data.Map as M (toList)
+import Data.Map (Map)
 #endif
 
 data ToolOutput = ToolInput Text
@@ -206,13 +208,15 @@ runInteractiveTool ::
     FilePath ->
     [Text] ->
     Maybe FilePath ->
+    Maybe (Map String String) ->
     IO ()
-runInteractiveTool tool clr executable arguments mbDir = do
+runInteractiveTool tool clr executable arguments mbDir mbEnv = do
     (Just inp,Just out,Just err,pid) <- createProcess (proc executable (map T.unpack arguments))
         { std_in  = CreatePipe,
           std_out = CreatePipe,
           std_err = CreatePipe,
           cwd = mbDir,
+          env = M.toList <$> mbEnv,
 #ifdef MIN_VERSION_process_leksah
           new_group = True }
 #else
@@ -489,11 +493,11 @@ newGhci' flags startupOutputHandler = do
     tool <- newToolState
     writeChan (toolCommands tool) $
         ToolCommand (":set prompt " <> ghciPrompt) "" startupOutputHandler
-    runInteractiveTool tool ghciCommandLineReader "ghci" flags Nothing
+    runInteractiveTool tool ghciCommandLineReader "ghci" flags Nothing Nothing
     return tool
 
-newGhci :: FilePath -> [Text] -> FilePath -> [Text] -> C.Sink ToolOutput IO () -> IO ToolState
-newGhci executable arguments dir interactiveFlags startupOutputHandler = do
+newGhci :: FilePath -> [Text] -> FilePath -> Maybe (Map String String) -> [Text] -> C.Sink ToolOutput IO () -> IO ToolState
+newGhci executable arguments dir mbEnv interactiveFlags startupOutputHandler = do
     tool <- newToolState
     home <- liftIO getHomeDirectory
     let friendlyDir d = case stripPrefix home d of
@@ -506,7 +510,7 @@ newGhci executable arguments dir interactiveFlags startupOutputHandler = do
     writeChan (toolCommands tool) $
         ToolCommand (":set prompt " <> ghciPrompt) (T.pack startupCommand) startupOutputHandler
     executeGhciCommand tool (":set " <> T.unwords interactiveFlags) startupOutputHandler
-    runInteractiveTool tool ghciCommandLineReader executable arguments (Just dir)
+    runInteractiveTool tool ghciCommandLineReader executable arguments (Just dir) mbEnv
     return tool
 
 executeCommand :: ToolState -> Text -> Text -> C.Sink ToolOutput IO () -> IO ()

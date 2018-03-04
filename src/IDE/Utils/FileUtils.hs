@@ -23,6 +23,8 @@ module IDE.Utils.FileUtils (
 ,   allHaskellSourceFiles
 ,   isEmptyDirectory
 ,   cabalFileName
+,   saveNixCache
+,   loadNixEnv
 ,   runProjectTool
 ,   allCabalFiles
 ,   getConfigFilePathForLoad
@@ -55,6 +57,7 @@ module IDE.Utils.FileUtils (
 ) where
 
 import Control.Applicative
+import Control.Arrow (second)
 import Prelude hiding (readFile)
 import System.FilePath
        (splitFileName, dropExtension, takeExtension,
@@ -65,9 +68,10 @@ import Control.Monad (when, foldM, filterM, forM, join)
 import Data.Maybe (fromMaybe, mapMaybe, catMaybes, listToMaybe)
 import Distribution.Simple.PreProcess.Unlit (unlit)
 import System.Directory
-       (getAppUserDataDirectory, canonicalizePath, doesDirectoryExist,
-        doesFileExist, setCurrentDirectory, getCurrentDirectory,
-        getDirectoryContents, createDirectory, getHomeDirectory)
+       (createDirectoryIfMissing, getAppUserDataDirectory,
+        canonicalizePath, doesDirectoryExist, doesFileExist,
+        setCurrentDirectory, getCurrentDirectory, getDirectoryContents,
+        getHomeDirectory)
 import Text.ParserCombinators.Parsec.Language (haskellDef, haskell)
 import qualified Text.ParserCombinators.Parsec.Token as P
        (GenTokenParser(..), TokenParser, identStart)
@@ -101,6 +105,11 @@ import Data.Aeson (eitherDecodeStrict')
 import IDE.Utils.CabalPlan (PlanJson(..), PlanItem(..))
 import IDE.Utils.CabalProject (findProjectRoot)
 import qualified Data.ByteString as BS (readFile)
+import System.Exit (ExitCode(ExitSuccess))
+import Data.Map (Map)
+import qualified Data.Text.IO as T (writeFile, readFile)
+import Text.Read.Compat (readMaybe)
+import qualified Data.Map as M (insert, fromList, toList, lookup)
 import System.Process (showCommandForUser)
 
 haskellSrcExts :: [FilePath]
@@ -157,12 +166,8 @@ getConfigDir :: IO FilePath
 getConfigDir = do
     d <- getHomeDirectory
     let filePath = d </> configDirName
-    exists <- doesDirectoryExist filePath
-    if exists
-        then return filePath
-        else do
-            createDirectory filePath
-            return filePath
+    createDirectoryIfMissing False filePath
+    return filePath
 
 getConfigDirForLoad :: IO (Maybe FilePath)
 getConfigDirForLoad = do
@@ -364,13 +369,45 @@ cabalFileName filePath = E.catch (do
         else return Nothing)
         (\ (_ :: SomeException) -> return Nothing)
 
+loadNixCache :: MonadIO m => m (Map (FilePath, Text) (Map String String))
+loadNixCache = liftIO $ do
+    configDir <- getConfigDir
+    let filePath = configDir </> "nix.cache"
+    doesFileExist filePath >>= \case
+        True -> fromMaybe mempty . readMaybe . T.unpack <$> T.readFile filePath
+        False -> return mempty
+
+saveNixCache :: MonadIO m => FilePath -> Text -> [ToolOutput] -> m (Map String String)
+saveNixCache project compiler out = liftIO $ do
+    let newEnv = M.fromList $ mapMaybe (\case
+            ToolOutput line -> Just . second (drop 1) . span (/='=') $ T.unpack line
+            _ -> Nothing) out
+    configDir <- getConfigDir
+    let filePath = configDir </> "nix.cache"
+    T.writeFile filePath . T.pack . show =<< M.insert (project, compiler) newEnv <$> loadNixCache
+    return newEnv
+
+loadNixEnv :: MonadIO m => FilePath -> Text -> m (Maybe (Map String String))
+loadNixEnv project compiler = liftIO $
+    (M.lookup (project, compiler) <$> loadNixCache) >>= \case
+        Just env -> return (Just env)
+        Nothing -> do
+            let nixFile = dropFileName project </> "default.nix"
+            (out, ph) <- runTool' "nix-shell" [T.pack nixFile, "-A", "shells." <> compiler, "--run", "( set -o posix ; set )"]
+                    (Just $ dropFileName project) Nothing
+            waitForProcess ph >>= \case
+                ExitSuccess -> Just <$> saveNixCache project compiler out
+                _ -> return Nothing
 
 runProjectTool :: Maybe FilePath -> FilePath -> [Text] -> Maybe FilePath -> Maybe [(String, String)] -> IO ([ToolOutput], ProcessHandle)
 runProjectTool Nothing fp args mbDir mbEnv = runTool' fp args mbDir mbEnv
 runProjectTool (Just project) fp args mbDir mbEnv = do
     let nixFile = dropFileName project </> "default.nix"
     doesFileExist nixFile >>= \case
-        True -> runTool' "nix-shell" [T.pack nixFile, "-A", "shells.ghc", "--run", T.pack . showCommandForUser fp $ map T.unpack args] mbDir mbEnv
+        True ->
+            loadNixEnv project "ghc" >>= \case
+                Just nixEnv -> runTool' fp args mbDir $ M.toList <$> Just nixEnv <> (M.fromList <$> mbEnv)
+                Nothing -> runTool' "nix-shell" [T.pack nixFile, "-A", "shells.ghc", "--run", T.pack . showCommandForUser fp $ map T.unpack args] mbDir mbEnv
         False -> runTool' fp args mbDir mbEnv
 
 getCabalUserPackageDir :: IO (Maybe FilePath)
@@ -420,12 +457,8 @@ getCollectorPath :: MonadIO m => m FilePath
 getCollectorPath = liftIO $ do
     configDir <- getConfigDir
     let filePath = configDir </> "metadata"
-    exists    <- doesDirectoryExist filePath
-    if exists
-        then return filePath
-        else do
-            createDirectory filePath
-            return filePath
+    createDirectoryIfMissing False filePath
+    return filePath
 
 getSysLibDir :: Maybe FilePath -> FilePath -> IO (Maybe FilePath)
 getSysLibDir project ver = E.catch (do
