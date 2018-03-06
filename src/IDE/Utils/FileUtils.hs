@@ -381,7 +381,7 @@ loadNixCache = liftIO $ do
 includeInNixCache :: String -> Bool
 includeInNixCache name = not (null name)
     && all (\c -> isAlphaNum c || c == '_') name
-    && name `notElem` ["POSIXLY_CORRECT", "SHELLOPTS"]
+    && name `notElem` ["POSIXLY_CORRECT", "SHELLOPTS", "BASHOPTS"]
 
 saveNixCache :: MonadIO m => FilePath -> Text -> [ToolOutput] -> m (Map String String)
 saveNixCache project compiler out = liftIO $ do
@@ -412,7 +412,9 @@ runProjectTool (Just project) fp args mbDir mbEnv = do
     doesFileExist nixFile >>= \case
         True ->
             loadNixEnv project "ghc" >>= \case
-                Just nixEnv -> runTool' fp args mbDir $ M.toList <$> Just nixEnv <> (M.fromList <$> mbEnv)
+                Just nixEnv -> do
+                    debugM "leksah" $ "Using cached nix environment for " <> show (project, "ghc")
+                    runTool' "bash" ["-c", T.pack . showCommandForUser fp $ map T.unpack args] mbDir $ M.toList <$> Just nixEnv <> (M.fromList <$> mbEnv)
                 Nothing -> runTool' "nix-shell" [T.pack nixFile, "-A", "shells.ghc", "--run", T.pack . showCommandForUser fp $ map T.unpack args] mbDir mbEnv
         False -> runTool' fp args mbDir mbEnv
 
