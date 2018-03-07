@@ -95,14 +95,14 @@ import Control.Monad.IO.Class (MonadIO(..), MonadIO)
 import Control.Exception as E (SomeException, catch)
 import System.IO.Strict (readFile)
 import qualified Data.Text as T
-       (pack, stripPrefix, isSuffixOf, take, length, unpack, init,
-        last, words, splitOn, isPrefixOf, dropWhileEnd)
+       (pack, stripPrefix, isSuffixOf, take, length, unpack,
+        words, splitOn, dropWhileEnd, stripSuffix)
 import Data.Monoid ((<>))
 import Data.Text (Text)
 import Control.DeepSeq (deepseq)
 import IDE.Utils.VersionUtils (ghcExeName, getDefaultGhcVersion)
 import Data.Aeson (eitherDecodeStrict')
-import IDE.Utils.CabalPlan (PlanJson(..), PlanItem(..))
+import IDE.Utils.CabalPlan (PlanJson(..))
 import IDE.Utils.CabalProject (findProjectRoot)
 import qualified Data.ByteString as BS (readFile)
 import System.Exit (ExitCode(ExitSuccess))
@@ -111,7 +111,6 @@ import qualified Data.Text.IO as T (writeFile, readFile)
 import Text.Read.Compat (readMaybe)
 import qualified Data.Map as M (insert, fromList, toList, lookup)
 import System.Process (showCommandForUser)
-import System.Environment (getEnvironment)
 
 haskellSrcExts :: [FilePath]
 haskellSrcExts = ["hs","lhs","chs","hs.pp","lhs.pp","chs.pp","hsc"]
@@ -386,12 +385,16 @@ includeInNixCache name = not (null name)
 saveNixCache :: MonadIO m => FilePath -> Text -> [ToolOutput] -> m (Map String String)
 saveNixCache project compiler out = liftIO $ do
     let newEnv = M.fromList . filter (includeInNixCache . fst) $ mapMaybe (\case
-            ToolOutput line -> Just . second (drop 1) . span (/='=') $ T.unpack line
+            ToolOutput line -> Just . fixQuotes . second (drop 1) . span (/='=') $ T.unpack line
             _ -> Nothing) out
     configDir <- getConfigDir
     let filePath = configDir </> "nix.cache"
     T.writeFile filePath . T.pack . show =<< M.insert (project, compiler) newEnv <$> loadNixCache
     return newEnv
+  where
+    fixQuotes ("IFS", _) = ("IFS", " \t\n")
+    fixQuotes (n, '\'':rest) = (n, maybe rest T.unpack . T.stripSuffix "'" $ T.pack rest)
+    fixQuotes x = x
 
 loadNixEnv :: MonadIO m => FilePath -> Text -> m (Maybe (Map String String))
 loadNixEnv project compiler = liftIO $
