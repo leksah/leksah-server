@@ -1,6 +1,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 -----------------------------------------------------------------------------
 --
@@ -55,7 +56,7 @@ import Control.Concurrent
        (tryPutMVar, tryTakeMVar, readMVar, takeMVar, putMVar,
         newEmptyMVar, forkIO, newChan, MVar, Chan, writeChan,
         getChanContents, dupChan)
-import Control.Monad (void, forever, when, unless)
+import Control.Monad (forM_, void, forever, when, unless)
 import Control.Monad.IO.Class (liftIO, MonadIO)
 import Data.Maybe (fromMaybe)
 import Data.Char (isDigit)
@@ -76,12 +77,12 @@ import System.Directory (getHomeDirectory)
 import System.FilePath (dropTrailingPathSeparator)
 import System.Timeout (timeout)
 import Data.Conduit as C
-       ((=$), ($$), ($=))
+       (fuseUpstream, runConduit, ($$), ($=))
 import qualified Data.Conduit as C
 import Control.Monad.Trans.Resource (runResourceT)
 import qualified Data.Conduit.Text as CT (decode, utf8)
 import qualified Data.Conduit.List as CL
-       (concatMapAccumM, consume, concatMap, sequence, map)
+       (consume, sequence, map)
 import qualified Data.Conduit.Binary as CB
 import Data.Conduit.Attoparsec (sinkParser)
 import qualified Data.Attoparsec.Text as AP
@@ -117,13 +118,18 @@ instance  NFData ToolOutput where
     rnf (ToolPrompt s) = rnf s
     rnf (ToolExit code) = rnf code
 
+isEndOfCommandOutput :: ToolOutput -> Bool
+isEndOfCommandOutput (ToolPrompt _) = True
+isEndOfCommandOutput (ToolExit _) = True
+isEndOfCommandOutput _ = False
+
 data ToolCommand = ToolCommand Text Text (C.Sink ToolOutput IO ())
 data ToolState = ToolState {
     toolProcessMVar :: MVar ProcessHandle,
     outputClosed :: MVar Bool,
     toolCommands :: Chan ToolCommand,
     toolCommandsRead :: Chan ToolCommand,
-    currentToolCommand :: MVar ToolCommand,
+    currentToolCommand :: MVar Text,
     interruptToolMVar :: MVar ()}
 
 toolProcess :: ToolState -> IO ProcessHandle
@@ -197,11 +203,6 @@ newToolState = do
     interruptToolMVar <- newEmptyMVar
     return ToolState{..}
 
-isolateToFirst :: Monad m => (o -> Bool) -> C.ConduitM o o m ()
-isolateToFirst p = loop
-      where
-        loop = C.await >>= maybe (return ()) (\x -> C.yield x >> when (p x) loop)
-
 runInteractiveTool ::
     ToolState ->
     CommandLineReader ->
@@ -209,8 +210,9 @@ runInteractiveTool ::
     [Text] ->
     Maybe FilePath ->
     Maybe (Map String String) ->
+    C.Sink ToolOutput IO () ->
     IO ()
-runInteractiveTool tool clr executable arguments mbDir mbEnv = do
+runInteractiveTool tool clr executable arguments mbDir mbEnv idleOutput = do
     (Just inp,Just out,Just err,pid) <- createProcess (proc executable (map T.unpack arguments))
         { std_in  = CreatePipe,
           std_out = CreatePipe,
@@ -223,7 +225,7 @@ runInteractiveTool tool clr executable arguments mbDir mbEnv = do
           create_group = True }
 #endif
     putMVar (toolProcessMVar tool) pid
-    output <- getOutput clr inp out err pid
+    rawOutput <- getOutput clr inp out err pid
     _ <- forkIO . forever $ do
         takeMVar $ interruptToolMVar tool
         interruptProcessGroupOf pid
@@ -233,73 +235,87 @@ runInteractiveTool tool clr executable arguments mbDir mbEnv = do
             Just cmd -> hPutStrLn inp cmd >> hFlush inp
             Nothing  -> return ()
         commands <- getChanContents (toolCommandsRead tool)
-        output $= outputSequence inp $$ processCommand commands inp
+        output <- newEmptyMVar
+        cmd <- newEmptyMVar
+        _ <- forkIO $ outputSequence inp rawOutput output
+        _ <- forkIO $ forM_ commands $ putMVar cmd
+        processNoCommand inp output cmd $$ idleOutput
         return ()
     return ()
   where
-    isEndOfCommandOutput (ToolPrompt _) = True
-    isEndOfCommandOutput (ToolExit _) = True
-    isEndOfCommandOutput _ = False
 
-    isolateCommandOutput = isolateToFirst (not . isEndOfCommandOutput)
+    processNoCommand inp output cmd = loop
+      where
+        loop = do
+            liftIO $ do
+                ready <- newEmptyMVar
+                _ <- forkIO $ readMVar output >> putMVar ready ()
+                _ <- forkIO $ readMVar cmd >> putMVar ready ()
+                takeMVar ready
+            liftIO (tryTakeMVar output) >>= \case
+                Just o -> step o
+                Nothing -> liftIO (takeMVar cmd) >>= processCommand inp output cmd
+        step o@(ToolExit _) = do
+            liftIO . debugM "leksah-server" $ "Idle output " <> show o
+            C.yield o
+        step o = do
+            liftIO . debugM "leksah-server" $ "Idle output " <> show o
+            C.yield o
+            loop
 
-    processCommand [] _ = do
-        liftIO $ debugM "leksah-server" "No More Commands"
-        return ()
-    processCommand ((command@(ToolCommand commandString rawCommandString handler)):remainingCommands) inp = do
+    processCommand inp output cmd (ToolCommand commandString rawCommandString handler) = do
         liftIO $ do
             debugM "leksah-server" $ "Command " ++ T.unpack commandString
-            putMVar (currentToolCommand tool) command
+            putMVar (currentToolCommand tool) commandString
             hPutStrLn inp commandString
             hFlush inp
-        (mapM_ (C.yield . ToolInput) (T.lines rawCommandString) >> isolateCommandOutput) =$ handler
-        processCommand remainingCommands inp
-
-    outputSequence :: Handle -> C.Conduit RawToolOutput IO ToolOutput
-    outputSequence inp =
-        CL.concatMapAccumM writeCommandOutput (False, False, outputSyncCommand clr, 0, "")
+        liftIO (runConduit $ fuseUpstream (do
+                mapM_ (C.yield . ToolInput) (T.lines rawCommandString)
+                loop) handler) >>= \case
+            ToolExit _ -> return ()
+            _ -> processNoCommand inp output cmd
       where
+        loop = do
+            o <- liftIO (takeMVar output)
+            C.yield o
+            if isEndOfCommandOutput o
+                then return o
+                else loop
+
+    outputSequence :: Handle -> MVar RawToolOutput -> MVar ToolOutput -> IO ()
+    outputSequence inp rawOut output = loop (False, False, outputSyncCommand clr, 0, "")
+      where
+        loop :: (Bool, Bool, Maybe (Int -> Text), Int, Text) -> IO ()
+        loop s = takeMVar rawOut >>= (`writeCommandOutput` s)
+        yieldOutput = putMVar output
         writeCommandOutput (RawToolOutput (ToolPrompt line)) (False, False, Just outSyncCmd, n, _) = do
             debugM "leksah-server" "Pre Sync Prompt"
             hPutStrLn inp $ outSyncCmd n
             hFlush inp
-            return ((True, False, Just outSyncCmd, n, line), [])
+            loop (True, False, Just outSyncCmd, n, line)
         writeCommandOutput (RawToolOutput (ToolPrompt _))(True, False, mbSyncCmd, n, promptLine) = do
             debugM "leksah-server" "Unsynced Prompt"
-            return ((True, False, mbSyncCmd, n, promptLine), [])
+            loop (True, False, mbSyncCmd, n, promptLine)
         writeCommandOutput (RawToolOutput o@(ToolOutput line)) (True, False, mbSyncCmd, n, promptLine) = do
             let synced = isExpectedOutput clr n line
             when synced $ debugM "leksah-server" "Output Sync Found"
-            return ((True, synced, mbSyncCmd, n, promptLine), if synced then [] else [o])
+            unless synced $ yieldOutput o
+            loop (True, synced, mbSyncCmd, n, promptLine)
         writeCommandOutput (RawToolOutput (ToolPrompt _)) (_, _, mbSyncCmd, n, promptLine) = do
             debugM "leksah-server" "Synced Prompt - Ready For Next Command"
             _ <- tryTakeMVar (currentToolCommand tool)
-            return ((False, False, mbSyncCmd, n+1, promptLine), [ToolPrompt promptLine])
-        writeCommandOutput (RawToolOutput o@(ToolExit _)) s = do
+            yieldOutput $ ToolPrompt promptLine
+            loop (False, False, mbSyncCmd, n+1, promptLine)
+        writeCommandOutput (RawToolOutput o@(ToolExit _)) _ = do
             debugM "leksah-server" "Tool Exit"
             putMVar (outputClosed tool) True
-            return (s, [o])
-        writeCommandOutput (RawToolOutput o) s = return (s, [o])
+            yieldOutput o
+        writeCommandOutput (RawToolOutput o) s = do
+            yieldOutput o
+            loop s
         writeCommandOutput x s = do
             debugM "leksah-server" $ "Unexpected output " ++ show x
-            return (s, [])
-
---    outputSequence :: C.Conduit RawToolOutput IO ToolOutput
---    outputSequence =
---        CL.concatMapM writeCommandOutput
---      where
---        writeCommandOutput (RawToolOutput (ToolPrompt line)) = do
---            debugM "leksah-server" "Sync Prompt"
---            _ <- tryTakeMVar (currentToolCommand tool)
---            return [ToolPrompt line]
---        writeCommandOutput (RawToolOutput o@(ToolExit _)) = do
---            debugM "leksah-server" "Tool Exit"
---            putMVar (outputClosed tool) True
---            return [o]
---        writeCommandOutput (RawToolOutput o) = return [o]
---        writeCommandOutput x = do
---            debugM "leksah-server" $ "Unexpected output " ++ show x
---            return []
+            loop s
 
 {-
 newInteractiveTool :: (Handle -> Handle -> Handle -> ProcessHandle -> IO [RawToolOutput]) -> FilePath -> [Text] -> IO ToolState
@@ -332,12 +348,12 @@ ghciParsePrompt = (do
 marker :: Int -> Text
 marker n = "kMAKWRALZ" <> T.pack (show n)
 
-parseMarker :: AP.Parser Int
-parseMarker = (do
-        _ <- AP.string $ T.pack "kMAKWRALZ"
-        nums <- AP.takeWhile isDigit
-        return . read $ T.unpack nums)
-    <?> "parseMarker"
+--parseMarker :: AP.Parser Int
+--parseMarker = (do
+--        _ <- AP.string $ T.pack "kMAKWRALZ"
+--        nums <- AP.takeWhile isDigit
+--        return . read $ T.unpack nums)
+--    <?> "parseMarker"
 
 ghciIsExpectedOutput :: Int -> Text -> Bool
 ghciIsExpectedOutput n =
@@ -376,8 +392,8 @@ parseError expectedErrorParser = (do
     <?> "parseError"
 
 getOutput :: MonadIO m => CommandLineReader -> Handle -> Handle -> Handle -> ProcessHandle
-    -> IO (C.Source m RawToolOutput)
-getOutput clr inp out err pid = do
+    -> m (MVar RawToolOutput)
+getOutput clr inp out err pid = liftIO $ do
     hSetBuffering out NoBuffering
     hSetBuffering err NoBuffering
     mvar <- newEmptyMVar
@@ -388,22 +404,24 @@ getOutput clr inp out err pid = do
     _ <- forkIO $ do
         readOutput mvar out foundExpectedError
         putMVar mvar ToolOutClosed
-    return $ enumOutput mvar
+    resultMVar <- newEmptyMVar
+    _ <- forkIO $ checkForExit mvar resultMVar
+    return resultMVar
   where
-    enumOutput :: MonadIO m => MVar RawToolOutput -> C.Source m RawToolOutput
-    enumOutput mvar = loop (0:: Int) where
+    checkForExit :: MVar RawToolOutput -> MVar RawToolOutput -> IO ()
+    checkForExit mvar resultMVar = loop (0:: Int) where
         loop closed | closed < 2 = do
             v <- liftIO $ takeMVar mvar
             nowClosed <- if (v == ToolOutClosed) || (v == ToolErrClosed)
                 then return (closed + 1)
-                else C.yield v >> return closed
+                else putMVar resultMVar v >> return closed
             if nowClosed == 2
                 then do
                     exitCode <- liftIO $ waitForProcess pid
                     liftIO $ hClose inp
-                    C.yield . RawToolOutput $ ToolExit exitCode
+                    putMVar resultMVar . RawToolOutput $ ToolExit exitCode
                 else loop nowClosed
-        loop _ = error "Error in enumOutput"
+        loop _ = error "Error in checkForExit"
 
     readError :: MVar RawToolOutput -> Handle -> MVar () -> IO ()
     readError mvar errors foundExpectedError = do
@@ -479,25 +497,30 @@ getOutput clr inp out err pid = do
         waitForError = takeMVar foundExpectedError
 
 
-fromRawOutput :: RawToolOutput -> [ToolOutput]
-fromRawOutput (RawToolOutput output) = [output]
-fromRawOutput _ = []
+fromRawOutput :: RawToolOutput -> Maybe ToolOutput
+fromRawOutput (RawToolOutput output) = Just output
+fromRawOutput _ = Nothing
 
 getOutputNoPrompt :: MonadIO m => Handle -> Handle -> Handle -> ProcessHandle -> IO (C.Source m ToolOutput)
 getOutputNoPrompt inp out err pid = do
     output <- getOutput noInputCommandLineReader inp out err pid
-    return $ output $= CL.concatMap fromRawOutput
+    return $ loop output
+  where
+    loop output = do
+        o <- liftIO $ fromRawOutput <$> takeMVar output
+        mapM_ C.yield o
+        unless (any isEndOfCommandOutput o) $ loop output
 
-newGhci' :: [Text] -> C.Sink ToolOutput IO () -> IO ToolState
-newGhci' flags startupOutputHandler = do
+newGhci' :: [Text] -> C.Sink ToolOutput IO () -> C.Sink ToolOutput IO () -> IO ToolState
+newGhci' flags startupOutputHandler idleOutputHandler = do
     tool <- newToolState
     writeChan (toolCommands tool) $
         ToolCommand (":set prompt " <> ghciPrompt) "" startupOutputHandler
-    runInteractiveTool tool ghciCommandLineReader "ghci" flags Nothing Nothing
+    runInteractiveTool tool ghciCommandLineReader "ghci" flags Nothing Nothing idleOutputHandler
     return tool
 
-newGhci :: FilePath -> [Text] -> FilePath -> Maybe (Map String String) -> [Text] -> C.Sink ToolOutput IO () -> IO ToolState
-newGhci executable arguments dir mbEnv interactiveFlags startupOutputHandler = do
+newGhci :: FilePath -> [Text] -> FilePath -> Maybe (Map String String) -> [Text] -> C.Sink ToolOutput IO () -> C.Sink ToolOutput IO () -> IO ToolState
+newGhci executable arguments dir mbEnv interactiveFlags startupOutputHandler idleOutputHandler = do
     tool <- newToolState
     home <- liftIO getHomeDirectory
     let friendlyDir d = case stripPrefix home d of
@@ -510,7 +533,7 @@ newGhci executable arguments dir mbEnv interactiveFlags startupOutputHandler = d
     writeChan (toolCommands tool) $
         ToolCommand (":set prompt " <> ghciPrompt) (T.pack startupCommand) startupOutputHandler
     executeGhciCommand tool (":set " <> T.unwords interactiveFlags) startupOutputHandler
-    runInteractiveTool tool ghciCommandLineReader executable arguments (Just dir) mbEnv
+    runInteractiveTool tool ghciCommandLineReader executable arguments (Just dir) mbEnv idleOutputHandler
     return tool
 
 executeCommand :: ToolState -> Text -> Text -> C.Sink ToolOutput IO () -> IO ()
