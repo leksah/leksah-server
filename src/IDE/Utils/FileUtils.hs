@@ -416,7 +416,7 @@ runProjectTool (Just project) fp args mbDir mbEnv = do
         True ->
             loadNixEnv project "ghc" >>= \case
                 Just nixEnv -> do
-                    debugM "leksah" $ "Using cached nix environment for " <> show (project, "ghc")
+                    debugM "leksah" $ "Using cached nix environment for ghc " <> show project
                     runTool' "bash" ["-c", T.pack . showCommandForUser fp $ map T.unpack args] mbDir $ M.toList <$> Just nixEnv <> (M.fromList <$> mbEnv)
                 Nothing -> runTool' "nix-shell" [T.pack nixFile, "-A", "shells.ghc", "--run", T.pack . showCommandForUser fp $ map T.unpack args] mbDir mbEnv
         False -> runTool' fp args mbDir mbEnv
