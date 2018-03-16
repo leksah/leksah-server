@@ -23,6 +23,7 @@ module IDE.Utils.FileUtils (
 ,   allHaskellSourceFiles
 ,   isEmptyDirectory
 ,   cabalFileName
+,   loadNixCache
 ,   saveNixCache
 ,   loadNixEnv
 ,   runProjectTool
@@ -42,7 +43,6 @@ module IDE.Utils.FileUtils (
 ,   findSourceFile'
 ,   haskellSrcExts
 ,   getCabalUserPackageDir
-,   autoExtractCabalTarFiles
 ,   autoExtractTarFiles
 ,   getInstalledPackages
 ,   findProjectRoot
@@ -105,7 +105,6 @@ import Data.Aeson (eitherDecodeStrict')
 import IDE.Utils.CabalPlan (PlanJson(..))
 import IDE.Utils.CabalProject (findProjectRoot)
 import qualified Data.ByteString as BS (readFile)
-import System.Exit (ExitCode(ExitSuccess))
 import Data.Map (Map)
 import qualified Data.Text.IO as T (writeFile, readFile)
 import Text.Read.Compat (readMaybe)
@@ -397,16 +396,7 @@ saveNixCache project compiler out = liftIO $ do
     fixQuotes x = x
 
 loadNixEnv :: MonadIO m => FilePath -> Text -> m (Maybe (Map String String))
-loadNixEnv project compiler = liftIO $
-    (M.lookup (project, compiler) <$> loadNixCache) >>= \case
-        Just env -> return (Just env)
-        Nothing -> do
-            let nixFile = dropFileName project </> "default.nix"
-            (out, ph) <- runTool' "nix-shell" [T.pack nixFile, "-A", "shells." <> compiler, "--run", "( set -o posix ; set )"]
-                    (Just $ dropFileName project) Nothing
-            waitForProcess ph >>= \case
-                ExitSuccess -> Just <$> saveNixCache project compiler out
-                _ -> return Nothing
+loadNixEnv project compiler = M.lookup (project, compiler) <$> loadNixCache
 
 runProjectTool :: Maybe FilePath -> FilePath -> [Text] -> Maybe FilePath -> Maybe [(String, String)] -> IO ([ToolOutput], ProcessHandle)
 runProjectTool Nothing fp args mbDir mbEnv = runTool' fp args mbDir mbEnv
@@ -418,7 +408,9 @@ runProjectTool (Just project) fp args mbDir mbEnv = do
                 Just nixEnv -> do
                     debugM "leksah" $ "Using cached nix environment for ghc " <> show project
                     runTool' "bash" ["-c", T.pack . showCommandForUser fp $ map T.unpack args] mbDir $ M.toList <$> Just nixEnv <> (M.fromList <$> mbEnv)
-                Nothing -> runTool' "nix-shell" [T.pack nixFile, "-A", "shells.ghc", "--run", T.pack . showCommandForUser fp $ map T.unpack args] mbDir mbEnv
+                Nothing -> do
+                    debugM "leksah" $ "Ignoring " <> nixFile <> ". To enable nix right click on the project in the workspace an select 'Refresh Nix Environment Variables'"
+                    runTool' fp args mbDir mbEnv
         False -> runTool' fp args mbDir mbEnv
 
 getCabalUserPackageDir :: IO (Maybe FilePath)
@@ -427,12 +419,6 @@ getCabalUserPackageDir = do
     output `deepseq` case T.stripPrefix "  " (toolline $ last output) of
         Just s | "config" `T.isSuffixOf` s -> return . Just . T.unpack $ T.take (T.length s - 6) s <> "packages"
         _ -> return Nothing
-
-autoExtractCabalTarFiles :: FilePath -> IO ()
-autoExtractCabalTarFiles filePath = do
-    dir <- getCurrentDirectory
-    autoExtractTarFiles' filePath
-    setCurrentDirectory dir
 
 autoExtractTarFiles :: FilePath -> IO ()
 autoExtractTarFiles filePath = do

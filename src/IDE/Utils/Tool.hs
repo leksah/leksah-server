@@ -21,6 +21,7 @@
 module IDE.Utils.Tool (
     ToolOutput(..),
     toolline,
+    isToolPrompt,
     ToolCommand(..),
     ToolState(..),
     toolProcess,
@@ -59,7 +60,6 @@ import Control.Concurrent
 import Control.Monad (forM_, void, forever, when, unless)
 import Control.Monad.IO.Class (liftIO, MonadIO)
 import Data.Maybe (fromMaybe)
-import Data.Char (isDigit)
 import System.Process
        (showCommandForUser, proc, waitForProcess, ProcessHandle,
         createProcess, CreateProcess(..), interruptProcessGroupOf,
@@ -86,7 +86,7 @@ import qualified Data.Conduit.List as CL
 import qualified Data.Conduit.Binary as CB
 import Data.Conduit.Attoparsec (sinkParser)
 import qualified Data.Attoparsec.Text as AP
-       (endOfInput, takeWhile, Parser, endOfLine, char, string)
+       (endOfInput, takeWhile, Parser, endOfLine, char)
 import Data.Attoparsec.Text ((<?>))
 import Data.Text (replace, Text)
 import Data.Monoid ((<>))
@@ -145,6 +145,10 @@ toolline (ToolOutput l) = l
 toolline (ToolError l)  = l
 toolline (ToolPrompt l)  = l
 toolline (ToolExit _code) = ""
+
+isToolPrompt :: ToolOutput -> Bool
+isToolPrompt (ToolPrompt _) = True
+isToolPrompt _ = False
 
 quoteArg :: Text -> Text
 quoteArg s | T.any (==' ') s = "\"" <> escapeQuotes s <> "\""
@@ -348,13 +352,6 @@ ghciParsePrompt = (do
 marker :: Int -> Text
 marker n = "kMAKWRALZ" <> T.pack (show n)
 
---parseMarker :: AP.Parser Int
---parseMarker = (do
---        _ <- AP.string $ T.pack "kMAKWRALZ"
---        nums <- AP.takeWhile isDigit
---        return . read $ T.unpack nums)
---    <?> "parseMarker"
-
 ghciIsExpectedOutput :: Int -> Text -> Bool
 ghciIsExpectedOutput n =
     (==) (marker n)
@@ -553,7 +550,7 @@ executeGhciCommand tool command handler =
         safeLine _ = True
 
 interruptTool :: ToolState -> IO ()
-interruptTool tool = putMVar (interruptToolMVar tool) ()
+interruptTool tool = void $ tryPutMVar (interruptToolMVar tool) ()
 
 --children :: MVar [MVar ()]
 --children = unsafePerformIO (newMVar [])
