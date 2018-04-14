@@ -1,8 +1,10 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 -----------------------------------------------------------------------------
 --
@@ -70,6 +72,7 @@ module IDE.Core.CTypes (
 ,   PackageIdAndKey(..)
 ,   RetrieveStrategy(..)
 
+,   prettyPrint
 ) where
 
 import Prelude ()
@@ -78,8 +81,7 @@ import Data.Typeable (Typeable)
 import Data.Map (Map)
 import Data.Set (Set)
 import Data.Maybe (fromMaybe)
-import Default (Default(..))
-import MyMissing (nonEmptyLines)
+import Data.Default (Default(..))
 #if MIN_VERSION_ghc(7,6,0)
 import Distribution.Package
        (PackageIdentifier(..))
@@ -92,11 +94,12 @@ import Data.ByteString.Char8 (ByteString)
 #if !MIN_VERSION_bytestring(0,10,0)
 import Data.Version (Version(..))
 #endif
+import GHC.Generics (Generic)
+import Data.Aeson (ToJSON(..), FromJSON(..))
 import Distribution.Text (simpleParse, display)
 import qualified Data.ByteString.Char8 as BS (unpack, empty)
 import qualified Data.Map as Map (lookup,keysSet,splitLookup, insertWith,empty,elems,union)
-import Text.PrinterParser
-import Data.Char (isAlpha)
+import Data.Char (isAlpha, isSpace)
 import Control.DeepSeq (NFData(..))
 import PackageConfig (PackageConfig)
 #if MIN_VERSION_ghc(8,0,0)
@@ -118,7 +121,7 @@ import Data.Text (Text)
 import Data.Monoid ((<>))
 import Text.PrettyPrint (fsep, Doc, (<+>), empty, text)
 import qualified Text.PrettyPrint as PP
-       (text, comma, punctuate, parens)
+       (text, comma, punctuate, parens, Doc, empty, renderStyle, style)
 import qualified Data.Text as T (pack, tail, span, unpack)
 #if !MIN_VERSION_ghc(7,7,0)
 import Distribution.Package(PackageName(..))
@@ -129,7 +132,7 @@ import Distribution.Package(PackageName(..))
 --
 
 leksahVersion, configDirName :: FilePath
-leksahVersion = "0.16"
+leksahVersion = "0.17"
 configDirName = ".leksah-" <> leksahVersion
 
 metadataVersion :: Integer
@@ -159,7 +162,10 @@ getThisPackage p = PackageIdAndKey
 #endif
 
 data RetrieveStrategy = RetrieveThenBuild | BuildThenRetrieve | NeverRetrieve
-    deriving (Show, Read, Eq, Ord, Enum, Bounded)
+    deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
+
+instance ToJSON RetrieveStrategy
+instance FromJSON RetrieveStrategy
 
 data ServerCommand =
         SystemCommand {
@@ -214,7 +220,7 @@ data PackageDescr       =   PackageDescr {
 } deriving (Show,Typeable)
 
 instance Default PackageDescr where
-    getDefault = PackageDescr getDefault getDefault getDefault getDefault
+    def = PackageDescr def def def def
 
 newtype Present alpha       =   Present alpha
 
@@ -254,7 +260,7 @@ data ModuleDescr        =   ModuleDescr {
 } deriving (Show,Typeable)
 
 instance Default ModuleDescr where
-    getDefault = ModuleDescr getDefault getDefault Map.empty getDefault
+    def = ModuleDescr def def Map.empty def
 
 instance Show (Present ModuleDescr) where
     show (Present md)   =   (show . mdModuleId) md
@@ -276,7 +282,10 @@ instance Ord ModuleDescr where
                 else mdModuleId a <=  mdModuleId b
 
 data Descr =  Real RealDescr | Reexported ReexportedDescr
-        deriving (Show,Read,Typeable,Eq,Ord)
+        deriving (Show,Read,Typeable,Eq,Ord,Generic)
+
+instance ToJSON Descr
+instance FromJSON Descr
 
 data RealDescr          =   RealDescr {
         dscName'        ::   Text
@@ -287,12 +296,22 @@ data RealDescr          =   RealDescr {
     ,   dscTypeHint'    ::   TypeDescr
     ,   dscExported'    ::   Bool
     }
-        deriving (Show,Read,Typeable)
+        deriving (Show,Read,Typeable,Generic)
+
+instance ToJSON RealDescr where
+    toJSON = toJSON . show
+instance FromJSON RealDescr where
+    parseJSON v = read <$> parseJSON v
 
 data ReexportedDescr    =   ReexportedDescr {
         dsrMbModu       ::   Maybe PackModule
     ,   dsrDescr        ::   Descr}
-        deriving (Show,Read,Typeable)
+        deriving (Show,Read,Typeable,Generic)
+
+instance ToJSON ReexportedDescr where
+    toJSON = toJSON . show
+instance FromJSON ReexportedDescr where
+    parseJSON v = read <$> parseJSON v
 
 -- Metadata accessors
 
@@ -358,7 +377,7 @@ data DescrType = Variable | Field | Constructor | Data  | Type | Newtype
   deriving (Show, Eq, Ord, Bounded, Enum, Read)
 
 instance Default DescrType where
-    getDefault = Variable
+    def = Variable
 
 data SimpleDescr = SimpleDescr {
     sdName      :: Text,
@@ -412,6 +431,9 @@ packageIdentifierToString   = T.pack . display
 packageIdentifierFromString :: Text -> Maybe PackageIdentifier
 packageIdentifierFromString = simpleParse . T.unpack
 
+nonEmptyLines :: String -> [String]
+nonEmptyLines = filter (any (not . isSpace)) . lines
+
 instance Show (Present Descr) where
     showsPrec _ (Present descr) =   case dscMbComment descr of
                                         Just comment -> p . showChar '\n' . c comment . t
@@ -446,10 +468,10 @@ instance Ord ReexportedDescr where
                                 else dscName (Reexported a) <  dscName (Reexported b)
 
 instance Default PackModule where
-    getDefault = parsePackModule "unknow-0:Undefined"
+    def = parsePackModule "unknow-0:Undefined"
 
 instance Default PackageIdentifier where
-    getDefault = fromMaybe
+    def = fromMaybe
                    (error "CTypes.getDefault: Can't parse Package Identifier")
                    (packageIdentifierFromString "unknown-0")
 
@@ -472,11 +494,14 @@ data Location           =   Location {
 }   deriving (Show,Eq,Ord,Read,Typeable)
 
 instance Default ByteString
-    where getDefault = BS.empty
+    where def = BS.empty
 
 data Scope = PackageScope Bool | WorkspaceScope Bool | SystemScope
     -- True -> with imports, False -> without imports
-  deriving (Show, Eq, Read)
+  deriving (Show, Eq, Read, Generic)
+
+instance ToJSON Scope
+instance FromJSON Scope
 
 instance Ord Scope where
     _ <= SystemScope                             = True
@@ -498,6 +523,32 @@ data ImportDecl = ImportDecl
             -- ^ optional list of import specifications.
     }
   deriving (Eq,Ord,Read,Show)
+
+-- ------------------------------------------------------------
+-- * Printing
+-- ------------------------------------------------------------
+-- | pretty-print with the default style and 'defaultMode'.
+prettyPrint :: Pretty a => a -> Text
+prettyPrint a = T.pack $ PP.renderStyle PP.style (pretty a)
+
+-- | Things that can be pretty-printed
+class Pretty a where
+    -- | Pretty-print something in isolation.
+    pretty :: a -> PP.Doc
+    -- | Pretty-print something in a precedence context.
+    prettyPrec :: Int -> a -> PP.Doc
+    pretty = prettyPrec 0
+    prettyPrec _ = pretty
+
+emptyPrinter ::  () ->  PP.Doc
+emptyPrinter _ = PP.empty
+
+maybePP :: (a -> PP.Doc) -> Maybe a -> PP.Doc
+maybePP _ Nothing = PP.empty
+maybePP pp (Just a) = pp a
+
+instance Pretty Text where
+    pretty str = PP.text $ T.unpack str
 
 instance Pretty ImportDecl
   where

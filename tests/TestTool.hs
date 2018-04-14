@@ -34,7 +34,7 @@ import qualified Data.Conduit.List as EL (consume)
 import Control.Concurrent
        (threadDelay, forkIO, takeMVar, putMVar, newEmptyMVar)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad (forM_)
+import Control.Monad (void, forM_)
 import System.Log.Logger
        (setLevel, rootLoggerName, updateGlobalLogger)
 import System.Log (Priority(..))
@@ -101,9 +101,9 @@ tests testTool =
         output `check` [ToolInput $ T.pack testTool <> " Unterminated StdErr", ToolError "Unterminated", ToolExit ExitSuccess],
     "GHCi Failed Sart" ~: do
         t <- newEmptyMVar
-        tool <- newGhci' ["MissingFile.hs"] $ do
+        tool <- newGhci' ["MissingFile.hs"] (void EL.consume) $ do
             output <- EL.consume
-            sendTest t $ last output @?= (ToolPrompt "")
+            sendTest t $ last output @?= ToolPrompt ""
         executeGhciCommand tool ":quit" $ do
             output <- EL.consume
             sendTest t $ output `check` [
@@ -112,9 +112,9 @@ tests testTool =
                 ToolExit ExitSuccess],
     "GHCi" ~: do
         t <- newEmptyMVar
-        tool <- newGhci' [] $ do
+        tool <- newGhci' [] (void EL.consume) $ do
             output <- EL.consume
-            sendTest t $ last output @?= (ToolPrompt "")
+            sendTest t $ last output @?= ToolPrompt ""
         executeGhciCommand tool ":m +System.IO" $ do
             output <- EL.consume
             sendTest t $ output `check` [

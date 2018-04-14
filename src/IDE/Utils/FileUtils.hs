@@ -671,7 +671,12 @@ figureOutGhcOpts mbProject package = do
 figureOutGhcOpts' :: Maybe FilePath -> FilePath -> IO [Text]
 figureOutGhcOpts' mbProject package = do
     debugM "leksah-server" "figureOutGhcOpts'"
-    (!output,_) <- runProjectTool mbProject "cabal" ["build","--with-ghc=leksahecho","--with-ghcjs=leksahecho"] (Just $ dropFileName package) Nothing
+    cabalOrSetup <- case mbProject of
+        Nothing -> doesFileExist (takeDirectory package </> "Setup") >>= \case
+            True  -> return "./Setup"
+            False -> return "cabal"
+        _ -> return "cabal"
+    (!output,_) <- runProjectTool mbProject cabalOrSetup ["build","--with-ghc=leksahecho","--with-ghcjs=leksahecho"] (Just $ dropFileName package) Nothing
     let res = case catMaybes [findMake $ T.unpack l | ToolOutput l <- output] of
                 options:_ -> words options
                 _         -> []

@@ -21,18 +21,24 @@ import IDE.Utils.VersionUtils (getHaddockVersion, getDefaultGhcVersion, getGhcIn
 import qualified Data.Text as T (unpack)
 import Control.Applicative
 import Prelude
+import Control.Monad ((>=>))
 
 main :: IO ()
 main = do
     args <- getArgs
 --    appendFile "/Users/hamish/lecho.log" $ show args ++ "/n"
-    if elem  "--version" args
+    if "--version" `elem` args
         then putStrLn =<< T.unpack <$> getHaddockVersion
-        else if elem  "--ghc-version" args
+        else if "--ghc-version" `elem` args
                 then putStrLn =<<  getDefaultGhcVersion
-                else if elem  "--info" args
+                else if "--info" `elem` args
                         then putStrLn =<< T.unpack <$> (getGhcInfo =<< getDefaultGhcVersion)
-                        else if elem  "--numeric-version" args
+                        else if "--numeric-version" `elem` args
                                 then putStrLn =<<  getDefaultGhcVersion
-                                else putStrLn $ unwords args
+                                else expandResponseFiles args >>= putStrLn . unwords
 
+expandResponseFiles :: [String] -> IO [String]
+expandResponseFiles (('@':responseFile):rest) =
+    ((lines >=> words) <$> readFile responseFile) >>= expandResponseFiles . (++ rest)
+expandResponseFiles (arg:rest) = (arg:) <$> expandResponseFiles rest
+expandResponseFiles [] = return []

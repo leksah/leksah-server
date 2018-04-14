@@ -1,4 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE RecordWildCards #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.StrippedPrefs
@@ -23,9 +29,7 @@ module IDE.StrippedPrefs (
 ,   getUnpackDirectory
 ) where
 
-import Text.PrinterParser
-import Graphics.UI.Editor.Parameters
-    (emptyParams, Parameter(..), (<<<-), paraName)
+import GHC.Generics (Generic)
 import qualified Text.PrettyPrint as  PP (text)
 import System.FilePath
        (joinPath, (</>), dropTrailingPathSeparator, splitPath)
@@ -33,80 +37,100 @@ import System.Directory (getHomeDirectory)
 import Control.Monad (liftM)
 import IDE.Core.CTypes (RetrieveStrategy(..), configDirName)
 import Data.Text (Text)
+import qualified Data.Aeson as JSON (Result(..), Value)
+import Data.Aeson
+       (encode, eitherDecode, fromJSON, toJSON, FromJSON(..), ToJSON(..))
+import Data.Aeson.Types
+       (Options, genericParseJSON, genericToEncoding, genericToJSON,
+        defaultOptions, fieldLabelModifier)
+import Data.Monoid ((<>))
+import qualified Control.Exception as E (catch)
+import Control.Exception (IOException)
+import qualified Data.Map as M (lookup)
+import Data.Map (Map)
+import qualified Data.ByteString.Lazy as LBS (writeFile, readFile)
+import Data.Functor.Identity (Identity(..))
+import Data.Maybe (fromMaybe)
+import GHC.Stack (HasCallStack)
 
 --
 -- | Preferences is a data structure to hold configuration data
 --
-data Prefs = Prefs {
-        sourceDirectories   ::   [FilePath]
-    ,   unpackDirectory     ::   Maybe FilePath
-    ,   retrieveURL         ::   Text
-    ,   retrieveStrategy    ::   RetrieveStrategy
-    ,   serverPort          ::   Int
-    ,   endWithLastConn     ::   Bool
-} deriving(Eq,Show)
+data Prefs = Prefs
+  { sourceDirectories :: [FilePath]
+  , unpackDirectory   :: Maybe FilePath
+  , retrieveURL       :: Text
+  , retrieveStrategy  :: RetrieveStrategy
+  , serverPort        :: Int
+  , endWithLastConn   :: Bool
+  } deriving(Eq, Show, Generic)
+
+data PrefsFile = PrefsFile
+  { sourceDirectories_ :: Maybe [FilePath]
+  , unpackDirectory_   :: Maybe (Maybe FilePath)
+  , retrieveURL_       :: Maybe Text
+  , retrieveStrategy_  :: Maybe RetrieveStrategy
+  , serverPort_        :: Maybe Int
+  , endWithLastConn_   :: Maybe Bool
+  } deriving(Eq, Show, Generic)
+
+prefsAesonOptions :: Options
+prefsAesonOptions = defaultOptions
+    { fieldLabelModifier = init
+    }
+
+instance ToJSON PrefsFile where
+    toJSON     = genericToJSON prefsAesonOptions
+    toEncoding = genericToEncoding prefsAesonOptions
+instance FromJSON PrefsFile where
+    parseJSON = genericParseJSON prefsAesonOptions
 
 defaultPrefs :: Prefs
-defaultPrefs = Prefs {
-        sourceDirectories   =   []
-    ,   unpackDirectory     =   Just ("~" </> configDirName </> "packageSources")
-    ,   retrieveURL         =   "http://leksah.github.io/"
-    ,   retrieveStrategy    =   RetrieveThenBuild
-    ,   serverPort          =   11111
-    ,   endWithLastConn     =   True
-    }
+defaultPrefs = Prefs
+  { sourceDirectories = []
+  , unpackDirectory   = Just ("~" </> configDirName </> "packageSources")
+  , retrieveURL       = "http://leksah.github.io/"
+  , retrieveStrategy  = RetrieveThenBuild
+  , serverPort        = 11111
+  , endWithLastConn   = True
+  }
+
+mergePrefsFile :: Prefs -> PrefsFile -> Prefs
+mergePrefsFile Prefs{..} PrefsFile{..} = Prefs
+  { sourceDirectories = fromMaybe sourceDirectories sourceDirectories_
+  , unpackDirectory   = fromMaybe unpackDirectory unpackDirectory_
+  , retrieveURL       = fromMaybe retrieveURL retrieveURL_
+  , retrieveStrategy  = fromMaybe retrieveStrategy retrieveStrategy_
+  , serverPort        = fromMaybe serverPort serverPort_
+  , endWithLastConn   = fromMaybe endWithLastConn endWithLastConn_
+  }
+
+toPrefsFile :: Prefs -> PrefsFile
+toPrefsFile Prefs{..} = PrefsFile
+  { sourceDirectories_ = Just sourceDirectories
+  , unpackDirectory_   = Just unpackDirectory
+  , retrieveURL_       = Just retrieveURL
+  , retrieveStrategy_  = Just retrieveStrategy
+  , serverPort_        = Just serverPort
+  , endWithLastConn_   = Just endWithLastConn
+  }
+
+
 
 -- ------------------------------------------------------------
 -- * Parsing
 -- ------------------------------------------------------------
 
-readStrippedPrefs :: FilePath -> IO Prefs
-readStrippedPrefs fn = readFields fn prefsDescription defaultPrefs
+readStrippedPrefs :: HasCallStack => FilePath -> IO Prefs
+readStrippedPrefs file = E.catch (
+    eitherDecode <$> LBS.readFile file >>= \case
+        Left e -> error $ "Error reading file " ++ show file ++ " " ++ show e
+        Right r -> return $ mergePrefsFile defaultPrefs r)
+    (\ (e::IOException) -> error $ "Error reading file " ++ show file ++ " " ++ show e)
 
 writeStrippedPrefs :: FilePath -> Prefs -> IO ()
-writeStrippedPrefs fpath prefs = writeFields fpath prefs prefsDescription
+writeStrippedPrefs file prefs = LBS.writeFile file . encode $ toPrefsFile prefs
 
-
-prefsDescription :: [FieldDescriptionS Prefs]
-prefsDescription = [
-        mkFieldS
-            (paraName <<<- ParaName
-                "Paths under which haskell sources for packages may be found" $ emptyParams)
-            (PP.text . show)
-            readParser
-            sourceDirectories
-            (\b a -> a{sourceDirectories = b})
-    ,   mkFieldS
-            (paraName <<<- ParaName "Unpack source for cabal packages to" $ emptyParams)
-            (PP.text . show)
-            readParser
-            unpackDirectory
-            (\b a -> a{unpackDirectory = b})
-    ,   mkFieldS
-            (paraName <<<- ParaName "URL from which to download prebuilt metadata" $ emptyParams)
-            (PP.text . show)
-            stringParser
-            retrieveURL
-            (\b a -> a{retrieveURL = b})
-    ,   mkFieldS
-            (paraName <<<- ParaName "Strategy for downloading prebuilt metadata" $ emptyParams)
-            (PP.text . show)
-            readParser
-            retrieveStrategy
-            (\b a -> a{retrieveStrategy = b})
-    ,   mkFieldS
-            (paraName <<<- ParaName "Port number for leksah to comunicate with leksah-server" $ emptyParams)
-            (PP.text . show)
-            intParser
-            serverPort
-            (\b a -> a{serverPort = b})
-    ,   mkFieldS
-            (paraName <<<- ParaName "Stop the leksah-server process when leksah disconnects" $ emptyParams)
-            (PP.text . show)
-            boolParser
-            endWithLastConn
-            (\b a -> a{endWithLastConn = b})
-    ]
 
 -- ------------------------------------------------------------
 -- * Cross platform support for "~" at the start of paths

@@ -71,7 +71,8 @@ import Data.Maybe (fromMaybe)
 --    \   ]\
 --    \}") :: Either String PlanJson
 -- :}
--- Right (PlanJson {pjPlan = [PlanItem {piId = "Cabal-1.24.0.0", piType = "pre-existing", piComps = [(ComponentLib,fromList ["array-0.5.1.1","base-4.9.0.0"])]},PlanItem {piId = "QuickCheck-2.9.1-ec9a1c39266d75ed2c3314f6e846a8f11853eff43fc45db79c7256d9bfd94602", piType = "configured", piComps = [(ComponentLib,fromList ["base-4.9.0.0","containers-0.5.7.1","random-1.1-fe6ccf72ebd63a2d68570bb45b42bd08df5570c6151cb9af54907d40ef9af454"])]}]})
+-- Right (PlanJson {pjPlan = [PlanItem {piId = "Cabal-1.24.0.0", piType = "pre-existing", piComps = [(ComponentLib,fromList ["array-0.5.1.1","base-4.9.0.0"])]},PlanItem {piId = "QuickCheck-2.9.1-ec9a1c39266d75ed2c3314f6e846a8f11853eff43fc45db79c7256d9bfd94602", piType = "configured", piComps = [(ComponentLib,fromList ["base-4.9.0.0","containers-0.5.7.1","random-1.1-fe6ccf72ebd63a2d68570bb45b42bd08df5570c6151cb9af54907d40ef9af454"])]}], pjCabalVersion = "1.24.0.0", pjCabalLibVersion = "1.24.0.0", pjCompilerId = Nothing, pjOS = Nothing, pjArch = Nothing})
+
 data PlanJson = PlanJson
      { pjPlan :: [PlanItem]
      , pjCabalVersion :: String

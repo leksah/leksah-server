@@ -2,6 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.Metainfo.SourceCollectorH
@@ -20,10 +21,14 @@ module IDE.Metainfo.SourceCollectorH (
 --    collectPackageFromSource
     findSourceForPackage
 ,   packageFromSource
+,   packageFromSource'
 ,   interfaceToModuleDescr
 ,   PackageCollectStats(..)
 ) where
 
+import Data.Text (Text)
+import qualified Data.Text as T (unpack, pack, stripPrefix, stripSuffix)
+import Data.Monoid ((<>))
 import IDE.Core.CTypes
        (getThisPackage, PackageDescr(..), TypeDescr(..), RealDescr(..),
         Descr(..), ModuleDescr(..), PackModule(..), SimpleDescr(..),
@@ -43,7 +48,6 @@ import InstEnv (ClsInst(..))
 #else
 import InstEnv (Instance(..))
 #endif
-import MyMissing (forceJust)
 import Data.Map (Map)
 import qualified Data.Map as Map (empty)
 
@@ -67,15 +71,17 @@ import qualified Distribution.InstalledPackageInfo as IPI
 import IDE.StrippedPrefs (getUnpackDirectory, Prefs(..))
 import IDE.Metainfo.SourceDB (sourceForPackage, getSourcesMap)
 import MonadUtils (liftIO)
-import System.Directory (setCurrentDirectory, doesDirectoryExist,createDirectory)
-import System.FilePath ((<.>), dropFileName, (</>), splitDirectories, dropExtension)
-import Data.Maybe(mapMaybe)
+import System.Directory (setCurrentDirectory, doesDirectoryExist, createDirectoryIfMissing, doesFileExist)
+import System.FilePath ((<.>), dropFileName, (</>), splitDirectories, dropExtension, takeDirectory)
+import System.Exit (ExitCode(..))
+import Data.Maybe(mapMaybe, listToMaybe, fromMaybe)
 import IDE.Utils.GHCUtils (inGhcIO)
 import qualified Control.Exception as NewException (SomeException, catch)
 import IDE.Utils.Tool
-import Control.Monad (unless)
 import IDE.Utils.FileUtils (figureOutGhcOpts', myCanonicalizePath, getSysLibDir)
 import Distribution.Package(PackageIdentifier, pkgName)
+import Distribution.Simple.Utils (installDirectoryContents)
+import Distribution.Verbosity (normal)
 import GHC hiding(Id,Failed,Succeeded,ModuleName)
 import Distribution.ModuleName (components)
 import System.Log.Logger (warningM, debugM)
@@ -89,10 +95,6 @@ import qualified Outputable as O
 #endif
 import GHC.Show(showSpace)
 import Name
-import Data.Text (Text)
-import qualified Data.Text as T (unpack, pack)
-import Data.Monoid ((<>))
-import Data.Maybe (listToMaybe, fromMaybe)
 
 #if MIN_VERSION_ghc(8,2,0)
 exposedName :: (ModuleName, Maybe Module) -> ModuleName
@@ -126,8 +128,9 @@ data PackageCollectStats = PackageCollectStats {
     retrieved           :: Bool,
     mbError             :: Maybe Text}
 
-findSourceForPackage :: Prefs -> PackageIdentifier -> IO (Either Text FilePath)
-findSourceForPackage prefs packageId = do
+findSourceForPackage :: Prefs -> PackageIdentifier -> Maybe FilePath -> IO (Either Text FilePath)
+findSourceForPackage prefs packageId mbProject = do
+    debugM "leksah-server" $ "findSourceForPackage" <> display packageId <> " " <> show mbProject
     sourceMap <- liftIO $ getSourcesMap prefs
     case sourceForPackage packageId sourceMap of
         Just fpSource -> return (Right fpSource)
@@ -136,57 +139,82 @@ findSourceForPackage prefs packageId = do
             case unpackDir of
                 Nothing -> return (Left "No source found. Prefs don't allow for retreiving")
                 Just fpUnpack -> do
-                    exists <- doesDirectoryExist fpUnpack
-                    unless exists $ createDirectory fpUnpack
-                    setCurrentDirectory fpUnpack
-                    _ <- runTool' "cabal" ["unpack", packageName] Nothing Nothing
-                    success <- doesDirectoryExist (fpUnpack </> packageName')
-                    if not success
-                        then return (Left "Failed to download and unpack source")
-                        else return (Right (fpUnpack </> packageName' </> display (pkgName packageId) <.> "cabal"))
+                    createDirectoryIfMissing True fpUnpack
+                    success <- maybe (return False) (copyNixSource packageId fpUnpack) mbProject >>= \case
+                        True -> return True
+                        False -> do
+                            _ <- runTool' "cabal" ["unpack", packageName] (Just fpUnpack) Nothing
+                            doesDirectoryExist (fpUnpack </> packageName')
+                    return $ if success
+                                then Right $ fpUnpack </> packageName' </> display (pkgName packageId) <.> "cabal"
+                                else Left "Failed to download and unpack source"
     where
         packageName = packageIdentifierToString packageId
         packageName' = T.unpack packageName
 
 
+copyNixSource :: PackageIdentifier -> FilePath -> FilePath -> IO Bool
+copyNixSource packageId fpUnpack project = return False
+copyNixSource packageId fpUnpack project = do
+    debugM "leksah-server" "copyNixSource"
+    let nixFile = takeDirectory project </> "default.nix"
+    doesFileExist nixFile >>= \case
+        True -> do
+            (nixOuput, _) <- runTool' "nix-instantiate" [T.pack nixFile, "--eval", "-A", T.pack $ "ghc." <> display (pkgName packageId) <> ".src"] (Just $ takeDirectory project) Nothing
+            case reverse nixOuput of
+                (ToolExit ExitSuccess:ToolOutput lineMaybeQuoted:_) -> do
+                    let line = removeQuotes lineMaybeQuoted
+                        cabalFile = T.unpack line </> display (pkgName packageId) <.> "cabal"
+                    doesFileExist cabalFile >>= \case
+                        True -> installDirectoryContents normal (T.unpack line) (fpUnpack </> packageName') >> return True
+                        False -> do
+                            debugM "leksah-server" $ "copyNixSource cabal file not found " <> cabalFile
+                            return False
+                _ -> return False
+        False -> return False
+    where
+        packageName = packageIdentifierToString packageId
+        packageName' = T.unpack packageName
+        removeQuotes s = fromMaybe s $ T.stripPrefix "\"" s >>= T.stripSuffix "\""
+
 packageFromSource :: Maybe FilePath -> [FilePath] -> FilePath -> PackageConfig -> IO (Maybe PackageDescr, PackageCollectStats)
 packageFromSource mbProject dbs cabalPath packageConfig = do
-    setCurrentDirectory dirPath
+    setCurrentDirectory (dropFileName cabalPath)
     ghcFlags <- figureOutGhcOpts' mbProject cabalPath
     debugM "leksah-server" ("ghcFlags:  " ++ show ghcFlags)
-    NewException.catch (inner ghcFlags) handler
-    where
-        _handler' (_e :: NewException.SomeException) = do
-            debugM "leksah-server" "would block"
-            return []
-        handler (e :: NewException.SomeException) = do
-            warningM "leksah-server" ("Ghc failed to process: " ++ show e ++ " (" ++ cabalPath ++ ")")
-            return (Nothing, PackageCollectStats packageName Nothing False False
-                                            (Just ("Ghc failed to process: " <> T.pack (show e) <> " (" <> T.pack cabalPath <> ")")))
-        inner ghcFlags = do
-            libDir <- getSysLibDir Nothing VERSION_ghc
-            inGhcIO libDir ghcFlags [Opt_Haddock] dbs $ \ dflags -> do
-                (interfaces,_) <- processModules verbose (exportedMods ++ hiddenMods) [] []
-                liftIO $ print (length interfaces)
-                let mods = map (interfaceToModuleDescr dflags dirPath (packId $ getThisPackage packageConfig)) interfaces
-                sp <- liftIO $ myCanonicalizePath dirPath
-                let pd = PackageDescr {
-                        pdPackage           =   packId (getThisPackage packageConfig)
-                    ,   pdModules           =   mods
-                    ,   pdBuildDepends      =   [] -- TODO depends packageConfig
-                    ,   pdMbSourcePath      =   Just sp}
-                let stat = PackageCollectStats packageName (Just (length mods)) True False Nothing
-                liftIO $ deepseq pd $ return (Just pd, stat)
+    NewException.catch (packageFromSource' ghcFlags dbs cabalPath packageConfig) handler
+  where
+    handler (e :: NewException.SomeException) = do
+        warningM "leksah-server" ("Ghc failed to process: " ++ show e ++ " (" ++ cabalPath ++ ")")
+        return (Nothing, PackageCollectStats packageName Nothing False False
+                            (Just ("Ghc failed to process: " <> T.pack (show e) <> " (" <> T.pack cabalPath <> ")")))
+    packageName  = packageIdentifierToString (packId $ getThisPackage packageConfig)
+
+packageFromSource' :: [Text] -> [FilePath] -> FilePath -> PackageConfig -> IO (Maybe PackageDescr, PackageCollectStats)
+packageFromSource' ghcFlags dbs cabalPath packageConfig = do
+    libDir <- getSysLibDir Nothing VERSION_ghc
+    inGhcIO libDir ghcFlags [Opt_Haddock] dbs $ \ dflags -> do
+        (interfaces,_) <- processModules verbose (exportedMods ++ hiddenMods) [] []
+        liftIO $ print (length interfaces)
+        let mods = map (interfaceToModuleDescr dflags dirPath (packId $ getThisPackage packageConfig)) interfaces
+        sp <- liftIO $ myCanonicalizePath dirPath
+        let pd = PackageDescr {
+                pdPackage           =   packId (getThisPackage packageConfig)
+            ,   pdModules           =   mods
+            ,   pdBuildDepends      =   [] -- TODO depends packageConfig
+            ,   pdMbSourcePath      =   Just sp}
+        let stat = PackageCollectStats packageName (Just (length mods)) True False Nothing
+        liftIO $ deepseq pd $ return (Just pd, stat)
+  where
 #if MIN_VERSION_ghc(7,10,0)
-        exportedMods = map (moduleNameString . exposedName) $ exposedModules packageConfig
-        hiddenMods   = map moduleNameString $ hiddenModules packageConfig
+    exportedMods = map (moduleNameString . exposedName) $ exposedModules packageConfig
+    hiddenMods   = map moduleNameString $ hiddenModules packageConfig
 #else
-        exportedMods = map moduleNameString $ IPI.exposedModules packageConfig
-        hiddenMods   = map moduleNameString $ IPI.hiddenModules packageConfig
+    exportedMods = map moduleNameString $ IPI.exposedModules packageConfig
+    hiddenMods   = map moduleNameString $ IPI.hiddenModules packageConfig
 #endif
-        dirPath      = dropFileName cabalPath
-        packageName  = packageIdentifierToString (packId $ getThisPackage packageConfig)
--- Heaven
+    dirPath      = dropFileName cabalPath
+    packageName  = packageIdentifierToString (packId $ getThisPackage packageConfig)
 
 interfaceToModuleDescr :: DynFlags -> FilePath -> PackageIdentifier -> Interface -> ModuleDescr
 interfaceToModuleDescr dflags _dirPath pid interface =
@@ -203,8 +231,7 @@ interfaceToModuleDescr dflags _dirPath pid interface =
             [locationFile loc | Real RealDescr{dscMbLocation' = Just loc,
                 dscMbModu' = Just dscMod} <- descrs, dscMod == PM pid modName,
                 filenameMatchesModule (locationFile loc)]
-        modName    = forceJust ((simpleParse . moduleNameString . moduleName . ifaceMod) interface)
-                        "Can't parse module name"
+        modName    = fromMaybe (error "Can't parse module name") ((simpleParse . moduleNameString . moduleName . ifaceMod) interface)
         filenameMatchesModule fn = components modName `isSuffixOf` splitDirectories (dropExtension fn)
         descrs     = extractDescrs dflags (PM pid modName)
                         (ifaceDeclMap interface) (ifaceExportItems interface)

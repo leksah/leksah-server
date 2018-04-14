@@ -29,7 +29,7 @@ import System.Console.GetOpt
     (ArgDescr(..), usageInfo, ArgOrder(..), getOpt, OptDescr(..))
 import System.Environment (getArgs)
 import System.FilePath ((</>), (<.>))
-import Control.Monad (when, forM)
+import Control.Monad (forM_, when, forM)
 import Data.Version (showVersion)
 import IDE.Utils.FileUtils
 import IDE.Utils.Utils
@@ -55,17 +55,20 @@ import System.IO (Handle, hPutStrLn, hGetLine, hFlush, hClose)
 import IDE.HeaderParser(parseTheHeader)
 import Data.IORef
 import Control.Concurrent (MVar,putMVar)
-import IDE.Metainfo.PackageCollector(collectPackage)
+import IDE.Metainfo.PackageCollector
+       (collectPackageOnly, collectPackage)
 import Data.List (nub, delete, sortBy)
 import Data.Ord (comparing)
 import System.Directory
-       (removeFile, doesFileExist, removeDirectoryRecursive,
-        doesDirectoryExist)
+       (createDirectoryIfMissing, removeFile, doesFileExist,
+        removeDirectoryRecursive, doesDirectoryExist)
 import IDE.Metainfo.SourceCollectorH (PackageCollectStats(..))
 import Control.Monad.IO.Class (MonadIO(..))
 import qualified Data.Text as T (strip, pack, unpack)
 import Data.Text (Text)
 import Data.Monoid ((<>))
+import Distribution.Package (pkgName)
+import Distribution.Text (display)
 
 -- --------------------------------------------------------------------
 -- Command line options
@@ -88,6 +91,8 @@ data Flag =    CollectSystem
              | Forever
              | EndWithLast
              | ProjectFile FilePath
+             | PackageBuildDir FilePath
+             | MetadataOutputDir FilePath
        deriving (Show,Eq)
 
 options :: [OptDescr Flag]
@@ -118,6 +123,10 @@ options =   [
                 "End the server when last connection ends"
          ,   Option ['p'] ["projectFile"] (ReqArg ProjectFile "ProjectFile")
                 "Project file to include in collection"
+         ,   Option ['i'] ["input"] (ReqArg PackageBuildDir "PackageBuildDir")
+                "Collect metadata for the package that has been built the specified directory"
+         ,   Option ['m'] ["metadata"] (ReqArg MetadataOutputDir "MetadataOutputDir")
+                "Output location for metadata files"
 
     ]
 
@@ -164,49 +173,47 @@ main =  withSocketsDo $ catch inner handler
                 updateGlobalLogger rootLoggerName (addHandler handler')
             infoM "leksah-server" "***server start"
             debugM "leksah-server" $ "args: " ++ show args
-            dataDir         <- getDataDir
-            prefsPath       <- getConfigFilePathForLoad strippedPreferencesFilename Nothing dataDir
-            prefs           <- readStrippedPrefs prefsPath
-            debugM "leksah-server" $ "prefs " ++ show prefs
-            connRef  <- newIORef []
-            localServerAddr <- inet_addr "127.0.0.1"
 
             if elem VersionF o
                 then putStrLn $ "Leksah Haskell IDE (server), version " ++ showVersion version
                 else if elem Help o
                     then putStrLn $ "Leksah Haskell IDE (server) " ++ usageInfo header options
                     else do
-                        let servers     =   catMaybes $
-                                                map (\x -> case x of
-                                                                ServerCommand s -> Just s
-                                                                _        -> Nothing) o
                         let sources     =   elem Sources o
                         let rebuild     =   elem Rebuild o
                         let debug       =   elem Debug o
                         let forever     =   elem Forever o
                         let endWithLast =   elem EndWithLast o
-                        let newPrefs
-                              | forever && not endWithLast = prefs{endWithLastConn = False}
-                              | not forever && endWithLast = prefs{endWithLastConn = True}
-                              | otherwise = prefs
-                        if elem CollectSystem o
-                            then do
+                        let metadataCollectList = [(inDir, outDir) | PackageBuildDir inDir <- o, MetadataOutputDir outDir <- o]
+                        forM_ metadataCollectList $ \(inDir, outDir) ->
+                            getPackageDBs [] >>= mapM_ (collectOne inDir outDir . snd)
+                        when (null metadataCollectList) $ do
+                            dataDir         <- getDataDir
+                            prefsPath       <- getConfigFilePathForLoad strippedPreferencesFilename Nothing dataDir
+                            prefs           <- readStrippedPrefs prefsPath
+                            debugM "leksah-server" $ "prefs " ++ show prefs
+                            connRef  <- newIORef []
+                            localServerAddr <- inet_addr "127.0.0.1"
+                            let newPrefs
+                                  | forever && not endWithLast = prefs{endWithLastConn = False}
+                                  | not forever && endWithLast = prefs{endWithLastConn = True}
+                                  | otherwise = prefs
+                            when (elem CollectSystem o) $ do
                                 debugM "leksah-server" "collectSystem"
                                 collectSystem prefs debug rebuild sources =<< getPackageDBs [p | ProjectFile p <- o]
-                            else
-                                case servers of
-                                    (Nothing:_)  -> do
-                                        running <- serveOne Nothing (server (fromIntegral
-                                            (serverPort prefs)) newPrefs connRef localServerAddr)
-                                        waitFor running
-                                        return ()
-                                    (Just ps:_)  -> do
-                                        let port = read $ T.unpack ps
-                                        running <- serveOne Nothing (server
-                                            (fromIntegral port) newPrefs connRef localServerAddr)
-                                        waitFor running
-                                        return ()
-                                    _ -> return ()
+                            case [s | ServerCommand s <- o] of
+                                (Nothing:_)  -> do
+                                    running <- serveOne Nothing (server (fromIntegral
+                                        (serverPort prefs)) newPrefs connRef localServerAddr)
+                                    waitFor running
+                                    return ()
+                                (Just ps:_)  -> do
+                                    let port = read $ T.unpack ps
+                                    running <- serveOne Nothing (server
+                                        (fromIntegral port) newPrefs connRef localServerAddr)
+                                    waitFor running
+                                    return ()
+                                _ -> return ()
 
         server port prefs connRef hostAddr = Server (SockAddrInet port hostAddr) Stream
                                         (doCommands prefs connRef)
@@ -300,6 +307,24 @@ collectSystem prefs writeAscii forceRebuild findSources dbLists = do
                     True -> debugM "leksah-server" ("Already created metadata for " <> pid) >> return Nothing
                     False -> Just <$> collectPackage writeAscii prefs (length newPackages) (package, n)
             writeStats $ catMaybes stats
+    infoM "leksah-server" "Metadata collection has finished"
+
+collectOne :: FilePath -> FilePath -> [FilePath] -> IO()
+collectOne fpSourceDir outDir dbs = do
+    libDir <- getSysLibDir Nothing VERSION_ghc
+    packageInfos <- inGhcIO libDir [] [] [fpSourceDir </> "dist" </> "package.conf.inplace"] (const getInstalledPackageInfos)
+        `catch` (\(e :: SomeException) -> do
+            debugM "leksah-server" $ "collectSystem error " <> show e
+            return [])
+    debugM "leksah-server" $ "collectSystem packageInfos= " ++ show (map (packId . getThisPackage) packageInfos)
+
+    case reverse packageInfos of
+        [] -> infoM "leksah-server" "Metadata collector could not find package to collect"
+        (package:_) -> do
+            createDirectoryIfMissing True outDir
+            collectPackageOnly package dbs
+                (fpSourceDir </> display (pkgName . packId $ getThisPackage package) <.> "cabal")
+                (outDir </> T.unpack (packageIdentifierToString . packId $ getThisPackage package) <.> leksahMetadataSystemFileExtension)
     infoM "leksah-server" "Metadata collection has finished"
 
 writeStats :: [PackageCollectStats] -> IO ()

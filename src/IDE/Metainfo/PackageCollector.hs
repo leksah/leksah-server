@@ -18,15 +18,17 @@
 module IDE.Metainfo.PackageCollector (
 
     collectPackage
+  , collectPackageOnly
 
 ) where
 
 import Control.Applicative
 import Prelude
-import IDE.StrippedPrefs (RetrieveStrategy(..), Prefs(..))
+import IDE.StrippedPrefs
+       (getUnpackDirectory, RetrieveStrategy(..), Prefs(..))
 import PackageConfig (PackageConfig)
 import IDE.Metainfo.SourceCollectorH
-       (findSourceForPackage, packageFromSource, PackageCollectStats(..))
+       (findSourceForPackage, packageFromSource, packageFromSource', PackageCollectStats(..))
 import System.Log.Logger (errorM, debugM, infoM)
 import IDE.Metainfo.InterfaceCollector (collectPackageFromHI)
 import IDE.Core.CTypes
@@ -38,18 +40,22 @@ import IDE.Core.CTypes
         PackageDescr(..), leksahVersion, packageIdentifierToString,
         getThisPackage, packId, ModuleDescr(..))
 import IDE.Utils.FileUtils (runProjectTool, getCollectorPath)
-import System.Directory (setCurrentDirectory)
+import System.Directory
+       (createDirectoryIfMissing, doesDirectoryExist, doesFileExist,
+        setCurrentDirectory)
 import IDE.Utils.Utils
        (leksahMetadataPathFileExtension,
         leksahMetadataSystemFileExtension)
-import System.FilePath (dropFileName, takeBaseName, (<.>), (</>))
+import System.FilePath
+       (takeDirectory, dropFileName, takeBaseName, (<.>), (</>))
 import Data.Binary.Shared (encodeFileSer)
 import Distribution.Text (display)
 import Control.Monad.IO.Class (MonadIO, MonadIO(..))
 import qualified Control.Exception as E (SomeException, catch)
-import IDE.Utils.Tool (runTool')
+import IDE.Utils.Tool (ToolOutput(..), runTool')
 import Data.Monoid ((<>))
-import qualified Data.Text as T (unpack, pack)
+import qualified Data.Text as T
+       (stripSuffix, stripPrefix, unpack, pack)
 import Data.Text (Text)
 import Network.HTTP.Proxy (Proxy(..), fetchProxy)
 import Network.Browser
@@ -60,43 +66,53 @@ import Network.URI (parseURI)
 import Network.HTTP (rspBody, rspCode, Header(..), Request(..))
 import Network.HTTP.Base (RequestMethod(..))
 import Network.HTTP.Headers (HeaderName(..))
-import qualified Data.ByteString as BS (writeFile, empty)
+import qualified Data.ByteString as BS (readFile, writeFile, empty)
 import qualified Paths_leksah_server (version)
 import Distribution.System (buildArch, buildOS)
 import qualified Data.Map as Map
        (fromListWith, fromList, keys, lookup)
 import Data.List (delete, nub)
+import GHC.IO.Exception (ExitCode(..))
+import Distribution.Package (Package(..), pkgName)
+import Distribution.Simple.Utils (installDirectoryContents)
+import Distribution.Verbosity (normal)
+import Data.Maybe (fromMaybe)
+import Paths_leksah_server (getDataDir)
+import System.Environment (getExecutablePath)
 
 collectPackage :: Bool -> Prefs -> Int -> ((PackageConfig, (Maybe FilePath, [FilePath])), Int) -> IO PackageCollectStats
-collectPackage writeAscii prefs numPackages ((packageConfig, (mbProject, dbs)), packageIndex) = do
-    infoM "leksah-server" ("update_toolbar " ++ show
-        ((fromIntegral packageIndex / fromIntegral numPackages) :: Double))
-    eitherStrFp    <- findSourceForPackage prefs pid
-    case eitherStrFp of
-        Left message -> do
-            debugM "leksah-server" . T.unpack $ message <> " : " <> packageName
-            packageDescrHi <- collectPackageFromHI packageConfig dbs
-            writeExtractedPackage False packageDescrHi
-            return stat {packageString = message, modulesTotal = Just (length (pdModules packageDescrHi))}
-        Right fpSource ->
-            case retrieveStrategy prefs of
-                RetrieveThenBuild ->
-                    retrieve fpSource >>= \case
-                        Just stats -> return stats
-                        Nothing -> buildOnly fpSource
-                BuildThenRetrieve -> do
-                    debugM "leksah-server" $ "Build (then retrieve) " <> T.unpack packageName <> " in " <> fpSource
-                    build fpSource >>= \case
-                        (Nothing, bstat) -> return bstat
-                        (Just packageDescrHi, bstat) ->
+collectPackage writeAscii prefs numPackages ((packageConfig, (mbProject, dbs)), packageIndex) =
+    collectPackageNix prefs packageConfig mbProject >>= \case
+        Just s -> return s
+        Nothing -> do
+            infoM "leksah-server" ("update_toolbar " ++ show
+                ((fromIntegral packageIndex / fromIntegral numPackages) :: Double))
+            eitherStrFp    <- findSourceForPackage prefs pid mbProject
+            case eitherStrFp of
+                Left message -> do
+                    debugM "leksah-server" . T.unpack $ message <> " : " <> packageName
+                    packageDescrHi <- collectPackageFromHI packageConfig dbs
+                    writeExtractedPackage False packageDescrHi
+                    return stat {packageString = message, modulesTotal = Just (length (pdModules packageDescrHi))}
+                Right fpSource ->
+                    case retrieveStrategy prefs of
+                        RetrieveThenBuild ->
                             retrieve fpSource >>= \case
                                 Just stats -> return stats
-                                Nothing -> do
-                                    writeExtractedPackage False packageDescrHi
-                                    return bstat{modulesTotal = Just (length (pdModules packageDescrHi))}
-                NeverRetrieve -> do
-                    debugM "leksah-server" $ "Build " <> T.unpack packageName <> " in " <> fpSource
-                    buildOnly fpSource
+                                Nothing -> buildOnly fpSource
+                        BuildThenRetrieve -> do
+                            debugM "leksah-server" $ "Build (then retrieve) " <> T.unpack packageName <> " in " <> fpSource
+                            build fpSource >>= \case
+                                (Nothing, bstat) -> return bstat
+                                (Just packageDescrHi, bstat) ->
+                                    retrieve fpSource >>= \case
+                                        Just stats -> return stats
+                                        Nothing -> do
+                                            writeExtractedPackage False packageDescrHi
+                                            return bstat{modulesTotal = Just (length (pdModules packageDescrHi))}
+                        NeverRetrieve -> do
+                            debugM "leksah-server" $ "Build " <> T.unpack packageName <> " in " <> fpSource
+                            buildOnly fpSource
     where
         pid = packId $ getThisPackage packageConfig
         packageName = packageIdentifierToString pid
@@ -180,6 +196,70 @@ collectPackage writeAscii prefs numPackages ((packageConfig, (mbProject, dbs)), 
                     (\ (_e :: E.SomeException) -> do
                         debugM "leksah-server" "Can't configure"
                         return ())
+
+collectPackageNix :: Prefs -> PackageConfig -> Maybe FilePath -> IO (Maybe PackageCollectStats)
+collectPackageNix _ _ Nothing = return Nothing
+collectPackageNix prefs packageConfig (Just project) = do
+    debugM "leksah-server" "collectPackageNix"
+    let nixFile = takeDirectory project </> "default.nix"
+    doesFileExist nixFile >>= \case
+        True -> do
+            collectorPath <- getCollectorPath
+            leksahMetadataNix <- (</> "data/leksah-metadata.nix") <$> getDataDir
+            leksahServer <- getExecutablePath
+            (nixOuput, _) <- runTool' "nix-build" ["-E", T.pack $ "import " <> leksahMetadataNix
+                                <> " {leksah-server-bin=" <> takeDirectory leksahServer
+                                <> "; pkg=(let fn = import ./.; in if builtins.isFunction fn then fn {} else fn).ghc."
+                                <> display (pkgName pid) <> ";}"
+                                ] (Just $ takeDirectory project) Nothing
+            case reverse nixOuput of
+                (ToolExit ExitSuccess:ToolOutput lineMaybeQuoted:_) -> do
+                    let line = T.unpack $ removeQuotes lineMaybeQuoted
+                        metadataFile = line </> "share/leksah/metadata"
+                                            </> packageName' <.> leksahMetadataSystemFileExtension
+                        pkgSource = line </> "share/leksah/packageSource"
+                    doesFileExist metadataFile >>= \case
+                        True -> do
+                            BS.readFile metadataFile >>= BS.writeFile (
+                                collectorPath </> packageName' <.> leksahMetadataSystemFileExtension)
+                            doesDirectoryExist pkgSource >>= \case
+                                True -> do
+                                    unpackDir <- getUnpackDirectory prefs
+                                    case unpackDir of
+                                        Nothing -> return $ Just stat {packageString = "metadata from nix (no unpack dir)"}
+                                        Just fpUnpack -> do
+                                            createDirectoryIfMissing True fpUnpack
+                                            installDirectoryContents normal pkgSource (fpUnpack </> packageName')
+                                            writePackagePath (fpUnpack </> packageName' <> "/") packageName
+                                            return $ Just stat {packageString = "metadata and source from nix"}
+                                False -> return $ Just stat {packageString = "metadata from nix"}
+                        False -> return Nothing
+                _ -> return Nothing
+        False -> return Nothing
+  where
+    pid = packId $ getThisPackage packageConfig
+    packageName = packageIdentifierToString pid
+    packageName' = T.unpack packageName
+    stat = PackageCollectStats packageName Nothing False False Nothing
+    removeQuotes s = fromMaybe s $ T.stripPrefix "\"" s >>= T.stripSuffix "\""
+
+
+collectPackageOnly :: PackageConfig -> [FilePath] -> FilePath -> FilePath -> IO ()
+collectPackageOnly packageConfig dbs fpSource outputFile = do
+        debugM "leksah-server" $ "Build " <> T.unpack packageName <> " in " <> fpSource <> " out " <> outputFile
+        build
+    where
+        pid = packId $ getThisPackage packageConfig
+        packageName = packageIdentifierToString pid
+        build :: IO ()
+        build = do
+            packageDescrHi <- collectPackageFromHI packageConfig dbs
+            mbPackageDescrPair <- packageFromSource Nothing dbs fpSource packageConfig
+            case mbPackageDescrPair of
+                (Just packageDescrS, _) ->
+                    encodeFileSer outputFile (metadataVersion, mergePackageDescrs packageDescrHi packageDescrS)
+                (Nothing, _) ->
+                    encodeFileSer outputFile (metadataVersion, packageDescrHi)
 
 writeExtractedPackage :: MonadIO m => Bool -> PackageDescr -> m ()
 writeExtractedPackage writeAscii pd = do

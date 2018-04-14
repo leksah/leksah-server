@@ -22,7 +22,6 @@ module IDE.Metainfo.InterfaceCollector (
 ,   extractExportedDescrR
 ) where
 
-import MyMissing (nonEmptyLines)
 #if MIN_VERSION_ghc(7,10,0)
 import Module hiding (PackageKey, ModuleName)
 #else
@@ -232,7 +231,8 @@ extractIdentifierDescr :: DynFlags -> PackageIdAndKey -> ModuleName -> IfaceDecl
 extractIdentifierDescr dflags package mid decl
    =    let descr = RealDescr{
                     dscName'           =   T.pack . unpackFS . occNameFS . nameOccName82 $ ifName decl
-                ,   dscMbTypeStr'      =   Just . BS.pack . unlines . nonEmptyLines . filterExtras . showSDocUnqual dflags $ ppr decl
+                ,   dscMbTypeStr'      =   Just . BS.pack . unlines . filter (any (not . isSpace)) . lines
+                                                    . filterExtras . showSDocUnqual dflags $ ppr decl
                 ,   dscMbModu'         =   Just (PM (packId package) mid)
                 ,   dscMbLocation'     =   Nothing
                 ,   dscMbComment'      =   Nothing

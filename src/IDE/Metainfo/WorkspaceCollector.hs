@@ -72,9 +72,6 @@ import StringBuffer(hGetStringBuffer)
 import Data.List(partition,sortBy,nub,find)
 import Data.Ord(comparing)
 import GHC.Exception
-#if !MIN_VERSION_ghc(7,6,0)
-import MyMissing(forceHead)
-#endif
 import LoadIface(findAndReadIface)
 import Distribution.Text(display)
 import TcRnMonad (initTcRnIf, IfGblEnv(..))
