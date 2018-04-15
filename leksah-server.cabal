@@ -237,7 +237,7 @@ test-suite test-tool
 
     if !impl(ghcjs -any)
         build-depends:
-            doctest >=0.11.0 && <0.12
+            doctest >=0.11.0 && <0.14
     type: exitcode-stdio-1.0
     main-is: TestTool.hs
     build-depends:

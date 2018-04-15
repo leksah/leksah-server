@@ -206,11 +206,10 @@ collectPackageNix prefs packageConfig (Just project) = do
         True -> do
             collectorPath <- getCollectorPath
             leksahMetadataNix <- (</> "data/leksah-metadata.nix") <$> getDataDir
-            leksahServer <- getExecutablePath
-            (nixOuput, _) <- runTool' "nix-build" ["-E", T.pack $ "import " <> leksahMetadataNix
-                                <> " {leksah-server-bin=" <> takeDirectory leksahServer
-                                <> "; pkg=(let fn = import ./.; in if builtins.isFunction fn then fn {} else fn).ghc."
-                                <> display (pkgName pid) <> ";}"
+            (nixOuput, _) <- runTool' "nix-build" ["-E", T.pack $
+                                   "let ghc=(let fn = import ./.; in if builtins.isFunction fn then fn {} else fn).ghc; "
+                                <> "in import " <> leksahMetadataNix <> " {leksah-server=ghc.leksah-server; "
+                                <> "pkg=ghc." <> display (pkgName pid) <> ";}"
                                 ] (Just $ takeDirectory project) Nothing
             case reverse nixOuput of
                 (ToolExit ExitSuccess:ToolOutput lineMaybeQuoted:_) -> do
