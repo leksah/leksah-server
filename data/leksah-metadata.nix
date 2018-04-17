@@ -1,6 +1,8 @@
-{ leksah-server, pkg }: pkg.overrideAttrs (old: {
-    buildInputs = old.buildInputs ++ [pkg];
-    configureFlags = old.configureFlags ++ ["--ghc-options=-fno-code"];
+{ leksah-server, pkg }:
+let toList = x: if builtins.isList x then x else [x];
+in pkg.overrideAttrs (old: {
+    buildInputs = (old.buildInputs or []) ++ [pkg];
+    configureFlags = toList (old.configureFlags or []) ++ ["--ghc-options=-fno-code"];
     outputs = ["out"];
     buildPhase = "(${old.buildPhase}) || true";
     checkPhase = "echo Skipping checkPhase";
