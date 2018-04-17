@@ -28,7 +28,7 @@ import Prelude.Compat
 import System.Console.GetOpt
     (ArgDescr(..), usageInfo, ArgOrder(..), getOpt, OptDescr(..))
 import System.Environment (getArgs)
-import System.FilePath ((</>), (<.>))
+import System.FilePath (takeBaseName, (</>), (<.>))
 import Control.Monad (forM_, when, forM)
 import Data.Version (showVersion)
 import IDE.Utils.FileUtils
@@ -314,17 +314,19 @@ collectOne fpSourceDir outDir dbs = do
     libDir <- getSysLibDir Nothing VERSION_ghc
     packageInfos <- inGhcIO libDir [] [] [fpSourceDir </> "dist" </> "package.conf.inplace"] (const getInstalledPackageInfos)
         `catch` (\(e :: SomeException) -> do
-            debugM "leksah-server" $ "collectSystem error " <> show e
+            debugM "leksah-server" $ "coolectOne error " <> show e
             return [])
-    debugM "leksah-server" $ "collectSystem packageInfos= " ++ show (map (packId . getThisPackage) packageInfos)
-
-    case reverse packageInfos of
-        [] -> infoM "leksah-server" "Metadata collector could not find package to collect"
-        (package:_) -> do
-            createDirectoryIfMissing True outDir
-            collectPackageOnly package dbs
-                (fpSourceDir </> display (pkgName . packId $ getThisPackage package) <.> "cabal")
-                (outDir </> T.unpack (packageIdentifierToString . packId $ getThisPackage package) <.> leksahMetadataSystemFileExtension)
+    debugM "leksah-server" $ "coolectOne packageInfos= " ++ show (map (packId . getThisPackage) packageInfos)
+    cabalFileName fpSourceDir >>= \case
+        Nothing -> infoM "leksah-server" "Metadata collector could not find cabal file to collect"
+        Just cabalFile ->
+            case filter ((==takeBaseName cabalFile) . display . pkgName . packId . getThisPackage) packageInfos of
+                [] -> infoM "leksah-server" "Metadata collector could not find package to collect"
+                (package:_) -> do
+                    createDirectoryIfMissing True outDir
+                    collectPackageOnly package dbs
+                        (fpSourceDir </> cabalFile)
+                        (outDir </> T.unpack (packageIdentifierToString . packId $ getThisPackage package) <.> leksahMetadataSystemFileExtension)
     infoM "leksah-server" "Metadata collection has finished"
 
 writeStats :: [PackageCollectStats] -> IO ()
