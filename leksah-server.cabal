@@ -36,16 +36,22 @@ library
 
     if !impl(ghcjs -any)
 
-        if impl(ghc >=8.2)
+        if impl(ghc >=8.4)
             build-depends:
-                haddock-api >=2.18.1 && <2.19,
-                haddock-library >=1.4.1 && <1.5,
-                ghc-boot >=8.2.1 && <8.3
+                haddock-api >=2.19.1 && <2.20,
+                haddock-library >=1.5.0.1 && <1.6,
+                ghc-boot >=8.4.1 && <8.5
         else
-            build-depends:
-                haddock-api >=2.17.2 && <2.18,
-                haddock-library >=1.4.1 && <1.5,
-                ghc-boot >=8.0.1 && <8.1
+            if impl(ghc >=8.2)
+                build-depends:
+                    haddock-api >=2.18.1 && <2.19,
+                    haddock-library >=1.4.1 && <1.5,
+                    ghc-boot >=8.2.1 && <8.3
+            else
+                build-depends:
+                    haddock-api >=2.17.2 && <2.18,
+                    haddock-library >=1.4.1 && <1.5,
+                    ghc-boot >=8.0.1 && <8.1
 
     if os(windows)
         build-depends:
@@ -101,8 +107,8 @@ library
         time >=1.1 && <1.9,
         deepseq >=1.1 && <1.5,
         hslogger >=1.0.7 && <1.3,
-        conduit >=1.0.8 && <1.3,
-        conduit-extra >=1.0.0.1 && <1.3,
+        conduit >=1.0.8 && <1.4,
+        conduit-extra >=1.0.0.1 && <1.4,
         resourcet -any,
         attoparsec >=0.10.0.3 && <0.14,
         transformers >=0.2.2.0 && <0.6,
@@ -179,8 +185,8 @@ executable leksah-server
         time >=1.1 && <1.9,
         deepseq >=1.1 && <1.5,
         hslogger >=1.0.7 && <1.3,
-        conduit >=1.0.8 && <1.3,
-        conduit-extra >=1.0.0.1 && <1.3,
+        conduit >=1.0.8 && <1.4,
+        conduit-extra >=1.0.0.1 && <1.4,
         resourcet -any,
         attoparsec >=0.10.0.3 && <0.14,
         transformers >=0.2.2.0 && <0.6,
@@ -212,8 +218,8 @@ executable leksahecho
         hslogger >=1.0.7 && <1.3,
         deepseq >=1.1 && <1.5,
         bytestring >=0.9.0.1 && <0.11,
-        conduit >=1.0.8 && <1.3,
-        conduit-extra >=1.0.0.1 && <1.3,
+        conduit >=1.0.8 && <1.4,
+        conduit-extra >=1.0.0.1 && <1.4,
         resourcet -any,
         attoparsec >=0.10.0.3 && <0.14,
         transformers >=0.2.2.0 && <0.6,
@@ -246,8 +252,8 @@ test-suite test-tool
         leksah-server -any,
         HUnit >=1.2 && <1.7,
         transformers >=0.2.2.0 && <0.6,
-        conduit >=1.0.8 && <1.3,
-        conduit-extra >=1.0.0.1 && <1.3,
+        conduit >=1.0.8 && <1.4,
+        conduit-extra >=1.0.0.1 && <1.4,
         resourcet -any,
         process >=1.1 && <1.7,
         directory >=1.0.0.2 && <1.4,
