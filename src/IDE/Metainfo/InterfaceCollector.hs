@@ -22,36 +22,22 @@ module IDE.Metainfo.InterfaceCollector (
 ,   extractExportedDescrR
 ) where
 
-#if MIN_VERSION_ghc(7,10,0)
 import Module hiding (PackageKey, ModuleName)
-#else
-import Module hiding (PackageId, ModuleName)
-#endif
 import qualified Module as Module (ModuleName)
 import qualified Maybes as M
 import DynFlags (DynFlags)
-#if MIN_VERSION_ghc(7,2,0)
 import HscTypes
 import GhcMonad hiding (liftIO)
 import qualified GhcMonad as Hs (liftIO)
-#else
-import HscTypes hiding (liftIO)
-import qualified HscTypes as Hs (liftIO)
-#endif
 #if MIN_VERSION_ghc(8,0,0)
 import Avail
 import TysWiredIn ( )
-#elif MIN_VERSION_ghc(7,3,0)
+#else
 import Avail
 import TysWiredIn ( eqTyConName )
 #endif
 import LoadIface
-#if MIN_VERSION_ghc(7,6,0)
 import Outputable hiding(trace)
-#else
-import Outputable hiding(trace, showSDoc, showSDocUnqual)
-import qualified Outputable as O
-#endif
 import IfaceSyn
 import FastString
 import Name
@@ -67,11 +53,8 @@ import Data.Set (Set)
 import ToIface (toIfaceTyCon_name)
 import FieldLabel (flSelector)
 import GHC.PackageDb (exposedModules, hiddenModules)
-#elif MIN_VERSION_ghc(7,10,0)
-import GHC.PackageDb (exposedModules, hiddenModules, exposedName)
 #else
-import PackageConfig (mkPackageId)
-import qualified Distribution.InstalledPackageInfo as IPI
+import GHC.PackageDb (exposedModules, hiddenModules, exposedName)
 #endif
 import Distribution.Package hiding (PackageId)
 import Distribution.ModuleName
@@ -107,13 +90,6 @@ mkPackageName :: String -> PackageName
 mkPackageName = PackageName
 #endif
 
-#if !MIN_VERSION_ghc(7,6,0)
-showSDoc :: DynFlags -> SDoc -> Text
-showSDoc _ = O.showSDoc
-showSDocUnqual :: DynFlags -> SDoc -> Text
-showSDocUnqual _ = O.showSDocUnqual
-#endif
-
 collectPackageFromHI :: PackageConfig -> [FilePath] -> IO PackageDescr
 collectPackageFromHI packageConfig dbs = do
   libDir <- getSysLibDir Nothing VERSION_ghc
@@ -122,17 +98,9 @@ collectPackageFromHI packageConfig dbs = do
     Hs.liftIO . debugM "leksah-server" $ "collectPackageFromHI"
     session             <-  getSession
     exportedIfaceInfos  <-  getIFaceInfos pIdAndKey
-#if MIN_VERSION_ghc(7,10,0)
                                             (map exposedName $ exposedModules packageConfig) session
-#else
-                                            (IPI.exposedModules packageConfig) session
-#endif
     hiddenIfaceInfos    <-  getIFaceInfos pIdAndKey
-#if MIN_VERSION_ghc(7,10,0)
                                             (hiddenModules packageConfig) session
-#else
-                                            (IPI.hiddenModules packageConfig) session
-#endif
     let pd = extractInfo dflags exportedIfaceInfos hiddenIfaceInfos pIdAndKey
                                             [] -- TODO 6.12 (IPI.depends $ packageConfigToInstalledPackageInfo packageConfig))
     deepseq pd (return pd)
@@ -146,10 +114,8 @@ getIFaceInfos p modules _session = do
         makeInstMod     =   InstalledModule (packUnitId p)
 #elif MIN_VERSION_ghc(8,0,0)
         makeMod         =   mkModule (packUnitId p)
-#elif MIN_VERSION_ghc(7,10,0)
-        makeMod         =   mkModule (packKey p)
 #else
-        makeMod         =   mkModule (mkPackageId pid)
+        makeMod         =   mkModule (packKey p)
 #endif
         isBase          =   pkgName pid == mkPackageName "base"
         ifaces          =   mapM (\ mn -> findAndReadIface empty
@@ -262,16 +228,9 @@ extractIdentifierDescr dflags package mid decl
                                                                     _ -> error $ "InterfaceCollector >> extractIdentifierDescr: "
                                                                          ++ "Newtype with not exactly one constructor"
                                     in NewtypeDescr constructor mbField
-#if MIN_VERSION_ghc(7,3,0)
                             IfAbstractTyCon {} ->  DataDescr [] []
-#else
-                            IfAbstractTyCon ->  DataDescr [] []
-#endif
-#if MIN_VERSION_ghc(8,0,0)
-#elif MIN_VERSION_ghc(7,6,0)
+#if !MIN_VERSION_ghc(8,0,0)
                             IfDataFamTyCon ->  DataDescr [] []
-#else
-                            IfOpenDataTyCon ->  DataDescr [] []
 #endif
                     in [Real (descr{dscTypeHint' = d})]
 #if MIN_VERSION_ghc(8,2,0)
@@ -281,42 +240,29 @@ extractIdentifierDescr dflags package mid decl
                                 superclasses        =   []
                             in [Real descr{dscTypeHint' = ClassDescr superclasses classOpsID}]
             IfaceClass{ifBody = IfConcreteClass{ifClassCtxt = context, ifSigs = ifSigs'}}
-#elif MIN_VERSION_ghc(7,6,0)
-            IfaceClass{ifCtxt = context, ifSigs = ifSigs'}
 #else
-            (IfaceClass context _ _ _ _ ifSigs' _ )
+            IfaceClass{ifCtxt = context, ifSigs = ifSigs'}
 #endif
                         ->  let
                                 classOpsID          =   map (extractClassOp dflags) ifSigs'
                                 superclasses        =   extractSuperClassNames context
                             in [Real descr{dscTypeHint' = ClassDescr superclasses classOpsID}]
-#if MIN_VERSION_ghc(7,6,0)
             IfaceAxiom {}
                         ->  [Real descr]
-#endif
-#if MIN_VERSION_ghc(7,10,0)
             IfaceSynonym {}
                         ->  [Real $ descr{dscTypeHint' = TypeDescr}]
             IfaceFamily {}
                         ->  [Real $ descr{dscTypeHint' = TypeDescr}]
-#else
-            IfaceSyn {}
-                        ->  [Real $ descr{dscTypeHint' = TypeDescr}]
-            IfaceForeign{}
-                        ->  [Real descr]
-#endif
-#if MIN_VERSION_ghc(7,8,0)
             IfacePatSyn {}
                         ->  [Real descr{dscTypeHint' = PatternSynonymDescr}]
-#endif
 
 extractConstructors :: DynFlags -> OccName -> [IfaceConDecl] -> [SimpleDescr]
 extractConstructors dflags name = map (\decl -> SimpleDescr (T.pack . unpackFS $occNameFS (nameOccName82 $ ifConName decl))
                                                  (Just (BS.pack $ filterExtras $ showSDocUnqual dflags $
-#if MIN_VERSION_ghc(7,10,0)
-                                                    pprIfaceForAllPart (ifConExTvs decl)
+#if MIN_VERSION_ghc(8,4,0)
+                                                    pprIfaceForAllPart (ifConUserTvBinders decl)
 #else
-                                                    pprIfaceForAllPart (ifConUnivTvs decl ++ ifConExTvs decl)
+                                                    pprIfaceForAllPart (ifConExTvs decl)
 #endif
                                                         (eq_ctxt decl ++ ifConCtxt decl) (pp_tau decl)))
                                                  Nothing Nothing True)
@@ -325,21 +271,13 @@ extractConstructors dflags name = map (\decl -> SimpleDescr (T.pack . unpackFS $
     pp_tau decl     = case map pprParendIfaceType (ifConArgTys decl) ++ [pp_res_ty decl] of
                                 (t:ts) -> fsep (t : map (arrow <+>) ts)
                                 []     -> panic "pp_con_taus"
-#if MIN_VERSION_ghc(7,10,0)
     pp_res_ty _decl  = ppr name <+> fsep [] -- TODO figure out what to do here
-#else
-    pp_res_ty decl  = ppr name <+> fsep [ppr tv | (tv,_) <- ifConUnivTvs decl]
-#endif
 #if MIN_VERSION_ghc(8,2,0)
     eq_ctxt decl    = [IfaceTyConApp (toIfaceTyCon_name eqTyConName) (ITC_Vis (IfaceTyVar tv) (ITC_Vis ty ITC_Nil))
 #elif MIN_VERSION_ghc(8,0,0)
     eq_ctxt decl    = [IfaceTyConApp (IfaceTyCon eqTyConName NoIfaceTyConInfo) (ITC_Vis (IfaceTyVar tv) (ITC_Vis ty ITC_Nil))
-#elif MIN_VERSION_ghc(7,10,0)
-    eq_ctxt decl    = [IfaceTyConApp (IfaceTc eqTyConName) (ITC_Type (IfaceTyVar tv) (ITC_Type ty ITC_Nil))
-#elif MIN_VERSION_ghc(7,3,0)
-    eq_ctxt decl    = [IfaceTyConApp (IfaceTc eqTyConName) [(IfaceTyVar (occNameFS tv)), ty]
 #else
-    eq_ctxt decl    = [(IfaceEqPred (IfaceTyVar (occNameFS tv)) ty)
+    eq_ctxt decl    = [IfaceTyConApp (IfaceTc eqTyConName) (ITC_Type (IfaceTyVar tv) (ITC_Type ty ITC_Nil))
 #endif
                                 | (tv,ty) <- ifConEqSpec decl]
 
@@ -370,11 +308,7 @@ extractSuperClassNames = mapMaybe extractSuperClassName
 
 extractInstances :: DynFlags
     -> PackModule
-#if MIN_VERSION_ghc(7,6,0)
     -> IfaceClsInst
-#else
-    -> IfaceInst
-#endif
     -> [Descr]
 extractInstances dflags pm ifaceInst  =
     let className   =   showSDocUnqual dflags $ ppr $ ifInstCls ifaceInst
@@ -397,9 +331,7 @@ extractUsages dflags UsageHomeModule {usg_mod_name = usg_mod_name', usg_entities
     let name    =   (fromJust . simpleParse . moduleNameString) usg_mod_name'
         ids     =   map (T.pack . showSDocUnqual dflags . ppr . fst) usg_entities'
     in Just (name, Set.fromList ids)
-#if MIN_VERSION_ghc(7,4,0)
 extractUsages _ UsageFile {} = Nothing
-#endif
 #if MIN_VERSION_ghc(8,2,0)
 extractUsages _ UsageMergedRequirement {} = Nothing
 #endif

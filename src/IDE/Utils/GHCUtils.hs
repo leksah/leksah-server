@@ -122,7 +122,13 @@ findFittingPackages dependencyList = do
 --  | Parser function copied here, because it is not exported
 
 myParseModule :: DynFlags -> FilePath -> Maybe StringBuffer
-              -> IO (Either ErrMsg (Located (HsModule RdrName)))
+              -> IO (Either ErrMsg (Located (HsModule
+#if MIN_VERSION_ghc(8,4,0)
+                      GhcPs
+#else
+                      RdrName
+#endif
+                      )))
 myParseModule dflags src_filename maybe_src_buf
  =    --------------------------  Parser  ----------------
       showPass dflags "Parser" >>
@@ -139,7 +145,11 @@ myParseModule dflags src_filename maybe_src_buf
 
       case unP P.parseModule (mkPState dflags buf' loc) of {
 
-        PFailed span' err -> do {
+        PFailed
+#if MIN_VERSION_ghc(8,4,0)
+          _
+#endif
+          span' err -> do {
             let {errMsg = mkPlainErrMsg dflags span' err};
             printBagOfErrors dflags (unitBag errMsg);
             return (Left errMsg);
@@ -165,7 +175,13 @@ myParseModule dflags src_filename maybe_src_buf
         -- ToDo: free the string buffer later.
       }}
 
-myParseHeader :: FilePath -> String -> [Text] -> IO (Either Text (DynFlags, HsModule RdrName))
+myParseHeader :: FilePath -> String -> [Text] -> IO (Either Text (DynFlags, HsModule
+#if MIN_VERSION_ghc(8,4,0)
+                      GhcPs
+#else
+                      RdrName
+#endif
+                      ))
 myParseHeader fp _str opts =
   getSysLibDir Nothing VERSION_ghc >>= \case
     Nothing -> return . Left $ "Could not find system lib dir for GHC " <> VERSION_ghc <> " (used to build Leksah)"
@@ -186,7 +202,13 @@ myParseHeader fp _str opts =
 --  | Parser function copied here, because it is not exported
 
 myParseModuleHeader :: DynFlags -> FilePath -> Maybe StringBuffer
-              -> IO (Either ErrMsg (Located (HsModule RdrName)))
+              -> IO (Either ErrMsg (Located (HsModule
+#if MIN_VERSION_ghc(8,4,0)
+                      GhcPs
+#else
+                      RdrName
+#endif
+                      )))
 myParseModuleHeader dflags src_filename maybe_src_buf
  =  --------------------------  Parser  ----------------
     showPass dflags "Parser" >>
@@ -203,7 +225,11 @@ myParseModuleHeader dflags src_filename maybe_src_buf
 
       case unP P.parseHeader (mkPState dflags buf' loc) of {
 
-        PFailed span' err -> return (Left (mkPlainErrMsg dflags span' err));
+        PFailed
+#if MIN_VERSION_ghc(8,4,0)
+          _
+#endif
+          span' err -> return (Left (mkPlainErrMsg dflags span' err));
 
         POk pst rdr_module -> do {
 

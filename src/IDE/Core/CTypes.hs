@@ -82,13 +82,8 @@ import Data.Map (Map)
 import Data.Set (Set)
 import Data.Maybe (fromMaybe)
 import Data.Default (Default(..))
-#if MIN_VERSION_ghc(7,6,0)
 import Distribution.Package
        (PackageIdentifier(..))
-#else
-import Distribution.Package
-       (PackageIdentifier(..),PackageName(..))
-#endif
 import Distribution.ModuleName (main, components, ModuleName)
 import Data.ByteString.Char8 (ByteString)
 #if !MIN_VERSION_bytestring(0,10,0)
@@ -110,12 +105,10 @@ import Module (UnitId)
 #endif
 import PackageConfig (sourcePackageIdString, unitId)
 import Data.Maybe (fromJust)
-#elif MIN_VERSION_ghc(7,10,0)
+#else
 import Module (PackageKey)
 import PackageConfig (sourcePackageIdString, packageKey)
 import Data.Maybe (fromJust)
-#else
-import qualified Distribution.InstalledPackageInfo as IPI
 #endif
 import Data.Text (Text)
 import Data.Monoid ((<>))
@@ -123,9 +116,6 @@ import Text.PrettyPrint (fsep, Doc, (<+>), empty, text)
 import qualified Text.PrettyPrint as PP
        (text, comma, punctuate, parens, Doc, empty, renderStyle, style)
 import qualified Data.Text as T (pack, tail, span, unpack)
-#if !MIN_VERSION_ghc(7,7,0)
-import Distribution.Package(PackageName(..))
-#endif
 
 -- ---------------------------------------------------------------------
 --  | Information about the system, extraced from .hi and source files
@@ -144,7 +134,7 @@ data PackageIdAndKey = PackageIdAndKey {
     , packUnitId :: InstalledUnitId
 #elif MIN_VERSION_ghc(8,0,0)
     , packUnitId :: UnitId
-#elif MIN_VERSION_ghc(7,10,0)
+#else
     , packKey :: PackageKey
 #endif
     }
@@ -154,11 +144,9 @@ getThisPackage p = PackageIdAndKey
 #if MIN_VERSION_ghc(8,0,0)
                         (fromJust . simpleParse $ sourcePackageIdString p)
                         (unitId p)
-#elif MIN_VERSION_ghc(7,10,0)
+#else
                         (fromJust . simpleParse $ sourcePackageIdString p)
                         (packageKey p)
-#else
-                        (IPI.sourcePackageId p)
 #endif
 
 data RetrieveStrategy = RetrieveThenBuild | BuildThenRetrieve | NeverRetrieve
@@ -677,12 +665,6 @@ instance NFData SimpleDescr where
                     `seq`    rnf (sdComment pd)
                     `seq`    rnf (sdExported pd)
 
-#if !MIN_VERSION_ghc(7,7,0)
-instance NFData PackageIdentifier where
-    rnf pd =  rnf (pkgName pd)
-                    `seq`    rnf (pkgVersion pd)
-#endif
-
 instance NFData DescrType where  rnf a = seq a ()
 
 #if !MIN_VERSION_bytestring(0,10,0)
@@ -700,11 +682,6 @@ instance NFData PackModule where
 #if !MIN_VERSION_Cabal(2,0,0)
 instance NFData ModuleName where
     rnf =  rnf . components
-#endif
-
-#if !MIN_VERSION_ghc(7,7,0)
-instance NFData PackageName where
-    rnf (PackageName s) =  rnf s
 #endif
 
 

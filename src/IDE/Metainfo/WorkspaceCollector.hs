@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ScopedTypeVariables, PatternGuards, OverloadedStrings #-}
 -----------------------------------------------------------------------------
 --
@@ -39,21 +40,8 @@ import Control.Arrow ((&&&))
 import Prelude
 import IDE.Utils.Utils
 import IDE.Utils.GHCUtils
-#if MIN_VERSION_ghc(7,10,0)
 import GHC hiding(Id,Failed,Succeeded,ModuleName,PackageKey)
-#else
-import GHC hiding(Id,Failed,Succeeded,ModuleName)
-import PackageConfig (mkPackageId)
-#endif
-#if !MIN_VERSION_ghc(7,2,0)
-import HscTypes hiding (liftIO)
-#endif
-#if MIN_VERSION_ghc(7,6,0)
 import Outputable hiding(trace, (<>))
-#else
-import Outputable hiding(trace, (<>), showSDoc, showSDocUnqual)
-import qualified Outputable as O
-#endif
 import ErrUtils
 import qualified Data.Map as Map
 import Data.Map(Map)
@@ -94,6 +82,9 @@ import DynFlags (thisPackage)
 import Module (toInstalledUnitId, InstalledModule(..), UnitId(..), DefUnitId(..))
 import HsImpExp (ieWrappedName)
 #endif
+#if !MIN_VERSION_ghc(8,4,0)
+import Data.Kind (Constraint)
+#endif
 
 #if !MIN_VERSION_ghc(8,2,0)
 ieWrappedName :: RdrName -> RdrName
@@ -108,7 +99,19 @@ mkPackageName :: String -> PackageName
 mkPackageName = PackageName
 #endif
 
-type NDecl = LHsDecl RdrName
+#if !MIN_VERSION_ghc(8,4,0)
+type GhcPs = RdrName
+type family IdP p
+type instance IdP GhcPs = RdrName
+type SourceTextX a = (() :: Constraint)
+#endif
+
+type NDecl = LHsDecl GhcPs
+type NSig  = Located (Sig GhcPs)
+type NModule = HsModule GhcPs
+type NIE = IE GhcPs
+type NLIE = LIE GhcPs
+
 myDocEmpty :: NDoc
 myDocAppend :: NDoc -> NDoc -> NDoc
 isEmptyDoc :: NDoc -> Bool
@@ -119,15 +122,6 @@ type MyLDocDecl = LDocDecl
 myDocEmpty=HsDocString(mkFastString "")
 myDocAppend (HsDocString l) (HsDocString r) = HsDocString (appendFS l r)
 isEmptyDoc (HsDocString fs) = nullFS fs
-
-type NSig  = Located (Sig RdrName)
-
-#if !MIN_VERSION_ghc(7,6,0)
-showSDoc :: DynFlags -> SDoc -> Text
-showSDoc _ = O.showSDoc
-showSDocUnqual :: DynFlags -> SDoc -> Text
-showSDocUnqual _ = O.showSDocUnqual
-#endif
 
 showRdrName :: DynFlags -> RdrName -> Text
 showRdrName dflags r = T.pack . showSDoc dflags $ ppr r
@@ -182,15 +176,9 @@ collectModule' :: Maybe FilePath -> FilePath -> FilePath -> Bool -> PackageIdent
 collectModule' libDir sourcePath destPath writeAscii pid opts moduleName' = gcatch (
    inGhcIO libDir (opts++["-cpp"]) [Opt_Haddock] [] $ \ dynFlags -> do
         session         <-  getSession
-#if MIN_VERSION_ghc(7,2,0)
         (dynFlags3,fp') <-  liftIO $ preprocess session (sourcePath,Nothing)
-#else
-        (dynFlags3,fp') <-  preprocess session (sourcePath,Nothing)
-#endif
         let packIdAndKey = PackageIdAndKey pid
-#if MIN_VERSION_ghc(7,10,0)
                                 (toInstalledUnitId $ thisPackage dynFlags3)
-#endif
         mbInterfaceDescr <- mayGetInterfaceDescription dynFlags packIdAndKey moduleName'
         liftIO $ do
             stringBuffer    <-  hGetStringBuffer fp'
@@ -213,13 +201,7 @@ collectModule' libDir sourcePath destPath writeAscii pid opts moduleName' = gcat
                             dscName'        =   "Parse Error"
                         ,   dscMbTypeStr'   =   Nothing
                         ,   dscMbModu'      =   Just (PM pid moduleName')
-#if MIN_VERSION_ghc(7,7,0)
                         ,   dscMbLocation'  =   srcSpanToLocation $ errMsgSpan errMsg
-#else
-                        ,   dscMbLocation'  =   case errMsgSpans errMsg of
-                                                    (sp:_) -> srcSpanToLocation sp
-                                                    [] -> Nothing
-#endif
                         ,   dscMbComment'   =   Just (BS.pack $ show errMsg)
                         ,   dscTypeHint'    =   ErrorDescr
                         ,   dscExported'    =   False}]}
@@ -236,15 +218,13 @@ writeExtractedModule filePath writeAscii md =
 
 -----------------------------------------------------------------------------------
 -- Format conversion
-#if MIN_VERSION_ghc(7,10,0)
-unLoc710 :: GenLocated l e -> e
-unLoc710 = unLoc
-#else
-unLoc710 :: a -> a
-unLoc710 = id
-#endif
-
-extractModDescr :: DynFlags -> PackageIdentifier -> ModuleName -> FilePath -> HsModule RdrName -> ModuleDescr
+extractModDescr
+  :: DynFlags
+  -> PackageIdentifier
+  -> ModuleName
+  -> FilePath
+  -> NModule
+  -> ModuleDescr
 extractModDescr dflags pid moduleName' sourcePath hsMod = ModuleDescr {
         mdModuleId          =   PM pid moduleName'
     ,   mdMbSourcePath      =   modFile $ hsmodName hsMod
@@ -252,7 +232,7 @@ extractModDescr dflags pid moduleName' sourcePath hsMod = ModuleDescr {
     ,   mdIdDescriptions    =   descrs'}
     where
         descrs = extractDescrs dflags (PM pid moduleName') (hsmodDecls hsMod)
-        descrs' = fixExports dflags (unLoc710 <$> hsmodExports hsMod) descrs
+        descrs' = fixExports dflags (unLoc <$> hsmodExports hsMod) descrs
         modFile (Just (L loc _)) =
             (locationFile <$> srcSpanToLocation loc) <|> Just sourcePath
         modFile _ = Just sourcePath
@@ -260,11 +240,18 @@ extractModDescr dflags pid moduleName' sourcePath hsMod = ModuleDescr {
 -----------------------------------------------------------------------------------
 -- Add exported hint
 
-fixExports :: DynFlags -> Maybe [LIE RdrName] -> [Descr] -> [Descr]
+fixExports
+  :: DynFlags
+  -> Maybe [NLIE]
+  -> [Descr]
+  -> [Descr]
 fixExports _ Nothing descrs = descrs
 fixExports dflags (Just iel) descrs = map (fixDescr (map unLoc iel)) descrs
     where
-        fixDescr ::  [IE RdrName] -> Descr -> Descr
+        fixDescr
+          :: [NIE]
+          -> Descr
+          -> Descr
         fixDescr _ d@(Reexported _) = d
         fixDescr list (Real rd) = Real rd'
             where
@@ -277,24 +264,24 @@ fixExports dflags (Just iel) descrs = map (fixDescr (map unLoc iel)) descrs
                                                     Just (IEThingAll _)    -> allExported rd
                                                     Just (IEThingAbs _)    -> someExported rd []
 #if MIN_VERSION_ghc(8,0,0)
-                                                    Just (IEThingWith _ _ l _) -> someExported rd (map (showRdrName dflags . ieWrappedName . unLoc710) l)
+                                                    Just (IEThingWith _ _ l _) -> someExported rd (map (showRdrName dflags . ieWrappedName . unLoc) l)
 #else
-                                                    Just (IEThingWith _ l) -> someExported rd (map (showRdrName dflags . unLoc710) l)
+                                                    Just (IEThingWith _ l) -> someExported rd (map (showRdrName dflags . unLoc) l)
 #endif
                                                     _                      -> allExported rd
                 findVar = find (\ a ->
                             case a of
-                                IEVar r | showRdrName dflags (ieWrappedName $ unLoc710 r) == dscName' rd -> True
+                                IEVar r | showRdrName dflags (ieWrappedName $ unLoc r) == dscName' rd -> True
                                 _                                     -> False)
                                     list
                 findThing = find (\ a ->
                                 case a of
-                                IEThingAbs r | showRdrName dflags (ieWrappedName $ unLoc710 r) == dscName' rd -> True
-                                IEThingAll r | showRdrName dflags (ieWrappedName $ unLoc710 r) == dscName' rd -> True
+                                IEThingAbs r | showRdrName dflags (ieWrappedName $ unLoc r) == dscName' rd -> True
+                                IEThingAll r | showRdrName dflags (ieWrappedName $ unLoc r) == dscName' rd -> True
 #if MIN_VERSION_ghc(8,0,0)
-                                IEThingWith r _ _list _ | showRdrName dflags (ieWrappedName $ unLoc710 r) == dscName' rd -> True
+                                IEThingWith r _ _list _ | showRdrName dflags (ieWrappedName $ unLoc r) == dscName' rd -> True
 #else
-                                IEThingWith r _list | showRdrName dflags (unLoc710 r) == dscName' rd -> True
+                                IEThingWith r _list | showRdrName dflags (unLoc r) == dscName' rd -> True
 #endif
                                 _                                     -> False)
                                     list
@@ -326,7 +313,11 @@ fixExports dflags (Just iel) descrs = map (fixDescr (map unLoc iel)) descrs
         maySetExportedSD list sd = sd{sdExported = sdName sd `elem` list}
 
 
-extractDescrs :: DynFlags -> PackModule -> [NDecl] -> [Descr]
+extractDescrs
+  :: DynFlags
+  -> PackModule
+  -> [NDecl]
+  -> [Descr]
 extractDescrs dflags pm decls = transformToDescrs dflags pm tripleWithSigs
     where
         sortedDecls                    = sortByLoc decls
@@ -339,7 +330,9 @@ extractDescrs dflags pm decls = transformToDescrs dflags pm tripleWithSigs
 sortByLoc :: [Located a] -> [Located a]
 sortByLoc = sortBy (comparing getLoc)
 
-filterUninteresting :: [(NDecl,Maybe NDoc)] -> [(NDecl,Maybe NDoc)]
+filterUninteresting
+  :: [(NDecl, Maybe NDoc)]
+  -> [(NDecl, Maybe NDoc)]
 filterUninteresting = filter filterSignature
     where
     filterSignature (L _srcDecl (SpliceD _),_)  = False
@@ -349,7 +342,9 @@ filterUninteresting = filter filterSignature
     filterSignature (L _srcDecl (DefD _),_)     = False
     filterSignature _                           = True
 
-partitionSignatures :: [(NDecl,Maybe NDoc)] -> ([(NDecl,Maybe NDoc)],[(NDecl,Maybe NDoc)])
+partitionSignatures
+  :: [(NDecl, Maybe NDoc)]
+  -> ([(NDecl, Maybe NDoc)], [(NDecl, Maybe NDoc)])
 partitionSignatures = partition filterSignature
     where
     filterSignature (L _srcDecl (SigD _),_) = False
@@ -363,10 +358,16 @@ partitionSignatures = partition filterSignature
 --    filterInstances _ = True
 
 -- | Collect the docs and attach them to the right declaration.
-collectDocs :: [LHsDecl RdrName] -> [(LHsDecl RdrName, Maybe NDoc)]
+collectDocs
+  :: [LHsDecl GhcPs]
+  -> [(LHsDecl GhcPs, Maybe NDoc)]
 collectDocs = collect Nothing myDocEmpty
 
-collect :: Maybe (LHsDecl RdrName) -> NDoc -> [LHsDecl RdrName] -> [(LHsDecl RdrName, Maybe NDoc)]
+collect
+  :: Maybe NDecl
+  -> NDoc
+  -> [NDecl]
+  -> [(NDecl, Maybe NDoc)]
 collect d doc_so_far [] =
    case d of
         Nothing -> []
@@ -385,7 +386,11 @@ collect d doc_so_far (e:es) =
       Nothing -> collect (Just e) doc_so_far es
       Just d0 -> finishedDoc d0 doc_so_far (collect (Just e) myDocEmpty es)
 
-finishedDoc :: LHsDecl RdrName -> NDoc -> [(LHsDecl RdrName, Maybe NDoc)] -> [(LHsDecl RdrName, Maybe NDoc)]
+finishedDoc
+  :: NDecl
+  -> NDoc
+  -> [(NDecl, Maybe NDoc)]
+  -> [(NDecl, Maybe NDoc)]
 finishedDoc d doc rest | isEmptyDoc doc = (d, Nothing) : rest
 finishedDoc d doc rest | notDocDecl d = (d, Just doc) : rest
   where
@@ -393,40 +398,41 @@ finishedDoc d doc rest | notDocDecl d = (d, Just doc) : rest
     notDocDecl _              = True
 finishedDoc _ _ rest = rest
 
+#if MIN_VERSION_ghc(8,4,0)
+sigNameNoLoc' :: Sig pass -> [IdP pass]
+#else
 sigNameNoLoc' :: Sig name -> [name]
-#if MIN_VERSION_ghc(7,2,0)
+#endif
 #if MIN_VERSION_ghc(8,0,0)
 sigNameNoLoc' (TypeSig   ns _)          = map unLoc ns
-#elif MIN_VERSION_ghc(7,10,0)
-sigNameNoLoc' (TypeSig   ns _ _)        = map unLoc ns
 #else
-sigNameNoLoc' (TypeSig   ns _)          = map unLoc ns
+sigNameNoLoc' (TypeSig   ns _ _)        = map unLoc ns
 #endif
 sigNameNoLoc' (SpecSig   n _ _)         = [unLoc n]
 sigNameNoLoc' (InlineSig n _)           = [unLoc n]
-#if MIN_VERSION_ghc(7,10,0)
 sigNameNoLoc' (FixSig (FixitySig ns _)) = map unLoc ns
-#else
-sigNameNoLoc' (FixSig (FixitySig n _)) = [unLoc n]
-#endif
 sigNameNoLoc' _                         = []
-#else
-sigNameNoLoc' = maybeToList sigNameNoLoc
-#endif
 
-attachSignatures :: DynFlags -> [(NDecl, Maybe NDoc)] -> [(NDecl,Maybe NDoc)]
-    -> [(NDecl, Maybe NDoc, [(NSig,Maybe NDoc)])]
+attachSignatures
+  :: DynFlags
+  -> [(NDecl, Maybe NDoc)]
+  -> [(NDecl, Maybe NDoc)]
+  -> [(NDecl, Maybe NDoc, [(NSig,Maybe NDoc)])]
 attachSignatures dflags signatures = map (attachSignature signaturesMap)
     where
     signaturesMap = Map.fromListWith (++) $ concatMap sigMap signatures
 
-    sigMap :: (NDecl, Maybe NDoc) -> [(RdrName, [(NSig,Maybe NDoc)])]
+    sigMap
+      :: (NDecl, Maybe NDoc)
+      -> [(IdP GhcPs, [(NSig,Maybe NDoc)])]
     sigMap (L loc (SigD sig),c) | nameList <- sigNameNoLoc' sig =
         map (\n -> (n, [(L loc sig,c)])) nameList
     sigMap v = error ("Unexpected location type" ++ (showSDoc dflags . ppr) v)
 
-    attachSignature :: Map RdrName  [(NSig,Maybe NDoc)] -> (NDecl, Maybe NDoc)
-        -> (NDecl, Maybe NDoc, [(NSig,Maybe NDoc)])
+    attachSignature
+      :: Map (IdP GhcPs) [(NSig,Maybe NDoc)]
+      -> (NDecl, Maybe NDoc)
+      -> (NDecl, Maybe NDoc, [(NSig,Maybe NDoc)])
     attachSignature signaturesMap'  (decl,mbDoc) =
         case declName (unLoc decl) of
             Nothing -> (decl,mbDoc, [])
@@ -438,10 +444,14 @@ attachSignatures dflags signatures = map (attachSignature signaturesMap)
     declName _                                    = Nothing
 
 
-transformToDescrs :: DynFlags -> PackModule -> [(NDecl, Maybe NDoc, [(NSig, Maybe NDoc)])] -> [Descr]
+transformToDescrs
+  :: DynFlags
+  -> PackModule
+  -> [(NDecl, Maybe NDoc, [(NSig, Maybe NDoc)])] -> [Descr]
 transformToDescrs dflags pm = concatMap transformToDescr
     where
-    transformToDescr :: (NDecl, Maybe NDoc, [(NSig, Maybe NDoc)]) -> [Descr]
+    transformToDescr
+      :: (NDecl, Maybe NDoc, [(NSig, Maybe NDoc)]) -> [Descr]
     transformToDescr (L loc (ValD FunBind {fun_id = lid}), mbComment, sigList) =
         [Real RealDescr {
         dscName'        =   showRdrName dflags (unLoc lid)
@@ -452,27 +462,16 @@ transformToDescrs dflags pm = concatMap transformToDescr
     ,   dscTypeHint'    =   VariableDescr
     ,   dscExported'    =   True}]
 
-#if MIN_VERSION_ghc(7,8,0)
-#if MIN_VERSION_ghc(7,10,0)
     transformToDescr (L loc (ValD (PatSynBind PSB{..})), mbComment,sigList) =
-#else
-    transformToDescr (L loc (ValD PatSynBind{..}), mbComment,sigList) =
-#endif
         [Real RealDescr {
-#if MIN_VERSION_ghc(7,10,0)
         dscName'        =   showRdrName dflags (unLoc psb_id)
-#else
-        dscName'        =   showRdrName dflags (unLoc patsyn_id)
-#endif
     ,   dscMbTypeStr'   =   sigToByteString dflags sigList
     ,   dscMbModu'      =   Just pm
     ,   dscMbLocation'  =   srcSpanToLocation loc
     ,   dscMbComment'   =   toComment mbComment (catMaybes (map snd sigList))
     ,   dscTypeHint'    =   PatternSynonymDescr
     ,   dscExported'    =   True}]
-#endif
 
-#if MIN_VERSION_ghc(7,7,0)
     transformToDescr (L loc for@(ForD (ForeignImport lid _ _ _)), mbComment,_sigList) =
         [Real RealDescr {
         dscName'        =   showRdrName dflags (unLoc lid)
@@ -518,106 +517,13 @@ transformToDescrs dflags pm = concatMap transformToDescr
         fields          =   nub $ concatMap (extractRecordFields dflags) lConDecl
         name            =   showRdrName dflags (unLoc lid)
 #if MIN_VERSION_ghc(8,2,0)
-        derivings :: HsDeriving RdrName -> [Descr]
-        derivings l = concatMap (extractDeriving dflags pm name) (unLoc710 l)
+        derivings
+          :: HsDeriving GhcPs
+          -> [Descr]
+        derivings l = concatMap (extractDeriving dflags pm name) (unLoc l)
 #else
         derivings Nothing = []
-        derivings (Just l) = map (extractDeriving dflags pm name) (unLoc710 l)
-#endif
-#elif MIN_VERSION_ghc(7,6,0)
-    transformToDescr (L loc (TyClD typ@ForeignType {tcdLName = lid}), mbComment,_sigList) =
-        [Real RealDescr {
-        dscName'        =   showRdrName dflags (unLoc lid)
-    ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual dflags $ppr typ))
-    ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   srcSpanToLocation loc
-    ,   dscMbComment'   =   toComment mbComment []
-    ,   dscTypeHint'    =   TypeDescr
-    ,   dscExported'    =   True}]
-
-    transformToDescr (L loc (TyClD typ@TyFamily {tcdLName = lid}), mbComment,_sigList) =
-        [Real RealDescr {
-        dscName'        =   showRdrName dflags (unLoc lid)
-    ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual dflags $ppr typ))
-    ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   srcSpanToLocation loc
-    ,   dscMbComment'   =   toComment mbComment []
-    ,   dscTypeHint'    =   TypeDescr
-    ,   dscExported'    =   True}]
-
-    transformToDescr (L loc (TyClD typ@TyDecl {tcdLName = lid, tcdTyDefn = TySynonym {}}), mbComment,_sigList) =
-        [Real RealDescr {
-        dscName'        =   showRdrName dflags (unLoc lid)
-    ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual dflags $ppr typ))
-    ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   srcSpanToLocation loc
-    ,   dscMbComment'   =   toComment mbComment []
-    ,   dscTypeHint'    =   TypeDescr
-    ,   dscExported'    =   True}]
-
-    transformToDescr (L loc (TyClD typ@TyDecl {tcdLName = lid, tcdTyDefn = TyData {td_cons=lConDecl, td_derivs=tcdDerivs'}}), mbComment,_sigList) =
-        Real RealDescr {
-        dscName'        =   name
-    ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual dflags $ppr (uncommentData typ)))
-    ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   srcSpanToLocation loc
-    ,   dscMbComment'   =   toComment mbComment []
-    ,   dscTypeHint'    =   DataDescr constructors fields
-    ,   dscExported'    =   True}
-            : derivings tcdDerivs'
-        where
-        constructors    =   concatMap (extractConstructor dflags) lConDecl
-        fields          =   nub $ concatMap (extractRecordFields dflags) lConDecl
-        name            =   showRdrName dflags (unLoc lid)
-        derivings Nothing = []
-        derivings (Just l) = map (extractDeriving dflags pm name) l
-#else
-    transformToDescr (L loc (TyClD typ@(TySynonym lid _ _ _ )), mbComment,_sigList) =
-        [Real RealDescr {
-        dscName'        =   showRdrName dflags (unLoc lid)
-    ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual dflags $ppr typ))
-    ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   srcSpanToLocation loc
-    ,   dscMbComment'   =   toComment mbComment []
-    ,   dscTypeHint'    =   TypeDescr
-    ,   dscExported'    =   True}]
-
-    transformToDescr (L loc (TyClD typ@(TyData DataType _ tcdLName' _ _ _ lConDecl tcdDerivs')), mbComment,_sigList) =
-        Real RealDescr {
-        dscName'        =   name
-    ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual dflags $ppr (uncommentData typ)))
-    ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   srcSpanToLocation loc
-    ,   dscMbComment'   =   toComment mbComment []
-    ,   dscTypeHint'    =   DataDescr constructors fields
-    ,   dscExported'    =   True}
-            : derivings tcdDerivs'
-        where
-        constructors    =   map (extractConstructor dflags) lConDecl
-        fields          =   nub $ concatMap (extractRecordFields dflags) lConDecl
-        name            =   showRdrName dflags (unLoc tcdLName')
-        derivings Nothing = []
-        derivings (Just l) = map (extractDeriving dflags pm name) l
-
-    transformToDescr (L loc (TyClD typ@(TyData NewType _ tcdLName' _ _ _ lConDecl tcdDerivs')), mbComment,_sigList) =
-        Real RealDescr {
-        dscName'        =   name
-    ,   dscMbTypeStr'   =   Just (BS.pack (showSDocUnqual dflags $ppr (uncommentData typ)))
-    ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   srcSpanToLocation loc
-    ,   dscMbComment'   =   toComment mbComment []
-    ,   dscTypeHint'    =   NewtypeDescr constructor mbField
-    ,   dscExported'    =   True}
-            : derivings tcdDerivs'
-        where
-        constructor     =   forceHead (map (extractConstructor dflags) lConDecl)
-                                "WorkspaceCollector>>transformToDescr: no constructor for newtype"
-        mbField         =   case concatMap (extractRecordFields dflags) lConDecl of
-                                [] -> Nothing
-                                a:_ -> Just a
-        name            =   showRdrName dflags (unLoc tcdLName')
-        derivings Nothing = []
-        derivings (Just l) = map (extractDeriving dflags pm name) l
+        derivings (Just l) = map (extractDeriving dflags pm name) (unLoc l)
 #endif
 
     transformToDescr (L loc (TyClD cl@ClassDecl{tcdLName=tcdLName', tcdSigs=tcdSigs', tcdDocs=docs}), mbComment,_sigList) =
@@ -633,7 +539,6 @@ transformToDescrs dflags pm = concatMap transformToDescr
         methods         =   extractMethods dflags tcdSigs' docs
         super           =   []
 
-#if MIN_VERSION_ghc(7,7,0)
     transformToDescr (L loc (InstD inst), mbComment, _sigList) =
         let typp = case inst of
                      ClsInstD t -> ppr t
@@ -653,49 +558,12 @@ transformToDescrs dflags pm = concatMap transformToDescr
         ,   dscExported'    =   True}]
             where
 
-#elif MIN_VERSION_ghc(7,6,0)
-    transformToDescr (L loc (InstD _inst@(ClsInstD typ _ _ _)), mbComment, _sigList) =
-        [Real RealDescr {
-        dscName'        =   name
-    ,   dscMbTypeStr'   =   Just (BS.pack ("instance " ++ showSDocUnqual dflags (ppr typ)))
-    ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   srcSpanToLocation loc
-    ,   dscMbComment'   =   toComment mbComment []
-    ,   dscTypeHint'    =   InstanceDescr other
-    ,   dscExported'    =   True}]
-        where
-        (name,other)           =   case T.words $ T.pack (showSDocUnqual dflags $ppr typ) of
-                                [] -> ("",[])
-                                hd:tl -> (hd,tl)
-#else
-    transformToDescr (L loc (InstD _inst@(InstDecl typ _ _ _)), mbComment, _sigList) =
-        [Real RealDescr {
-        dscName'        =   name
-    ,   dscMbTypeStr'   =   Just (BS.pack ("instance " ++ showSDocUnqual dflags (ppr typ)))
-    ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   srcSpanToLocation loc
-    ,   dscMbComment'   =   toComment mbComment []
-    ,   dscTypeHint'    =   InstanceDescr other
-    ,   dscExported'    =   True}]
-        where
-        (name,other)           =   case T.words $ T.pack (showSDocUnqual dflags $ppr typ) of
-                                [] -> ("",[])
-                                hd:tl -> (hd,tl)
-#endif
-
     transformToDescr (_, _mbComment, _sigList) = []
 
 
 uncommentData :: TyClDecl a -> TyClDecl a
-#if MIN_VERSION_ghc(7,7,0)
 uncommentData td@(DataDecl {tcdDataDefn = def@(HsDataDefn{dd_cons = conDecls})}) = td{
     tcdDataDefn = def{dd_cons = map uncommentDecl conDecls}}
-#elif MIN_VERSION_ghc(7,6,0)
-uncommentData td@(TyDecl {tcdTyDefn = def@(TyData{td_cons = conDecls})}) = td{
-    tcdTyDefn = def{td_cons = map uncommentDecl conDecls}}
-#else
-uncommentData td@TyData {tcdCons = conDecls} = td{tcdCons = map uncommentDecl conDecls}
-#endif
 uncommentData other                            = other
 
 uncommentDecl :: LConDecl a -> LConDecl a
@@ -710,15 +578,9 @@ uncommentDecl (L l cd) =
 #endif
 
 uncommentDetails :: HsConDeclDetails a -> HsConDeclDetails a
-#if MIN_VERSION_ghc(7,10,0)
 uncommentDetails (RecCon (L l flds)) = RecCon (L l (map uncommentField flds))
     where
     uncommentField (L l2 (ConDeclField a1 a2 _doc))  =  L l2 (ConDeclField a1 a2 Nothing)
-#else
-uncommentDetails (RecCon flds) = RecCon (map uncommentField flds)
-    where
-    uncommentField (ConDeclField a1 a2 _doc)  =  ConDeclField a1 a2 Nothing
-#endif
 uncommentDetails other = other
 
 mergeWithInterfaceDescr :: ModuleDescr -> ModuleDescr -> ModuleDescr
@@ -740,10 +602,10 @@ mergeIdDescrs d1 d2 = dres ++ reexported
         addType _ d                     = d
 
 #if MIN_VERSION_ghc(8,2,0)
-extractDeriving :: OutputableBndrId alpha => DynFlags -> PackModule -> Text -> LHsDerivingClause alpha -> [Descr]
+extractDeriving :: (SourceTextX alpha, OutputableBndrId alpha) => DynFlags -> PackModule -> Text -> LHsDerivingClause alpha -> [Descr]
 extractDeriving dflags pm name (L _ HsDerivingClause {deriv_clause_tys = L _ c}) = map (extractDeriving' dflags pm name) c
 
-extractDeriving' :: OutputableBndrId alpha => DynFlags -> PackModule -> Text -> LHsSigType alpha -> Descr
+extractDeriving' :: (SourceTextX alpha, OutputableBndrId alpha) => DynFlags -> PackModule -> Text -> LHsSigType alpha -> Descr
 extractDeriving' dflags pm name (HsIB { hsib_body = (L loc typ) }) =
 #elif MIN_VERSION_ghc(8,0,0)
 extractDeriving :: OutputableBndr alpha => DynFlags -> PackModule -> Text -> LHsSigType alpha -> Descr
@@ -763,12 +625,16 @@ extractDeriving dflags pm name (L loc typ) =
         where
         className = T.pack . showSDocUnqual dflags $ ppr typ
 
-extractMethods :: DynFlags -> [LSig RdrName] -> [MyLDocDecl] -> [SimpleDescr]
+extractMethods
+  :: DynFlags
+  -> [NSig]
+  -> [MyLDocDecl]
+  -> [SimpleDescr]
 extractMethods dflags sigs docs =
     let pairs = attachComments sigs docs
     in concatMap (extractMethod dflags) pairs
 
-extractMethod :: OutputableBndrId alpha => DynFlags -> (LHsDecl alpha, Maybe NDoc) -> [SimpleDescr]
+extractMethod :: (SourceTextX alpha, OutputableBndrId alpha) => DynFlags -> (LHsDecl alpha, Maybe NDoc) -> [SimpleDescr]
 #if MIN_VERSION_ghc(8,0,0)
 extractMethod dflags (L loc (SigD ts@(TypeSig names _typ)), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names
 #if MIN_VERSION_ghc(8,2,0)
@@ -777,12 +643,8 @@ extractMethod dflags (L loc (SigD ts@(PatSynSig names _typ)), mbDoc) = map (extr
 extractMethod dflags (L loc (SigD ts@(PatSynSig name _typ)), mbDoc) = [extractMethodName dflags loc ts mbDoc name]
 #endif
 extractMethod dflags (L loc (SigD ts@(ClassOpSig _ names _typ)), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names
-#elif MIN_VERSION_ghc(7,10,0)
-extractMethod dflags (L loc (SigD ts@(TypeSig names _typ _)), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names
-#elif MIN_VERSION_ghc(7,2,0)
-extractMethod dflags (L loc (SigD ts@(TypeSig names _typ)), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names
 #else
-extractMethod dflags (L loc (SigD ts@(TypeSig name' _typ)), mbDoc) = [extractMethodName dflags loc ts mbDoc name']
+extractMethod dflags (L loc (SigD ts@(TypeSig names _typ _)), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names
 #endif
 extractMethod _ _ = []
 
@@ -796,19 +658,18 @@ extractMethodName dflags loc ts mbDoc name =
         (toComment mbDoc [])
         True
 
-extractConstructor :: DynFlags -> Located (ConDecl RdrName) -> [SimpleDescr]
+extractConstructor
+  :: DynFlags
+  -> Located (ConDecl GhcPs)
+  -> [SimpleDescr]
 #if MIN_VERSION_ghc(8,0,0)
 extractConstructor dflags decl@(L loc d') = extractDecl d'
  where
   extractDecl (ConDeclGADT {..}) = map (extractName con_doc) con_names
   extractDecl (ConDeclH98 {..}) = [extractName con_doc con_name]
-#elif MIN_VERSION_ghc(7,10,0)
+#else
 extractConstructor dflags decl@(L loc (ConDecl {con_names = names, con_doc = doc})) =
     map (extractName doc) names
- where
-#else
-extractConstructor dflags decl@(L loc ConDecl {con_name = name', con_doc = doc}) =
-    [extractName doc name']
  where
 #endif
   extractName doc name =
@@ -821,25 +682,21 @@ extractConstructor dflags decl@(L loc ConDecl {con_name = name', con_doc = doc})
             Just (L _ d) -> Just . BS.pack . T.unpack $ printHsDoc d)
         True
 
-extractRecordFields :: DynFlags -> Located (ConDecl RdrName) -> [SimpleDescr]
+extractRecordFields :: DynFlags -> Located (ConDecl GhcPs) -> [SimpleDescr]
 #if MIN_VERSION_ghc(8,0,0)
 extractRecordFields dflags (L _ _decl@ConDeclH98 {con_details = RecCon flds}) =
 #else
 extractRecordFields dflags (L _ _decl@ConDecl {con_details = RecCon flds}) =
 #endif
-    concatMap extractRecordFields' (unLoc710 flds)
+    concatMap extractRecordFields' (unLoc flds)
     where
-#if MIN_VERSION_ghc(7,10,0)
-    extractRecordFields' :: OutputableBndrId name => LConDeclField name -> [SimpleDescr]
+    extractRecordFields' :: (SourceTextX name, OutputableBndrId name) => LConDeclField name -> [SimpleDescr]
     extractRecordFields' (L _ _field@(ConDeclField names typ doc)) = map extractName names
-#else
-    extractRecordFields' _field@(ConDeclField name' typ doc) = [extractName name']
-#endif
       where
       extractName :: LFieldOcc name -> SimpleDescr
       extractName name =
         SimpleDescr
-            (T.pack . showSDoc dflags . ppr $ unLoc710 name)
+            (T.pack . showSDoc dflags . ppr $ unLoc name)
             (Just . BS.pack . showSDocUnqual dflags $ ppr typ)
             (srcSpanToLocation $ getLoc name)
             (case doc of
@@ -853,7 +710,7 @@ extractRecordFields dflags (L _ _decl@ConDeclGADT
   where
     extractName name =
         SimpleDescr
-            (T.pack . showSDoc dflags . ppr $ unLoc710 name)
+            (T.pack . showSDoc dflags . ppr $ unLoc name)
             (Just (BS.pack (showSDocUnqual dflags $ ppr typ)))
             (srcSpanToLocation $ getLoc name)
             (case doc of
@@ -863,7 +720,7 @@ extractRecordFields dflags (L _ _decl@ConDeclGADT
 #endif
 extractRecordFields _ _ = []
 
-attachComments :: [LSig RdrName] -> [MyLDocDecl] -> [(LHsDecl RdrName, Maybe NDoc)]
+attachComments :: [LSig GhcPs] -> [MyLDocDecl] -> [(LHsDecl GhcPs, Maybe NDoc)]
 attachComments sigs docs = collectDocs $ sortByLoc
         (map (\ (L l i) -> L l (SigD i)) sigs ++ map (\ (L l i) -> L l (DocD i)) docs)
 
@@ -873,18 +730,10 @@ sigToByteString dflags [(sig,_)] = Just (BS.pack (showSDocUnqual dflags $ppr sig
 sigToByteString dflags ((sig,_):_) = Just (BS.pack (showSDocUnqual dflags $ppr sig))
 
 srcSpanToLocation :: SrcSpan -> Maybe Location
-#if MIN_VERSION_ghc(7,2,0)
 srcSpanToLocation (RealSrcSpan span')
     =   Just (Location (unpackFS $ srcSpanFile span') (srcSpanStartLine span') (srcSpanStartCol span')
                  (srcSpanEndLine span') (srcSpanEndCol span'))
 srcSpanToLocation _ = Nothing
-#else
-srcSpanToLocation span' | not (isGoodSrcSpan span')
-    =   Nothing
-srcSpanToLocation span'
-    =   Just (Location (unpackFS $ srcSpanFile span') (srcSpanStartLine span') (srcSpanStartCol span')
-                 (srcSpanEndLine span') (srcSpanEndCol span'))
-#endif
 
 toComment :: Maybe NDoc -> [NDoc] -> Maybe ByteString
 toComment (Just c) _    =  Just . BS.pack . T.unpack $ printHsDoc c
@@ -913,10 +762,8 @@ mayGetInterfaceFile p mn =
         makeInstMod     =   InstalledModule (packUnitId p)
 #elif MIN_VERSION_ghc(8,0,0)
         makeMod         =   mkModule (packUnitId p)
-#elif MIN_VERSION_ghc(7,10,0)
-        makeMod         =   mkModule (packKey p)
 #else
-        makeMod         =   mkModule (mkPackageId pid)
+        makeMod         =   mkModule (packKey p)
 #endif
         isBase  = pkgName pid == mkPackageName "base"
         mn'     = mkModuleName (display mn)

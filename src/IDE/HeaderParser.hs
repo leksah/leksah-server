@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP, OverloadedStrings #-}
+{-# LANGUAGE CPP, OverloadedStrings, TypeFamilies #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.HeaderParser
@@ -31,16 +31,7 @@ import BasicTypes (StringLiteral(..), SourceText(..))
 #elif MIN_VERSION_ghc(8,0,0)
 import BasicTypes (StringLiteral(..))
 #endif
-#if MIN_VERSION_ghc(7,4,1)
-import Outputable(pprPrefixOcc, ppr)
-#else
-import Outputable(pprHsVar, ppr)
-#endif
-#if MIN_VERSION_ghc(7,6,0)
-import Outputable(showSDoc)
-#else
-import qualified Outputable as O
-#endif
+import Outputable(pprPrefixOcc, ppr,showSDoc)
 import IDE.Utils.FileUtils (figureOutHaddockOpts)
 import Control.Monad.IO.Class (MonadIO(..))
 import System.IO.Strict (readFile)
@@ -48,24 +39,15 @@ import qualified Data.Text as T (pack)
 import System.Directory (setCurrentDirectory)
 import System.FilePath (dropFileName)
 
-#if !MIN_VERSION_ghc(7,6,0)
-showSDoc :: DynFlags -> O.SDoc -> String
-showSDoc _ = O.showSDoc
-showSDocUnqual :: DynFlags -> O.SDoc -> String
-showSDocUnqual _ = O.showSDocUnqual
-#endif
-
 #if !MIN_VERSION_ghc(8,2,0)
 ieLWrappedName :: a -> a
 ieLWrappedName = id
 #endif
 
-#if MIN_VERSION_ghc(7,10,0)
-unLoc710 :: GenLocated l e -> e
-unLoc710 = unLoc
-#else
-unLoc710 :: a -> a
-unLoc710 = id
+#if !MIN_VERSION_ghc(8,4,0)
+type GhcPs = RdrName
+type family IdP p
+type instance IdP GhcPs = RdrName
 #endif
 
 #if MIN_VERSION_ghc(8,2,0)
@@ -91,7 +73,7 @@ parseTheHeader project package filePath = do
             let i = case hsmodDecls pr of
                         decls@(_hd:_tl) -> foldl (\ a b -> min a (srcSpanStartLine' (getLoc b))) 0 decls - 1
                         [] -> case hsmodExports pr of
-                            Just list -> foldl (\ a b -> max a (srcSpanEndLine' (getLoc b))) 0 (unLoc710 list) + 1
+                            Just list -> foldl (\ a b -> max a (srcSpanEndLine' (getLoc b))) 0 (unLoc list) + 1
                             Nothing -> case hsmodName pr of
                                         Nothing -> 0
                                         Just mn -> srcSpanEndLine' (getLoc mn) + 2
@@ -102,10 +84,10 @@ parseTheHeader project package filePath = do
     filterOpts (o:_:r) | o `elem` ["-link-js-lib", "-js-lib-outputdir", "-js-lib-src", "-package-id"] = filterOpts r
     filterOpts (o:r) = o:filterOpts r
 
-transformImports :: DynFlags -> [LImportDecl RdrName] -> [ImportDecl]
+transformImports :: DynFlags -> [LImportDecl GhcPs] -> [ImportDecl]
 transformImports dflags = map (transformImport dflags)
 
-transformImport :: DynFlags -> LImportDecl RdrName -> ImportDecl
+transformImport :: DynFlags -> LImportDecl GhcPs -> ImportDecl
 transformImport dflags (L srcSpan importDecl) =
     ImportDecl {
         importLoc = srcSpanToLocation srcSpan,
@@ -131,25 +113,20 @@ transformImport dflags (L srcSpan importDecl) =
                         Just mn -> Just (moduleNameString $ unLoc82 mn)
         specs =    case ideclHiding importDecl of
                         Nothing -> Nothing
-                        Just (hide, list) -> Just (ImportSpecList hide (mapMaybe (transformEntity dflags) (unLoc710 list)))
+                        Just (hide, list) -> Just (ImportSpecList hide (mapMaybe (transformEntity dflags) (unLoc list)))
 
-transformEntity :: DynFlags -> LIE RdrName -> Maybe ImportSpec
-#if MIN_VERSION_ghc(7,2,0)
-transformEntity dflags (L _ (IEVar name))              = Just (IVar (T.pack $ showSDoc dflags (pprPrefixOcc $ unLoc710 name)))
-#else
-transformEntity dflags (L _ (IEVar name))              = Just (IVar (T.pack $ showSDoc dflags (pprHsVar name)))
-#endif
-transformEntity dflags (L _ (IEThingAbs name))         = Just (IAbs (T.pack . showRdrName dflags . unLoc710 $ ieLWrappedName name))
-transformEntity dflags (L _ (IEThingAll name))         = Just (IThingAll (T.pack . showRdrName dflags . unLoc710 $ ieLWrappedName name))
+transformEntity :: DynFlags -> LIE GhcPs -> Maybe ImportSpec
+transformEntity dflags (L _ (IEVar name))              = Just (IVar (T.pack $ showSDoc dflags (pprPrefixOcc $ unLoc name)))
+transformEntity dflags (L _ (IEThingAbs name))         = Just (IAbs (T.pack . showRdrName dflags . unLoc $ ieLWrappedName name))
+transformEntity dflags (L _ (IEThingAll name))         = Just (IThingAll (T.pack . showRdrName dflags . unLoc $ ieLWrappedName name))
 #if MIN_VERSION_ghc(8,0,0)
-transformEntity dflags (L _ (IEThingWith name _ list _)) = Just (IThingWith (T.pack . showRdrName dflags . unLoc710 $ ieLWrappedName name)
+transformEntity dflags (L _ (IEThingWith name _ list _)) = Just (IThingWith (T.pack . showRdrName dflags . unLoc $ ieLWrappedName name)
 #else
-transformEntity dflags (L _ (IEThingWith name list))   = Just (IThingWith (T.pack . showRdrName dflags $ unLoc710 name)
+transformEntity dflags (L _ (IEThingWith name list))   = Just (IThingWith (T.pack . showRdrName dflags $ unLoc name)
 #endif
-                                                        (map (T.pack . showRdrName dflags . unLoc710 . ieLWrappedName) list))
+                                                        (map (T.pack . showRdrName dflags . unLoc . ieLWrappedName) list))
 transformEntity _ _                              = Nothing
 
-#if MIN_VERSION_ghc(7,2,0)
 srcSpanToLocation :: SrcSpan -> Location
 srcSpanToLocation (RealSrcSpan span')
     =   Location (unpackFS $ srcSpanFile span') (srcSpanStartLine span') (srcSpanStartCol span')
@@ -163,17 +140,3 @@ srcSpanStartLine' _ = error "srcSpanStartLine': unhelpful span"
 srcSpanEndLine' :: SrcSpan -> Int
 srcSpanEndLine' (RealSrcSpan span') = srcSpanEndLine span'
 srcSpanEndLine' _ = error "srcSpanEndLine': unhelpful span"
-#else
-srcSpanToLocation :: SrcSpan -> Location
-srcSpanToLocation span' | not (isGoodSrcSpan span')
-    =   error "srcSpanToLocation: unhelpful span"
-srcSpanToLocation span'
-    =   Location (unpackFS $ srcSpanFile span') (srcSpanStartLine span') (srcSpanStartCol span')
-                 (srcSpanEndLine span') (srcSpanEndCol span')
-
-srcSpanStartLine' :: SrcSpan -> Int
-srcSpanStartLine' = srcSpanStartLine
-
-srcSpanEndLine' :: SrcSpan -> Int
-srcSpanEndLine' = srcSpanEndLine
-#endif
