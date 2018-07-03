@@ -95,9 +95,9 @@ import Data.List (stripPrefix)
 #ifdef MIN_VERSION_unix
 import System.Posix.Signals
        (emptySignalSet, sigINT, addSignal, unblockSignals)
+#endif
 import qualified Data.Map as M (toList)
 import Data.Map (Map)
-#endif
 
 data ToolOutput = ToolInput Text
                 | ToolError Text
