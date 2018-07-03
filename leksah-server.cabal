@@ -58,8 +58,6 @@ library
             Win32 >=2.2.0.0 && <2.7
         extra-libraries:
             kernel32
-            pango-1.0
-            glib-2.0
     else
         build-depends:
             unix >=2.3.1.0 && <2.8
@@ -152,8 +150,6 @@ executable leksah-server
             Win32 >=2.2.0.0 && <2.7
         extra-libraries:
             kernel32
-            pango-1.0
-            glib-2.0
     else
         build-depends:
             unix >=2.3.1.0 && <2.8
