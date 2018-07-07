@@ -71,7 +71,7 @@ import System.Directory
        (createDirectoryIfMissing, getAppUserDataDirectory,
         canonicalizePath, doesDirectoryExist, doesFileExist,
         setCurrentDirectory, getCurrentDirectory, getDirectoryContents,
-        getHomeDirectory, findExecutable)
+        getHomeDirectory, findExecutable, exeExtension)
 import Text.ParserCombinators.Parsec.Language (haskellDef, haskell)
 import qualified Text.ParserCombinators.Parsec.Token as P
        (GenTokenParser(..), TokenParser, identStart)
@@ -544,7 +544,7 @@ findGhcPkg project hc hVer =
         Just _ -> return preferedName
         Nothing ->
             findExecutable preferedName >>= \case
-                Nothing -> maybe preferedName ghcPkgAlongSide <$> findExecutable (hc <> "-" <> hVer)
+                Nothing -> maybe preferedName ghcPkgAlongSide <$> findExecutable (hc <> "-" <> hVer <> exeExtension)
                 Just x -> return x
   where
     ghcPkgAlongSide f = dropFileName f <> "ghc-pkg" <> takeExtension f
