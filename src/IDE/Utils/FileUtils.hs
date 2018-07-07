@@ -71,7 +71,7 @@ import System.Directory
        (createDirectoryIfMissing, getAppUserDataDirectory,
         canonicalizePath, doesDirectoryExist, doesFileExist,
         setCurrentDirectory, getCurrentDirectory, getDirectoryContents,
-        getHomeDirectory)
+        getHomeDirectory, findExecutable)
 import Text.ParserCombinators.Parsec.Language (haskellDef, haskell)
 import qualified Text.ParserCombinators.Parsec.Token as P
        (GenTokenParser(..), TokenParser, identStart)
@@ -398,6 +398,16 @@ saveNixCache project compiler out = liftIO $ do
 loadNixEnv :: MonadIO m => FilePath -> Text -> m (Maybe (Map String String))
 loadNixEnv project compiler = M.lookup (project, compiler) <$> loadNixCache
 
+nixPath :: FilePath -> IO (Maybe String)
+nixPath project = do
+    let nixFile = dropFileName project </> "default.nix"
+    doesFileExist nixFile >>= \case
+        True ->
+            loadNixEnv project "ghc" >>= \case
+                Just nixEnv -> return $ M.lookup "PATH" nixEnv
+                Nothing -> return Nothing
+        False -> return Nothing
+
 runProjectTool :: Maybe FilePath -> FilePath -> [Text] -> Maybe FilePath -> Maybe [(String, String)] -> IO ([ToolOutput], ProcessHandle)
 runProjectTool Nothing fp args mbDir mbEnv = runTool' fp args mbDir mbEnv
 runProjectTool (Just project) fp args mbDir mbEnv = do
@@ -526,9 +536,24 @@ cabalProjectBuildDir projectRoot buildDir = do
                 return defaultDir
             Nothing -> return defaultDir
 
+-- On windows there is no "ghc-pkg-8.2.2.exe" so we should look also
+-- for "ghc-pkg.exe" in the directory where "ghc-8.2.2.exe" is found
+findGhcPkg :: Maybe FilePath -> FilePath -> FilePath -> IO FilePath
+findGhcPkg project hc hVer =
+    maybe (return Nothing) nixPath project >>= \case
+        Just _ -> return preferedName
+        Nothing ->
+            findExecutable preferedName >>= \case
+                Nothing -> maybe preferedName ghcPkgAlongSide <$> findExecutable (hc <> "-" <> hVer)
+                Just x -> return x
+  where
+    ghcPkgAlongSide f = dropFileName f <> "ghc-pkg" <> takeExtension f
+    preferedName = hc <> "-pkg-" <> hVer
+
 getPackages' :: Maybe FilePath -> FilePath -> FilePath -> [FilePath] -> IO [UnitId]
 getPackages' project hc hVer packageDBs = do
-    (!output', _) <- runProjectTool project (hc <> "-pkg-" <> hVer) (["list", "--simple-output"] ++ map (("--package-db="<>) . T.pack) packageDBs) Nothing Nothing
+    ghcPkg <- findGhcPkg project hc hVer
+    (!output', _) <- runProjectTool project ghcPkg (["list", "--simple-output"] ++ map (("--package-db="<>) . T.pack) packageDBs) Nothing Nothing
     output' `deepseq` return $ concatMap ghcPkgOutputToPackages output'
 
 getPackages :: Maybe FilePath -> FilePath -> FilePath-> [FilePath] -> IO [(UnitId, Maybe FilePath)]
