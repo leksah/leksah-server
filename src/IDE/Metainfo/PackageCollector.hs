@@ -39,7 +39,7 @@ import IDE.Core.CTypes
         dscMbTypeStr', dscName', RealDescr(..), Descr, metadataVersion,
         PackageDescr(..), leksahVersion, packageIdentifierToString,
         getThisPackage, packId, ModuleDescr(..))
-import IDE.Utils.FileUtils (runProjectTool, getCollectorPath)
+import IDE.Utils.FileUtils (runProjectTool, getCollectorPath, getSysLibDir)
 import System.Directory
        (createDirectoryIfMissing, doesDirectoryExist, doesFileExist,
         setCurrentDirectory)
@@ -76,7 +76,7 @@ import GHC.IO.Exception (ExitCode(..))
 import Distribution.Package (Package(..), pkgName)
 import Distribution.Simple.Utils (installDirectoryContents)
 import Distribution.Verbosity (normal)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, maybeToList)
 import Paths_leksah_server (getDataDir)
 import System.Environment (getExecutablePath)
 
@@ -184,13 +184,15 @@ collectPackage writeAscii prefs numPackages ((packageConfig, (mbProject, dbs)), 
         runCabalConfigure fpSource = do
             let dirPath         = dropFileName fpSource
                 packageName'    = takeBaseName fpSource
-                flagsFor "base" = ["-finteger-gmp", "-finteger-gmp2"]
-                flagsFor ('g':'i':'-':_) = ["-f-enable-overloading", "-f-overloaded-methods", "-f-overloaded-properties", "-f-overloaded-signals"]
-                flagsFor _      = []
-                flags           = flagsFor packageName'
+                flagsFor "base" = do
+                    libDir <- getSysLibDir mbProject Nothing
+                    return $ ["-finteger-gmp", "-finteger-gmp2"] ++ maybeToList ((\l -> T.pack $ "--configure-option=CFLAGS=-I" <> l </> "include") <$> libDir)
+                flagsFor ('g':'i':'-':_) = return ["-f-enable-overloading", "-f-overloaded-methods", "-f-overloaded-properties", "-f-overloaded-signals"]
+                flagsFor _      = return []
             setCurrentDirectory dirPath
             E.catch (do _ <- runTool' "cabal" ["clean"] Nothing Nothing
                         debugM "leksah" $ "fpSource = " <> show fpSource
+                        flags <- flagsFor packageName'
                         _ <- runProjectTool mbProject "cabal" ("configure":flags ++ map (("--package-db="<>) .T.pack) dbs) Nothing Nothing
                         return ())
                     (\ (_e :: E.SomeException) -> do

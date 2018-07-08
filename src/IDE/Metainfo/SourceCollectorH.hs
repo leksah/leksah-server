@@ -179,7 +179,7 @@ packageFromSource mbProject dbs cabalPath packageConfig = do
 
 packageFromSource' :: [Text] -> [FilePath] -> FilePath -> PackageConfig -> IO (Maybe PackageDescr, PackageCollectStats)
 packageFromSource' ghcFlags dbs cabalPath packageConfig = do
-    libDir <- getSysLibDir Nothing VERSION_ghc
+    libDir <- getSysLibDir Nothing (Just VERSION_ghc)
     inGhcIO libDir ghcFlags [Opt_Haddock] dbs $ \ dflags -> do
         (interfaces,_) <- processModules verbose (exportedMods ++ hiddenMods) [] []
         liftIO $ print (length interfaces)

@@ -284,7 +284,7 @@ collectSystem prefs writeAscii forceRebuild findSources dbLists = do
         when exists' (removeFile reportPath)
         return ()
     knownPackages       <-  findKnownPackages collectorPath
-    libDir <- getSysLibDir Nothing VERSION_ghc
+    libDir <- getSysLibDir Nothing (Just VERSION_ghc)
     debugM "leksah-server" $ "collectSystem knownPackages= " ++ show knownPackages
     packageInfos        <-  concat <$> forM dbLists (\(mbPackege, dbs) ->
             inGhcIO libDir [] [] dbs (\ _ -> map (,(mbPackege, dbs)) <$> getInstalledPackageInfos)
@@ -311,7 +311,7 @@ collectSystem prefs writeAscii forceRebuild findSources dbLists = do
 
 collectOne :: FilePath -> FilePath -> [FilePath] -> IO()
 collectOne fpSourceDir outDir dbs = do
-    libDir <- getSysLibDir Nothing VERSION_ghc
+    libDir <- getSysLibDir Nothing (Just VERSION_ghc)
     packageInfos <- inGhcIO libDir [] [] [fpSourceDir </> "dist" </> "package.conf.inplace"] (const getInstalledPackageInfos)
         `catch` (\(e :: SomeException) -> do
             debugM "leksah-server" $ "coolectOne error " <> show e

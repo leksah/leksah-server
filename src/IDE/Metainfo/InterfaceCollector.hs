@@ -92,7 +92,7 @@ mkPackageName = PackageName
 
 collectPackageFromHI :: PackageConfig -> [FilePath] -> IO PackageDescr
 collectPackageFromHI packageConfig dbs = do
-  libDir <- getSysLibDir Nothing VERSION_ghc
+  libDir <- getSysLibDir Nothing (Just VERSION_ghc)
   inGhcIO libDir [] [] dbs $ \ dflags -> do
     let pIdAndKey = getThisPackage packageConfig
     Hs.liftIO . debugM "leksah-server" $ "collectPackageFromHI"

@@ -65,7 +65,7 @@ import System.FilePath
         takeDirectory, dropFileName, takeBaseName)
 import Distribution.ModuleName (toFilePath, ModuleName)
 import Control.Monad (when, foldM, filterM, forM, join)
-import Data.Maybe (fromMaybe, mapMaybe, catMaybes, listToMaybe)
+import Data.Maybe (fromMaybe, mapMaybe, catMaybes, listToMaybe, maybeToList)
 import Distribution.Simple.PreProcess.Unlit (unlit)
 import System.Directory
        (createDirectoryIfMissing, getAppUserDataDirectory,
@@ -467,7 +467,7 @@ getCollectorPath = liftIO $ do
     createDirectoryIfMissing False filePath
     return filePath
 
-getSysLibDir :: Maybe FilePath -> FilePath -> IO (Maybe FilePath)
+getSysLibDir :: Maybe FilePath -> Maybe FilePath -> IO (Maybe FilePath)
 getSysLibDir project ver = E.catch (do
     (!output,_) <- runProjectTool project (ghcExeName ver) ["--print-libdir"] Nothing Nothing
     let libDir = listToMaybe [line | ToolOutput line <- output]
@@ -573,7 +573,7 @@ getInstalledPackages ghcVer projects = do
 --                        False -> return []
 --                        True  -> map (,globalDBs<>[projectDB]) <$> getPackages' [projectDB]
 --        ) $ \ (_ :: SomeException) -> return [])
-    globalDBs <- sequence [getGlobalPackageDB Nothing ghcVer, Just <$> getStorePackageDB ghcVer]
+    globalDBs <- sequence [getGlobalPackageDB Nothing (Just ghcVer), Just <$> getStorePackageDB ghcVer]
         >>= filterM doesDirectoryExist . catMaybes
     globalPackages <- E.catch (getPackages Nothing "ghc" ghcVer globalDBs) $ \ (_ :: SomeException) -> return []
     debugM "leksah" $ "globalPackages = " <> show globalPackages
@@ -586,7 +586,7 @@ getInstalledPackages ghcVer projects = do
                     doesDirectoryExist projectDB >>= \case
                         False -> return []
                         True  -> do
-                            projGlobalDBs <- sequence [getGlobalPackageDB (Just project) hVer, Just <$> getStorePackageDB hVer]
+                            projGlobalDBs <- sequence [getGlobalPackageDB (Just project) (Just hVer), Just <$> getStorePackageDB hVer]
                                 >>= filterM doesDirectoryExist . catMaybes
 --                            projGlobalPackages <- E.catch (getPackages (Just project) hc hVer projGlobalDBs) $ \ (_ :: SomeException) -> return []
 
@@ -595,7 +595,7 @@ getInstalledPackages ghcVer projects = do
     debugM "leksah" $ "localPackages = " <> show localPackages
     return . nub $ globalPackages <> concat localPackages
 
-getGlobalPackageDB :: Maybe FilePath -> FilePath -> IO (Maybe FilePath)
+getGlobalPackageDB :: Maybe FilePath -> Maybe FilePath -> IO (Maybe FilePath)
 getGlobalPackageDB mbProject ghcVersion = do
     ghcLibDir <- getSysLibDir mbProject ghcVersion
 --    case mbProject of
@@ -633,14 +633,14 @@ getProjectCompilerId projectRoot buildDir =
 
 getCabalPackageDBs :: Maybe FilePath -> FilePath -> IO [FilePath]
 getCabalPackageDBs Nothing ghcVersion =
-    sequence [getGlobalPackageDB Nothing ghcVersion, Just <$> getStorePackageDB ghcVersion]
+    sequence [getGlobalPackageDB Nothing (Just ghcVersion), Just <$> getStorePackageDB ghcVersion]
         >>= filterM doesDirectoryExist . catMaybes
 getCabalPackageDBs (Just project) ghcVersion = do
     (_, hVer, projectDB) <- getProjectPackageDB ghcVersion project "dist-newstyle"
     doesDirectoryExist projectDB >>= \case
         False -> return []
         True  -> do
-            projGlobalDBs <- sequence [getGlobalPackageDB (Just project) hVer, Just <$> getStorePackageDB hVer]
+            projGlobalDBs <- sequence [getGlobalPackageDB (Just project) (Just hVer), Just <$> getStorePackageDB hVer]
                 >>= filterM doesDirectoryExist . catMaybes
             return (projectDB : projGlobalDBs)
 
@@ -664,7 +664,7 @@ getPackageDBs' ghcVersion mbProject =
 getPackageDBs :: [FilePath] -> IO [(Maybe FilePath, [FilePath])]
 getPackageDBs projects = do
     ghcVersion <- getDefaultGhcVersion
-    globalDBs <- sequence [getGlobalPackageDB Nothing ghcVersion, Just <$> getStorePackageDB ghcVersion]
+    globalDBs <- sequence [getGlobalPackageDB Nothing (Just ghcVersion), Just <$> getStorePackageDB ghcVersion]
         >>= filterM doesDirectoryExist . catMaybes
     nub . ((Nothing, globalDBs):) <$> forM projects (\p -> (Just p,) <$> getPackageDBs' ghcVersion (Just p))
 
@@ -687,9 +687,11 @@ figureOutGhcOpts mbProject package = do
     debugM "leksah-server" "figureOutGhcOpts"
     ghcVersion <- getDefaultGhcVersion
     packageDBs <- liftIO $ getPackageDBs' ghcVersion mbProject
-    let flags = if takeBaseName package == "base"
-                    then ["-finteger-gmp", "-finteger-gmp2"]
-                    else ["-f-enable-overloading", "-f-overloaded-methods", "-f-overloaded-properties", "-f-overloaded-signals"]
+    flags <- if takeBaseName package == "base"
+        then do
+            libDir <- getSysLibDir mbProject Nothing
+            return $ ["-finteger-gmp", "-finteger-gmp2"] ++ maybeToList ((\l -> T.pack $ "--configure-option=CFLAGS=-I" <> l </> "include") <$> libDir)
+        else return ["-f-enable-overloading", "-f-overloaded-methods", "-f-overloaded-properties", "-f-overloaded-signals"]
     (!output,_) <- runProjectTool mbProject "cabal" ("configure" : flags <> map (("--package-db=" <>) . T.pack) packageDBs) (Just $ dropFileName package) Nothing
     output `deepseq` figureOutGhcOpts' mbProject package
 

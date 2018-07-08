@@ -32,7 +32,7 @@ main = do
         else if "--ghc-version" `elem` args
                 then putStrLn =<<  getDefaultGhcVersion
                 else if "--info" `elem` args
-                        then putStrLn =<< T.unpack <$> (getGhcInfo =<< getDefaultGhcVersion)
+                        then putStrLn =<< T.unpack <$> getGhcInfo Nothing
                         else if "--numeric-version" `elem` args
                                 then putStrLn =<<  getDefaultGhcVersion
                                 else expandResponseFiles args >>= putStrLn . unwords

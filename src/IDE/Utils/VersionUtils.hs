@@ -45,14 +45,15 @@ getDefaultGhcVersion = E.catch (do
     output `deepseq` return $ T.unpack vers2
     ) $ \ (e :: SomeException) -> error $ "FileUtils>>getGhcVersion failed with " ++ show e
 
-ghcExeName :: FilePath -> FilePath
+ghcExeName :: Maybe FilePath -> FilePath
 #ifdef mingw32_HOST_OS
-ghcExeName ver = "ghc-" <> ver <> ".exe"
+ghcExeName Nothing = "ghc.exe"
+ghcExeName (Just ver) = "ghc-" <> ver <> ".exe"
 #else
-ghcExeName = ("ghc-" <>)
+ghcExeName = maybe "ghc" ("ghc-" <>)
 #endif
 
-getGhcInfo :: FilePath -> IO Text
+getGhcInfo :: Maybe FilePath -> IO Text
 getGhcInfo ver = E.catch (do
     (!output,_) <- runTool' (ghcExeName ver) ["--info"] Nothing Nothing
     output `deepseq` return $ T.unlines [l | ToolOutput l <- output]

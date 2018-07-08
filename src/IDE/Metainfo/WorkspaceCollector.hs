@@ -140,7 +140,7 @@ collectWorkspace pid moduleList forceRebuild writeAscii project package = do
     opts1 <- filterOpts <$> figureOutGhcOpts (Just project) package
     opts2 <- figureOutHaddockOpts (Just project) package
 
-    libDir <- getSysLibDir Nothing VERSION_ghc
+    libDir <- getSysLibDir Nothing (Just VERSION_ghc)
     debugM "leksah-server" $ "before collect modules" ++ "\n\nopts1: " ++ show opts1 ++ "\n\n opt2: " ++ show opts2
     mapM_ (collectModule libDir packageCollectorPath writeAscii pid opts1) moduleList
     debugM "leksah-server" "after collect modules"
