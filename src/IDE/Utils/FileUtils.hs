@@ -23,6 +23,7 @@ module IDE.Utils.FileUtils (
 ,   allHaskellSourceFiles
 ,   isEmptyDirectory
 ,   cabalFileName
+,   nixShellFile
 ,   loadNixCache
 ,   saveNixCache
 ,   loadNixEnv
@@ -398,22 +399,30 @@ saveNixCache project compiler out = liftIO $ do
 loadNixEnv :: MonadIO m => FilePath -> Text -> m (Maybe (Map String String))
 loadNixEnv project compiler = M.lookup (project, compiler) <$> loadNixCache
 
+nixShellFile :: MonadIO m => FilePath -> m (Maybe FilePath)
+nixShellFile dir = do
+    let shellNix = dir </> "shell.nix"
+        defaultNix = dir </> "default.nix"
+    liftIO (doesFileExist shellNix) >>= \case
+        True -> return $ Just shellNix
+        False -> liftIO (doesFileExist defaultNix) >>= \case
+            True -> return $ Just defaultNix
+            False -> return Nothing
+
 nixPath :: FilePath -> IO (Maybe String)
-nixPath project = do
-    let nixFile = dropFileName project </> "default.nix"
-    doesFileExist nixFile >>= \case
-        True ->
+nixPath project =
+    nixShellFile (dropFileName project) >>= \case
+        Just _ ->
             loadNixEnv project "ghc" >>= \case
                 Just nixEnv -> return $ M.lookup "PATH" nixEnv
                 Nothing -> return Nothing
-        False -> return Nothing
+        Nothing -> return Nothing
 
 runProjectTool :: Maybe FilePath -> FilePath -> [Text] -> Maybe FilePath -> Maybe [(String, String)] -> IO ([ToolOutput], ProcessHandle)
 runProjectTool Nothing fp args mbDir mbEnv = runTool' fp args mbDir mbEnv
-runProjectTool (Just project) fp args mbDir mbEnv = do
-    let nixFile = dropFileName project </> "default.nix"
-    doesFileExist nixFile >>= \case
-        True ->
+runProjectTool (Just project) fp args mbDir mbEnv =
+    nixShellFile (dropFileName project) >>= \case
+        Just nixFile ->
             loadNixEnv project "ghc" >>= \case
                 Just nixEnv -> do
                     debugM "leksah" $ "Using cached nix environment for ghc " <> show project
@@ -421,7 +430,7 @@ runProjectTool (Just project) fp args mbDir mbEnv = do
                 Nothing -> do
                     debugM "leksah" $ "Ignoring " <> nixFile <> ". To enable nix right click on the project in the workspace an select 'Refresh Nix Environment Variables'"
                     runTool' fp args mbDir mbEnv
-        False -> runTool' fp args mbDir mbEnv
+        Nothing -> runTool' fp args mbDir mbEnv
 
 getCabalUserPackageDir :: IO (Maybe FilePath)
 getCabalUserPackageDir = do
