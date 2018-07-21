@@ -39,7 +39,8 @@ import IDE.Core.CTypes (RetrieveStrategy(..), configDirName)
 import Data.Text (Text)
 import qualified Data.Aeson as JSON (Result(..), Value)
 import Data.Aeson
-       (encode, eitherDecode, fromJSON, toJSON, FromJSON(..), ToJSON(..))
+       (eitherDecode, fromJSON, toJSON, FromJSON(..), ToJSON(..))
+import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.Aeson.Types
        (Options, genericParseJSON, genericToEncoding, genericToJSON,
         defaultOptions, fieldLabelModifier)
@@ -129,7 +130,7 @@ readStrippedPrefs file = E.catch (
     (\ (e::IOException) -> error $ "Error reading file " ++ show file ++ " " ++ show e)
 
 writeStrippedPrefs :: FilePath -> Prefs -> IO ()
-writeStrippedPrefs file prefs = LBS.writeFile file . encode $ toPrefsFile prefs
+writeStrippedPrefs file prefs = LBS.writeFile file . encodePretty $ toPrefsFile prefs
 
 
 -- ------------------------------------------------------------
