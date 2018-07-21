@@ -91,9 +91,11 @@ collectPackage writeAscii prefs numPackages ((packageConfig, (mbProject, dbs)), 
             case eitherStrFp of
                 Left message -> do
                     debugM "leksah-server" . T.unpack $ message <> " : " <> packageName
-                    packageDescrHi <- collectPackageFromHI packageConfig dbs
-                    writeExtractedPackage False packageDescrHi
-                    return stat {packageString = message, modulesTotal = Just (length (pdModules packageDescrHi))}
+                    collectPackageFromHI mbProject packageConfig dbs >>= \case
+                        Just packageDescrHi -> do
+                            writeExtractedPackage False packageDescrHi
+                            return stat {packageString = message, modulesTotal = Just (length (pdModules packageDescrHi))}
+                        Nothing -> return stat
                 Right fpSource ->
                     case retrieveStrategy prefs of
                         RetrieveThenBuild ->
@@ -151,15 +153,17 @@ collectPackage writeAscii prefs numPackages ((packageConfig, (mbProject, dbs)), 
                             return Nothing
 
         build :: FilePath -> IO (Maybe PackageDescr, PackageCollectStats)
-        build fpSource = do
-            runCabalConfigure fpSource
-            packageDescrHi <- collectPackageFromHI packageConfig dbs
-            mbPackageDescrPair <- packageFromSource mbProject dbs fpSource packageConfig
-            case mbPackageDescrPair of
-                (Just packageDescrS, bstat) -> do
-                    writeMerged packageDescrS packageDescrHi fpSource
-                    return (Nothing, bstat{modulesTotal = Just (length (pdModules packageDescrS))})
-                (Nothing, bstat) -> return (Just packageDescrHi, bstat)
+        build fpSource =
+            collectPackageFromHI mbProject packageConfig dbs >>= \case
+                Nothing -> return (Nothing, stat)
+                Just packageDescrHi -> do
+                    runCabalConfigure fpSource
+                    mbPackageDescrPair <- packageFromSource mbProject dbs fpSource packageConfig
+                    case mbPackageDescrPair of
+                        (Just packageDescrS, bstat) -> do
+                            writeMerged packageDescrS packageDescrHi fpSource
+                            return (Nothing, bstat{modulesTotal = Just (length (pdModules packageDescrS))})
+                        (Nothing, bstat) -> return (Just packageDescrHi, bstat)
 
         buildOnly :: FilePath -> IO PackageCollectStats
         buildOnly fpSource =
@@ -253,14 +257,16 @@ collectPackageOnly packageConfig dbs fpSource outputFile = do
         pid = packId $ getThisPackage packageConfig
         packageName = packageIdentifierToString pid
         build :: IO ()
-        build = do
-            packageDescrHi <- collectPackageFromHI packageConfig dbs
-            mbPackageDescrPair <- packageFromSource Nothing dbs fpSource packageConfig
-            case mbPackageDescrPair of
-                (Just packageDescrS, _) ->
-                    encodeFileSer outputFile (metadataVersion, mergePackageDescrs packageDescrHi packageDescrS)
-                (Nothing, _) ->
-                    encodeFileSer outputFile (metadataVersion, packageDescrHi)
+        build =
+            collectPackageFromHI Nothing packageConfig dbs >>= \case
+                Nothing -> return ()
+                Just packageDescrHi -> do
+                    mbPackageDescrPair <- packageFromSource Nothing dbs fpSource packageConfig
+                    case mbPackageDescrPair of
+                        (Just packageDescrS, _) ->
+                            encodeFileSer outputFile (metadataVersion, mergePackageDescrs packageDescrHi packageDescrS)
+                        (Nothing, _) ->
+                            encodeFileSer outputFile (metadataVersion, packageDescrHi)
 
 writeExtractedPackage :: MonadIO m => Bool -> PackageDescr -> m ()
 writeExtractedPackage writeAscii pd = do

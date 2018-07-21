@@ -572,6 +572,7 @@ getPackages project hc hVer packageDBs =
 -- | Find the packages that the packages in the workspace
 getInstalledPackages :: FilePath -> [FilePath] -> IO [(UnitId, Maybe FilePath)]
 getInstalledPackages ghcVer projects = do
+    debugM "leksah" $ "getInstalledPackages " <> show ghcVer <> " " <> show projects
 --    versions <- nub . (ghcVer:) <$> forM projects (\project -> E.catch (
 --            if takeExtension project == "yaml"
 --                then return []

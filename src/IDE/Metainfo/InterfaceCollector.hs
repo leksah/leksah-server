@@ -90,12 +90,12 @@ mkPackageName :: String -> PackageName
 mkPackageName = PackageName
 #endif
 
-collectPackageFromHI :: PackageConfig -> [FilePath] -> IO PackageDescr
-collectPackageFromHI packageConfig dbs = do
-  libDir <- getSysLibDir Nothing (Just VERSION_ghc)
+collectPackageFromHI :: Maybe FilePath -> PackageConfig -> [FilePath] -> IO (Maybe PackageDescr)
+collectPackageFromHI mbProject packageConfig dbs = do
+  let pIdAndKey = getThisPackage packageConfig
+  debugM "leksah-server" $ "collectPackageFromHI " ++ show (packId pIdAndKey) ++ " " ++ show dbs
+  libDir <- getSysLibDir mbProject (Just VERSION_ghc)
   inGhcIO libDir [] [] dbs $ \ dflags -> do
-    let pIdAndKey = getThisPackage packageConfig
-    Hs.liftIO . debugM "leksah-server" $ "collectPackageFromHI"
     session             <-  getSession
     exportedIfaceInfos  <-  getIFaceInfos pIdAndKey
                                             (map exposedName $ exposedModules packageConfig) session
@@ -103,7 +103,7 @@ collectPackageFromHI packageConfig dbs = do
                                             (hiddenModules packageConfig) session
     let pd = extractInfo dflags exportedIfaceInfos hiddenIfaceInfos pIdAndKey
                                             [] -- TODO 6.12 (IPI.depends $ packageConfigToInstalledPackageInfo packageConfig))
-    deepseq pd (return pd)
+    deepseq pd (return $ if null exportedIfaceInfos && null hiddenIfaceInfos then Nothing else Just pd)
 
 
 getIFaceInfos :: PackageIdAndKey -> [Module.ModuleName] -> HscEnv -> Ghc [(ModIface, FilePath)]
@@ -111,7 +111,7 @@ getIFaceInfos p modules _session = do
     let pid             =   packId p
 #if MIN_VERSION_ghc(8,2,0)
         makeMod         =   mkModule (DefiniteUnitId (DefUnitId (packUnitId p)))
-        makeInstMod     =   InstalledModule (packUnitId p)
+        makeInstMod     =   InstalledModule (if isBase then toInstalledUnitId baseUnitId else packUnitId p)
 #elif MIN_VERSION_ghc(8,0,0)
         makeMod         =   mkModule (packUnitId p)
 #else
