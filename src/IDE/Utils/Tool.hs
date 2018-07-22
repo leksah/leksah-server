@@ -98,6 +98,9 @@ import System.Posix.Signals
 #endif
 import qualified Data.Map as M (toList)
 import Data.Map (Map)
+import qualified System.IO as IO (Handle)
+import qualified Data.ByteString as BS (null, hGetSome, ByteString)
+import Data.ByteString.Lazy.Internal (defaultChunkSize)
 
 data ToolOutput = ToolInput Text
                 | ToolError Text
@@ -330,7 +333,7 @@ newInteractiveTool getOutput' executable arguments = do
 -}
 
 ghciPrompt :: Text
-ghciPrompt = "\0"
+ghciPrompt = "\0\n"
 
 data CommandLineReader = CommandLineReader {
     initialCommand :: Maybe Text,
@@ -346,7 +349,9 @@ ghciParsePrompt :: AP.Parser Text
 ghciParsePrompt = (do
         t <- AP.takeWhile (\ c -> c /= '\n' && c /= '\0')
         _ <- AP.char '\0'
-        return t)
+        t2 <- AP.takeWhile (\ c -> c /= '\n')
+        _ <- AP.char '\n'
+        return (t <> t2))
     <?> "ghciParsePrompt"
 
 marker :: Int -> Text
@@ -358,12 +363,16 @@ ghciIsExpectedOutput n =
 
 ghciCommandLineReader :: CommandLineReader
 ghciCommandLineReader    = CommandLineReader {
-    initialCommand       = Just $ ":set prompt " <> ghciPrompt,
+    initialCommand       = Just $ ":set prompt " <> T.pack (show ghciPrompt),
     parseInitialPrompt   = ghciParsePrompt,
     parseFollowingPrompt = ghciParsePrompt,
-    errorSyncCommand     = Just "Control.Monad.void (System.IO.hPutStr System.IO.stderr \"\\0\")",
+    errorSyncCommand     = Just $ ":cmd (Control.Monad.return " <> T.pack (show $ unlines
+        [ ":seti -Wno-name-shadowing"
+        , "let (>>=) a b = (Control.Monad.>>=) a b"
+        , "_ <- System.IO.hPutStr System.IO.stderr [\'\\0\', \'\\n\'] Control.Monad.>> System.IO.hFlush System.IO.stderr"
+        ]) <> ")",
     parseExpectedError   = ghciParsePrompt,
-    outputSyncCommand    = Just $ \count -> ":set prompt \"" <> marker count <> "\\n\"\n:set prompt " <> ghciPrompt,
+    outputSyncCommand    = Just $ \count -> ":set prompt \"" <> marker count <> "\\n\"\n:set prompt " <> T.pack (show ghciPrompt),
     isExpectedOutput     = ghciIsExpectedOutput
     }
 
@@ -387,6 +396,20 @@ parseError expectedErrorParser = (do
         AP.endOfInput <|> AP.endOfLine
         return $ Right line)
     <?> "parseError"
+
+sourceHandle :: MonadIO m
+             => String
+             -> IO.Handle
+             -> C.ConduitT i BS.ByteString m ()
+sourceHandle s h =
+    loop
+  where
+    loop = do
+        bs <- liftIO (BS.hGetSome h defaultChunkSize)
+        -- liftIO . putStrLn $ s <> show bs
+        if BS.null bs
+            then return ()
+            else C.yield bs >> loop
 
 getOutput :: MonadIO m => CommandLineReader -> Handle -> Handle -> Handle -> ProcessHandle
     -> m (MVar RawToolOutput)
@@ -422,7 +445,7 @@ getOutput clr inp out err pid = liftIO $ do
 
     readError :: MVar RawToolOutput -> Handle -> MVar () -> IO ()
     readError mvar errors foundExpectedError = do
-        CB.sourceHandle errors $= CT.decode CT.utf8
+        sourceHandle "E: " errors $= CT.decode CT.utf8
                     $= CL.map (T.filter (/= '\r'))
 --                    $= CL.map (\x -> trace ("E : " <> show x) x)
                     $= CL.sequence (sinkParser (parseError $ parseExpectedError clr))
@@ -456,7 +479,7 @@ getOutput clr inp out err pid = liftIO $ do
                 <?> "parseLines"
             parseInitialLines = parseLines (parseInitialPrompt clr)
             parseFollowinglines = parseLines (parseFollowingPrompt clr)
-        CB.sourceHandle output $= CT.decode CT.utf8
+        sourceHandle "O: " output $= CT.decode CT.utf8
                     $= CL.map (T.filter (/= '\r'))
                     $= outputSequence parseInitialLines parseFollowinglines
                     $$ sendErrors
@@ -528,7 +551,7 @@ newGhci executable arguments dir mbEnv interactiveFlags startupOutputHandler idl
     debugM "leksah-server" $ "newGhci " <> startupCommand
 
     writeChan (toolCommands tool) $
-        ToolCommand (":set prompt " <> ghciPrompt) (T.pack startupCommand) startupOutputHandler
+        ToolCommand (":set prompt " <> T.pack (show ghciPrompt)) (T.pack startupCommand) startupOutputHandler
     executeGhciCommand tool (":set " <> T.unwords interactiveFlags) startupOutputHandler
     runInteractiveTool tool ghciCommandLineReader executable arguments (Just dir) mbEnv idleOutputHandler
     return tool
