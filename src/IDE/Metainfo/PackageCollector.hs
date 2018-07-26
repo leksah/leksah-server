@@ -214,7 +214,7 @@ collectPackageNix prefs packageConfig (Just project) = do
             leksahMetadataNix <- (</> "data/leksah-metadata.nix") <$> getDataDir
             (nixOuput, _) <- runTool' "nix-build" ["-E", T.pack $
                                    "let ghc=(let fn = import ./.; in if builtins.isFunction fn then fn {} else fn).ghc; "
-                                <> "in import " <> leksahMetadataNix <> " {leksah-server=ghc.leksah-server; "
+                                <> "in import " <> leksahMetadataNix <> " { inherit ghc; "
                                 <> "pkg=ghc." <> display (pkgName pid) <> ";}"
                                 ] (Just $ takeDirectory project) Nothing
             case reverse nixOuput of

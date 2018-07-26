@@ -1,5 +1,13 @@
-{ leksah-server, pkg }:
+{ ghc, pkg }:
 let toList = x: if builtins.isList x then x else [x];
+    leksah-server = (ghc.extend (self: super: {
+        leksah-server = (import <nixpkgs> {}).pkgs.haskell.lib.dontCheck (self.callCabal2nix "leksah-server" ((import <nixpkgs> {}).fetchFromGitHub {
+          owner = "leksah";
+          repo = "leksah-server";
+          rev = "901ae158f1ac0c0002484394a7283398ad446c1c";
+          sha256 = "0xz34izmhjknlcv1jckpllmj47nh7k1j6hcpxmf9x1bacx3vqf1z";
+        }) {});
+    })).leksah-server;
 in pkg.overrideAttrs (old: {
     buildInputs = (old.buildInputs or []) ++ [pkg];
     configureFlags = toList (old.configureFlags or []) ++ ["--ghc-options=-fno-code"];
