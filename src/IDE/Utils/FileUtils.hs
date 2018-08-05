@@ -72,7 +72,7 @@ import System.Directory
        (createDirectoryIfMissing, getAppUserDataDirectory,
         canonicalizePath, doesDirectoryExist, doesFileExist,
         setCurrentDirectory, getCurrentDirectory, getDirectoryContents,
-        getHomeDirectory, findExecutable, exeExtension)
+        getHomeDirectory, findExecutable, exeExtension, doesPathExist)
 import Text.ParserCombinators.Parsec.Language (haskellDef, haskell)
 import qualified Text.ParserCombinators.Parsec.Token as P
        (GenTokenParser(..), TokenParser, identStart)
@@ -118,7 +118,7 @@ haskellSrcExts = ["hs","lhs","chs","hs.pp","lhs.pp","chs.pp","hsc"]
 -- | canonicalizePath without crashing
 myCanonicalizePath :: FilePath -> IO FilePath
 myCanonicalizePath fp = do
-    exists <- doesFileExist fp
+    exists <- doesPathExist fp
     if exists
         then canonicalizePath fp
         else return fp
