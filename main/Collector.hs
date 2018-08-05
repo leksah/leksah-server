@@ -66,7 +66,6 @@ import IDE.Metainfo.SourceCollectorH (PackageCollectStats(..))
 import Control.Monad.IO.Class (MonadIO(..))
 import qualified Data.Text as T (strip, pack, unpack)
 import Data.Text (Text)
-import Data.Monoid ((<>))
 import Distribution.Package (pkgName)
 import Distribution.Text (display)
 

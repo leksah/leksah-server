@@ -111,7 +111,6 @@ import PackageConfig (sourcePackageIdString, packageKey)
 import Data.Maybe (fromJust)
 #endif
 import Data.Text (Text)
-import Data.Monoid ((<>))
 import Text.PrettyPrint (fsep, Doc, (<+>), empty, text)
 import qualified Text.PrettyPrint as PP
        (text, comma, punctuate, parens, Doc, empty, renderStyle, style)
