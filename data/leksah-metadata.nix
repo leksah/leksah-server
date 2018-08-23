@@ -1,6 +1,8 @@
 { ghc, pkg }:
 let toList = x: if builtins.isList x then x else [x];
     leksah-server = (ghc.extend (self: super: {
+        haddock-library = dontCheck (dontHaddock super.haddock-library)
+        haddock-api = dontCheck (dontHaddock super.haddock-api)
         leksah-server = (import <nixpkgs> {}).pkgs.haskell.lib.dontCheck (self.callCabal2nix "leksah-server" ((import <nixpkgs> {}).fetchFromGitHub {
           owner = "leksah";
           repo = "leksah-server";

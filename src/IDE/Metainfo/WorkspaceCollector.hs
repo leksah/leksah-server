@@ -140,9 +140,10 @@ collectWorkspace pid moduleList forceRebuild writeAscii project package = do
     opts1 <- filterOpts <$> figureOutGhcOpts (Just project) package
     opts2 <- figureOutHaddockOpts (Just project) package
 
-    libDir <- getSysLibDir Nothing (Just VERSION_ghc)
     debugM "leksah-server" $ "before collect modules" ++ "\n\nopts1: " ++ show opts1 ++ "\n\n opt2: " ++ show opts2
-    mapM_ (collectModule libDir packageCollectorPath writeAscii pid opts1) moduleList
+    getSysLibDir Nothing (Just VERSION_ghc) >>= \case
+        Nothing -> debugM "leksah-server" $ "Could not find system lib dir for GHC " <> VERSION_ghc <> " (used to build Leksah)"
+        Just libDir -> mapM_ (collectModule libDir packageCollectorPath writeAscii pid opts1) moduleList
     debugM "leksah-server" "after collect modules"
   where
     filterOpts :: [Text] -> [Text]
@@ -150,7 +151,7 @@ collectWorkspace pid moduleList forceRebuild writeAscii project package = do
     filterOpts (o:_:r) | o `elem` ["-link-js-lib", "-js-lib-outputdir", "-js-lib-src", "-package-id"] = filterOpts r
     filterOpts (o:r) = o:filterOpts r
 
-collectModule :: Maybe FilePath -> FilePath -> Bool -> PackageIdentifier -> [Text] -> (Text,FilePath) -> IO()
+collectModule :: FilePath -> FilePath -> Bool -> PackageIdentifier -> [Text] -> (Text,FilePath) -> IO()
 collectModule libDir collectorPackagePath writeAscii pid opts (modId,sourcePath) =
     case parseModuleKey (T.unpack modId) sourcePath of
         Nothing -> errorM "leksah-server" (T.unpack $ "Can't parse module name " <> modId)
@@ -172,7 +173,7 @@ collectModule libDir collectorPackagePath writeAscii pid opts (modId,sourcePath)
                 else errorM "leksah-server" ("source file not found " ++ sourcePath)
 
 
-collectModule' :: Maybe FilePath -> FilePath -> FilePath -> Bool -> PackageIdentifier -> [Text] -> ModuleName -> IO()
+collectModule' :: FilePath -> FilePath -> FilePath -> Bool -> PackageIdentifier -> [Text] -> ModuleName -> IO()
 collectModule' libDir sourcePath destPath writeAscii pid opts moduleName' = gcatch (
    inGhcIO libDir (opts++["-cpp"]) [Opt_Haddock] [] $ \ dynFlags -> do
         session         <-  getSession

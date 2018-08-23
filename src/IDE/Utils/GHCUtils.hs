@@ -52,10 +52,10 @@ import Data.Text (Text)
 import qualified Data.Text as T (pack, unpack)
 import Data.Monoid ((<>))
 import Data.Function (on)
+import GHC.Stack (HasCallStack)
 
-inGhcIO :: Maybe FilePath -> [Text] -> [GeneralFlag] -> [FilePath] -> (DynFlags -> Ghc a) -> IO a
-inGhcIO Nothing _ _ _ _ = error $ "Could not find system lib dir for GHC " <> VERSION_ghc <> " (used to build Leksah)"
-inGhcIO (Just libDir) flags' udynFlags dbs ghcAct = do
+inGhcIO :: HasCallStack => FilePath -> [Text] -> [GeneralFlag] -> [FilePath] -> (DynFlags -> Ghc a) -> IO a
+inGhcIO libDir flags' udynFlags dbs ghcAct = do
     debugM "leksah-server" $ "inGhcIO called with: " ++ show flags'
 --    (restFlags, _) <-   parseStaticFlags (map noLoc flags')
     runGhc (Just libDir) $ do
@@ -186,7 +186,7 @@ myParseHeader fp _str opts =
   getSysLibDir Nothing (Just VERSION_ghc) >>= \case
     Nothing -> return . Left $ "Could not find system lib dir for GHC " <> VERSION_ghc <> " (used to build Leksah)"
     Just libDir ->
-      inGhcIO (Just libDir) (opts++["-cpp"]) [] [] $ \ _dynFlags -> do
+      inGhcIO libDir (opts++["-cpp"]) [] [] $ \ _dynFlags -> do
         session   <- getSession
         (dynFlags',fp')    <-  liftIO $ preprocess session (fp,Nothing)
         liftIO $ do

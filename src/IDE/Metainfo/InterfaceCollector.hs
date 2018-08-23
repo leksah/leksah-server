@@ -2,6 +2,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.Metainfo.InterfaceCollector
@@ -70,6 +71,7 @@ import Control.DeepSeq(deepseq)
 import Data.Text (Text)
 import qualified Data.Text as T (pack)
 import System.Log.Logger (debugM)
+import GHC.Stack (HasCallStack)
 
 #if MIN_VERSION_ghc(8,2,0)
 exposedName :: (Module.ModuleName, Maybe Module.Module) -> Module.ModuleName
@@ -90,20 +92,22 @@ mkPackageName :: String -> PackageName
 mkPackageName = PackageName
 #endif
 
-collectPackageFromHI :: Maybe FilePath -> PackageConfig -> [FilePath] -> IO (Maybe PackageDescr)
+collectPackageFromHI :: HasCallStack => Maybe FilePath -> PackageConfig -> [FilePath] -> IO (Maybe PackageDescr)
 collectPackageFromHI mbProject packageConfig dbs = do
   let pIdAndKey = getThisPackage packageConfig
   debugM "leksah-server" $ "collectPackageFromHI " ++ show (packId pIdAndKey) ++ " " ++ show dbs
-  libDir <- getSysLibDir mbProject (Just VERSION_ghc)
-  inGhcIO libDir [] [] dbs $ \ dflags -> do
-    session             <-  getSession
-    exportedIfaceInfos  <-  getIFaceInfos pIdAndKey
-                                            (map exposedName $ exposedModules packageConfig) session
-    hiddenIfaceInfos    <-  getIFaceInfos pIdAndKey
-                                            (hiddenModules packageConfig) session
-    let pd = extractInfo dflags exportedIfaceInfos hiddenIfaceInfos pIdAndKey
-                                            [] -- TODO 6.12 (IPI.depends $ packageConfigToInstalledPackageInfo packageConfig))
-    deepseq pd (return $ if null exportedIfaceInfos && null hiddenIfaceInfos then Nothing else Just pd)
+  getSysLibDir mbProject (Just VERSION_ghc) >>= \case
+    Nothing -> return Nothing
+    Just libDir ->
+      inGhcIO libDir [] [] dbs $ \ dflags -> do
+        session             <-  getSession
+        exportedIfaceInfos  <-  getIFaceInfos pIdAndKey
+                                                (map exposedName $ exposedModules packageConfig) session
+        hiddenIfaceInfos    <-  getIFaceInfos pIdAndKey
+                                                (hiddenModules packageConfig) session
+        let pd = extractInfo dflags exportedIfaceInfos hiddenIfaceInfos pIdAndKey
+                                                [] -- TODO 6.12 (IPI.depends $ packageConfigToInstalledPackageInfo packageConfig))
+        deepseq pd (return $ if null exportedIfaceInfos && null hiddenIfaceInfos then Nothing else Just pd)
 
 
 getIFaceInfos :: PackageIdAndKey -> [Module.ModuleName] -> HscEnv -> Ghc [(ModIface, FilePath)]

@@ -180,8 +180,12 @@ packageFromSource mbProject dbs cabalPath packageConfig = do
 packageFromSource' :: [Text] -> [FilePath] -> FilePath -> PackageConfig -> IO (Maybe PackageDescr, PackageCollectStats)
 packageFromSource' ghcFlags dbs cabalPath packageConfig = do
     debugM "leksah" $ "packageFromSource' " <> show ghcFlags <> " " <> show dbs <> " " <> show cabalPath
-    libDir <- getSysLibDir Nothing (Just VERSION_ghc)
-    inGhcIO libDir ghcFlags [Opt_Haddock] dbs $ \ dflags -> do
+    getSysLibDir Nothing (Just VERSION_ghc) >>= \case
+      Nothing -> do
+        debugM "leksah-server" $ "Could not find system lib dir for GHC " <> VERSION_ghc <> " (used to build Leksah)"
+        return (Nothing, PackageCollectStats packageName Nothing False False
+                  (Just ("Ghc failed to process: could not find " <> VERSION_ghc <> " system lib dir (" <> T.pack cabalPath <> ")")))
+      Just libDir -> inGhcIO libDir ghcFlags [Opt_Haddock] dbs $ \ dflags -> do
         (interfaces,_) <- processModules verbose (exportedMods ++ hiddenMods) [] []
         liftIO $ print (length interfaces)
         let mods = map (interfaceToModuleDescr dflags dirPath (packId $ getThisPackage packageConfig)) interfaces

@@ -87,6 +87,7 @@ collectPackage writeAscii prefs numPackages ((packageConfig, (mbProject, dbs)), 
         Nothing -> do
             infoM "leksah-server" ("update_toolbar " ++ show
                 ((fromIntegral packageIndex / fromIntegral numPackages) :: Double))
+            debugM "leksah-server" $ "collectPackage (mbProject, dbs) " <> show (mbProject, dbs)
             eitherStrFp    <- findSourceForPackage prefs pid mbProject
             case eitherStrFp of
                 Left message -> do
