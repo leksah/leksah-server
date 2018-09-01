@@ -28,7 +28,7 @@ import IDE.StrippedPrefs
        (getUnpackDirectory, RetrieveStrategy(..), Prefs(..))
 import PackageConfig (PackageConfig)
 import IDE.Metainfo.SourceCollectorH
-       (findSourceForPackage, packageFromSource, packageFromSource', PackageCollectStats(..))
+       (findSourceForPackage, packageFromSource, PackageCollectStats(..))
 import System.Log.Logger (errorM, debugM, infoM)
 import IDE.Metainfo.InterfaceCollector (collectPackageFromHI)
 import IDE.Core.CTypes
@@ -73,12 +73,11 @@ import qualified Data.Map as Map
        (fromListWith, fromList, keys, lookup)
 import Data.List (delete, nub)
 import GHC.IO.Exception (ExitCode(..))
-import Distribution.Package (Package(..), pkgName)
+import Distribution.Package (pkgName)
 import Distribution.Simple.Utils (installDirectoryContents)
 import Distribution.Verbosity (normal)
 import Data.Maybe (fromMaybe, maybeToList)
 import Paths_leksah_server (getDataDir)
-import System.Environment (getExecutablePath)
 
 collectPackage :: Bool -> Prefs -> Int -> ((PackageConfig, (Maybe FilePath, [FilePath])), Int) -> IO PackageCollectStats
 collectPackage writeAscii prefs numPackages ((packageConfig, (mbProject, dbs)), packageIndex) =
@@ -303,8 +302,8 @@ mergeModuleDescrs hiList srcList =  map mergeIt allNames
                         (Just mdhi, Just mdsrc) -> mergeModuleDescr mdhi mdsrc
                         (Nothing, Nothing) -> error "Collector>>mergeModuleDescrs: impossible"
         allNames = nub $ Map.keys hiDict ++  Map.keys srcDict
-        hiDict = Map.fromList $ zip ((map (display . modu . mdModuleId)) hiList) hiList
-        srcDict = Map.fromList $ zip ((map (display . modu . mdModuleId)) srcList) srcList
+        hiDict = Map.fromList $ zip (map (display . modu . mdModuleId) hiList) hiList
+        srcDict = Map.fromList $ zip (map (display . modu . mdModuleId) srcList) srcList
 
 mergeModuleDescr :: ModuleDescr -> ModuleDescr -> ModuleDescr
 mergeModuleDescr hiDescr srcDescr = ModuleDescr {
@@ -320,11 +319,11 @@ mergeDescrs hiList srcList =  concatMap mergeIt allNames
         mergeIt pm = case (Map.lookup pm hiDict, Map.lookup pm srcDict) of
                         (Just mdhi, Nothing) -> mdhi
                         (Nothing, Just mdsrc) -> mdsrc
-                        (Just mdhi, Just mdsrc) -> map (\ (a,b) -> mergeDescr a b) $ makePairs mdhi mdsrc
+                        (Just mdhi, Just mdsrc) -> map (uncurry mergeDescr) $ makePairs mdhi mdsrc
                         (Nothing, Nothing) -> error "Collector>>mergeModuleDescrs: impossible"
         allNames   = nub $ Map.keys hiDict ++  Map.keys srcDict
-        hiDict     = Map.fromListWith (++) $ zip ((map dscName) hiList) (map (\ e -> [e]) hiList)
-        srcDict    = Map.fromListWith (++) $ zip ((map dscName) srcList)(map (\ e -> [e]) srcList)
+        hiDict     = Map.fromListWith (++) $ zip (map dscName hiList) (map (: []) hiList)
+        srcDict    = Map.fromListWith (++) $ zip (map dscName srcList)(map (: []) srcList)
 
 makePairs :: [Descr] -> [Descr] -> [(Maybe Descr,Maybe Descr)]
 makePairs (hd:tl) srcList = (Just hd, theMatching)
@@ -383,12 +382,11 @@ mergeSimpleDescrs :: [SimpleDescr] -> [SimpleDescr] -> [SimpleDescr]
 mergeSimpleDescrs hiList srcList =  map mergeIt allNames
     where
         mergeIt :: Text -> SimpleDescr
-        mergeIt pm = case mergeMbDescr (Map.lookup pm hiDict) (Map.lookup pm srcDict) of
-                        Just mdhi -> mdhi
-                        Nothing   -> error "Collector>>mergeSimpleDescrs: impossible"
+        mergeIt pm = fromMaybe (error "Collector>>mergeSimpleDescrs: impossible")
+                       (mergeMbDescr (Map.lookup pm hiDict) (Map.lookup pm srcDict))
         allNames   = nub $ Map.keys hiDict ++  Map.keys srcDict
-        hiDict     = Map.fromList $ zip ((map sdName) hiList) hiList
-        srcDict    = Map.fromList $ zip ((map sdName) srcList) srcList
+        hiDict     = Map.fromList $ zip (map sdName hiList) hiList
+        srcDict    = Map.fromList $ zip (map sdName srcList) srcList
 
 mergeSimpleDescr :: SimpleDescr -> SimpleDescr -> SimpleDescr
 mergeSimpleDescr sdHi sdSrc = SimpleDescr {

@@ -527,9 +527,6 @@ class Pretty a where
     pretty = prettyPrec 0
     prettyPrec _ = pretty
 
-emptyPrinter ::  () ->  PP.Doc
-emptyPrinter _ = PP.empty
-
 maybePP :: (a -> PP.Doc) -> Maybe a -> PP.Doc
 maybePP _ Nothing = PP.empty
 maybePP pp (Just a) = pp a
