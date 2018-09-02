@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -101,6 +102,8 @@ import Data.Map (Map)
 import qualified System.IO as IO (Handle)
 import qualified Data.ByteString as BS (null, hGetSome, ByteString)
 import Data.ByteString.Lazy.Internal (defaultChunkSize)
+import Control.Exception (catch, SomeException)
+import Data.Functor ((<&>))
 
 data ToolOutput = ToolInput Text
                 | ToolError Text
@@ -239,7 +242,7 @@ runInteractiveTool tool clr executable arguments mbDir mbEnv idleOutput = do
 
     _ <- forkIO $ do
         case initialCommand clr of
-            Just cmd -> hPutStrLn inp cmd >> hFlush inp
+            Just cmd -> (hPutStrLn inp cmd >> hFlush inp) `catch` (\ (_ :: SomeException) -> return ())
             Nothing  -> return ()
         commands <- getChanContents (toolCommandsRead tool)
         output <- newEmptyMVar
@@ -273,9 +276,10 @@ runInteractiveTool tool clr executable arguments mbDir mbEnv idleOutput = do
     processCommand inp output cmd (ToolCommand commandString rawCommandString handler) = do
         liftIO $ do
             debugM "leksah-server" $ "Command " ++ T.unpack commandString
-            putMVar (currentToolCommand tool) commandString
-            hPutStrLn inp commandString
-            hFlush inp
+            (do hPutStrLn inp commandString
+                hFlush inp
+                putMVar (currentToolCommand tool) commandString
+                ) `catch` (\(_ :: SomeException) -> return ())
         liftIO (runConduit $ fuseUpstream (do
                 mapM_ (C.yield . ToolInput) (T.lines rawCommandString)
                 loop) handler) >>= \case
@@ -297,8 +301,8 @@ runInteractiveTool tool clr executable arguments mbDir mbEnv idleOutput = do
         yieldOutput = putMVar output
         writeCommandOutput (RawToolOutput (ToolPrompt line)) (False, False, Just outSyncCmd, n, _) = do
             debugM "leksah-server" "Pre Sync Prompt"
-            hPutStrLn inp $ outSyncCmd n
-            hFlush inp
+            (do hPutStrLn inp $ outSyncCmd n
+                hFlush inp) `catch` (\ (_ :: SomeException) -> return ())
             loop (True, False, Just outSyncCmd, n, line)
         writeCommandOutput (RawToolOutput (ToolPrompt _))(True, False, mbSyncCmd, n, promptLine) = do
             debugM "leksah-server" "Unsynced Prompt"
@@ -405,7 +409,7 @@ sourceHandle s h =
     loop
   where
     loop = do
-        bs <- liftIO (BS.hGetSome h defaultChunkSize)
+        bs <- liftIO (BS.hGetSome h defaultChunkSize `catch` (\(_ :: SomeException) -> return ""))
         -- liftIO . putStrLn $ s <> show bs
         if BS.null bs
             then return ()
@@ -438,7 +442,7 @@ getOutput clr inp out err pid = liftIO $ do
             if nowClosed == 2
                 then do
                     exitCode <- liftIO $ waitForProcess pid
-                    liftIO $ hClose inp
+                    liftIO $ hClose inp `catch` (\ (_ :: SomeException) -> return ())
                     putMVar resultMVar . RawToolOutput $ ToolExit exitCode
                 else loop nowClosed
         loop _ = error "Error in checkForExit"
@@ -450,7 +454,7 @@ getOutput clr inp out err pid = liftIO $ do
 --                    $= CL.map (\x -> trace ("E : " <> show x) x)
                     $= CL.sequence (sinkParser (parseError $ parseExpectedError clr))
                     $$ sendErrors
-        hClose errors
+        hClose errors `catch` (\ (_ :: SomeException) -> return ())
       where
         sendErrors = C.awaitForever $ \x -> liftIO $ do
                             debugM "leksah-server" $ show x
@@ -483,7 +487,7 @@ getOutput clr inp out err pid = liftIO $ do
                     $= CL.map (T.filter (/= '\r'))
                     $= outputSequence parseInitialLines parseFollowinglines
                     $$ sendErrors
-        hClose output
+        hClose output `catch` (\ (_ :: SomeException) -> return ())
       where
         sendErrors = loop True False ""
             where
@@ -499,9 +503,9 @@ getOutput clr inp out err pid = liftIO $ do
                                 (_, False, Just syncCmd) -> do
                                     liftIO $ do
                                         debugM "leksah-server" $ "sendErrors - Sync " ++ T.unpack syncCmd
-                                        hPutStrLn inp syncCmd
-                                        hFlush inp
-                                        _ <- timeout 10000000 waitForError
+                                        (do hPutStrLn inp syncCmd
+                                            hFlush inp
+                                            void $ timeout 10000000 waitForError) `catch` (\ (_ :: SomeException) -> return ())
                                         debugM "leksah-server" "sendErrors - Synced"
                                     loop False True line
                                 (_, True, Just _) -> do
