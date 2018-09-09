@@ -53,7 +53,6 @@ import Distribution.Text (display)
 import Control.Monad.IO.Class (MonadIO, MonadIO(..))
 import qualified Control.Exception as E (SomeException, catch)
 import IDE.Utils.Tool (ToolOutput(..), runTool')
-import Data.Monoid ((<>))
 import qualified Data.Text as T
        (stripSuffix, stripPrefix, unpack, pack)
 import Data.Text (Text)

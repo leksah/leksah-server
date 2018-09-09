@@ -31,7 +31,6 @@ import Prelude ()
 import Prelude.Compat
 import Data.Text (Text)
 import qualified Data.Text as T (unpack, pack, stripPrefix, stripSuffix)
-import Data.Monoid ((<>))
 import IDE.Core.CTypes
        (getThisPackage, PackageDescr(..), TypeDescr(..), RealDescr(..),
         Descr(..), ModuleDescr(..), PackModule(..), SimpleDescr(..),

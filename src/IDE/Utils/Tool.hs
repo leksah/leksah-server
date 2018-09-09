@@ -90,7 +90,6 @@ import qualified Data.Attoparsec.Text as AP
        (endOfInput, takeWhile, Parser, endOfLine, char)
 import Data.Attoparsec.Text ((<?>))
 import Data.Text (replace, Text)
-import Data.Monoid ((<>))
 import Data.Text.IO (hPutStrLn)
 import Data.List (stripPrefix)
 #ifdef MIN_VERSION_unix

@@ -52,7 +52,6 @@ import System.Log.Logger(debugM)
 import Control.Monad.IO.Class (MonadIO(..))
 import Data.Text (Text)
 import qualified Data.Text as T (pack, unpack)
-import Data.Monoid ((<>))
 import Data.Function (on)
 import GHC.Stack (HasCallStack)
 

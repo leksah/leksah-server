@@ -68,7 +68,6 @@ import System.FilePath
 import System.Directory (doesDirectoryExist)
 import Data.Text (Text)
 import qualified Data.Text as T (unpack, pack)
-import Data.Monoid ((<>))
 
 -- ---------------------------------------------------------------------
 -- Function to map packages to file paths

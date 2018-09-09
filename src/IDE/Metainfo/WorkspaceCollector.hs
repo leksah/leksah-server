@@ -77,7 +77,6 @@ import Control.Monad (when)
 import Control.Exception as E
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Monoid ((<>))
 #if MIN_VERSION_ghc(8,2,0)
 import DynFlags (thisPackage)
 import Module (toInstalledUnitId, InstalledModule(..), UnitId(..), DefUnitId(..))

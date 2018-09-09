@@ -31,7 +31,6 @@ import Control.Exception as E (SomeException, catch)
 import qualified Data.Text as T (unlines, unpack, init, last)
 import Data.Text (Text)
 import Control.DeepSeq (deepseq)
-import Data.Monoid ((<>))
 
 supportedGhcVersions :: [FilePath]
 supportedGhcVersions = nub ["8.0.2", "8.2.2", VERSION_ghc]

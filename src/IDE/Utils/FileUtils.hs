@@ -99,7 +99,6 @@ import System.IO.Strict (readFile)
 import qualified Data.Text as T
        (pack, stripPrefix, isSuffixOf, take, length, unpack,
         words, splitOn, dropWhileEnd, stripSuffix)
-import Data.Monoid ((<>))
 import Data.Text (Text)
 import Control.DeepSeq (deepseq)
 import IDE.Utils.VersionUtils (ghcExeName, getDefaultGhcVersion)
