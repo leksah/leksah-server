@@ -37,14 +37,7 @@ import IDE.Core.CTypes
         Descr(..), ModuleDescr(..), PackModule(..), SimpleDescr(..),
         packageIdentifierToString, Location(..), RealDescr(..), PackageIdAndKey(..))
 
-#ifdef MIN_VERSION_haddock_leksah
-import Haddock.Types
-       (ExportItem(..), DeclInfo,
-        Interface(..))
-import Haddock.Interface
-#else
 import Documentation.Haddock
-#endif
 import Distribution.Text (simpleParse, display)
 import InstEnv (ClsInst(..))
 import Data.Map (Map)
@@ -55,7 +48,7 @@ import qualified Data.ByteString.Char8 as BS (pack)
 import IDE.Metainfo.WorkspaceCollector
        (srcSpanToLocation, uncommentDecl, uncommentData, printHsDoc, sortByLoc)
 import PackageConfig (PackageConfig)
-import Distribution.Verbosity (verbose)
+import Distribution.Verbosity (verbose, normal)
 #if MIN_VERSION_ghc(8,2,0)
 import GHC.PackageDb (exposedModules, hiddenModules)
 import Module (ModuleName, Module)
@@ -76,7 +69,6 @@ import IDE.Utils.Tool
 import IDE.Utils.FileUtils (figureOutGhcOpts', myCanonicalizePath, getSysLibDir)
 import Distribution.Package(PackageIdentifier, pkgName)
 import Distribution.Simple.Utils (installDirectoryContents)
-import Distribution.Verbosity (normal)
 import GHC hiding(Id,Failed,Succeeded,ModuleName)
 import Distribution.ModuleName (components)
 import System.Log.Logger (warningM, debugM)
@@ -306,7 +298,7 @@ transformToDescrs dflags pm = concatMap transformToDescr
     ,   dscTypeHint'    =   TypeDescr
     ,   dscExported'    =   True}]
 
-    transformToDescr (L loc (TyClD typ@(FamDecl {tcdFam = (FamilyDecl {fdLName = lid})})), mbComment,_sigList) =
+    transformToDescr (L loc (TyClD typ@FamDecl{tcdFam = FamilyDecl{fdLName = lid}}), mbComment,_sigList) =
         [Real RealDescr {
         dscName'        =   T.pack . getOccString $ unLoc lid
     ,   dscMbTypeStr'   =   Just . BS.pack . showSDocUnqual dflags $ ppr typ
@@ -316,7 +308,7 @@ transformToDescrs dflags pm = concatMap transformToDescr
     ,   dscTypeHint'    =   TypeDescr
     ,   dscExported'    =   True}]
 
-    transformToDescr (L loc (TyClD typ@(SynDecl {tcdLName = lid})), mbComment,_sigList) =
+    transformToDescr (L loc (TyClD typ@SynDecl{tcdLName = lid}), mbComment,_sigList) =
         [Real RealDescr {
         dscName'        =   T.pack . getOccString $ unLoc lid
     ,   dscMbTypeStr'   =   Just . BS.pack . showSDocUnqual dflags $ ppr typ
@@ -326,7 +318,9 @@ transformToDescrs dflags pm = concatMap transformToDescr
     ,   dscTypeHint'    =   TypeDescr
     ,   dscExported'    =   True}]
 
-    transformToDescr (L loc (TyClD typ@(DataDecl {tcdLName = lid, tcdDataDefn = HsDataDefn {dd_cons=lConDecl, dd_derivs=tcdDerivs'}})), mbComment,_sigList) =
+    transformToDescr (L loc (TyClD typ@DataDecl{tcdLName = lid,
+                                                tcdDataDefn =
+                                                  HsDataDefn{dd_cons = lConDecl, dd_derivs = tcdDerivs'}}), mbComment,_sigList) =
         Real RealDescr {
         dscName'        =   T.pack name
     ,   dscMbTypeStr'   =   Just . BS.pack . showSDocUnqual dflags . ppr $ uncommentData typ
@@ -343,7 +337,7 @@ transformToDescrs dflags pm = concatMap transformToDescr
         derivings :: HsDeriving GhcRn -> [Descr]
         derivings _l = [] -- concatMap (extractDeriving dflags pm name) (unLoc l)
 
-    transformToDescr (L loc (TyClD cl@(ClassDecl{tcdLName=tcdLName', tcdSigs=tcdSigs', tcdDocs=docs})), mbComment,_subCommentList) =
+    transformToDescr (L loc (TyClD cl@ClassDecl{tcdLName = tcdLName', tcdSigs = tcdSigs', tcdDocs = docs}), mbComment,_subCommentList) =
         [Real RealDescr {
         dscName'        =   T.pack . getOccString $ unLoc tcdLName'
     ,   dscMbTypeStr'   =   Just . BS.pack . showSDocUnqual dflags $ ppr cl{tcdMeths = emptyLHsBinds}
@@ -359,7 +353,7 @@ transformToDescrs dflags pm = concatMap transformToDescr
     transformToDescr (_, _mbComment, _sigList) = []
 
 toDescrInst :: DynFlags -> PackModule -> ClsInst -> Descr
-toDescrInst dflags pm inst@(ClsInst {is_cls = is_cls', is_tys = is_tys'}) =
+toDescrInst dflags pm inst@ClsInst{is_cls = is_cls', is_tys = is_tys'} =
         Real RealDescr {
         dscName'        =   T.pack $ getOccString is_cls'
     ,   dscMbTypeStr'   =   Just . BS.pack . showSDocUnqual dflags $ ppr inst
@@ -405,7 +399,7 @@ extractConstructor dflags decl@(L loc d) = extractDecl d
   extractDecl (ConDeclGADT {..}) = map (extractName con_doc) con_names
   extractDecl (ConDeclH98 {..}) = [extractName con_doc con_name]
 #else
-extractConstructor dflags decl@(L loc (ConDecl {con_names = names, con_doc = doc})) =
+extractConstructor dflags decl@(L loc ConDecl{con_names = names, con_doc = doc}) =
   map (extractName doc) names
   where
 #endif
@@ -423,7 +417,7 @@ extractRecordFields :: DynFlags -> LConDecl GhcRn -> [SimpleDescr]
 #if MIN_VERSION_ghc(8,0,0)
 extractRecordFields dflags (L _ _decl@ConDeclH98 {con_details = RecCon flds}) =
 #else
-extractRecordFields dflags (L _ _decl@(ConDecl {con_details=(RecCon flds)})) =
+extractRecordFields dflags (L _ _decl@ConDecl{con_details = (RecCon flds)}) =
 #endif
     concatMap extractRecordFields' (unLoc flds)
     where

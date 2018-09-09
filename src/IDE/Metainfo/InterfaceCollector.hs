@@ -1,5 +1,5 @@
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
@@ -23,8 +23,10 @@ module IDE.Metainfo.InterfaceCollector (
 ,   extractExportedDescrR
 ) where
 
-import Module hiding (PackageKey, ModuleName)
-import qualified Module as Module (ModuleName)
+import Prelude ()
+import Prelude.Compat
+import Module hiding (ModuleName)
+import qualified Module (ModuleName)
 import qualified Maybes as M
 import DynFlags (DynFlags)
 import HscTypes

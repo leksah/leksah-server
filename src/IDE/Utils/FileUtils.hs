@@ -57,9 +57,10 @@ module IDE.Utils.FileUtils (
 ,   myCanonicalizePath
 ) where
 
-import Control.Applicative
+import Prelude ()
+import Prelude.Compat hiding (readFile)
+import Control.Applicative (many, (<|>))
 import Control.Arrow (second)
-import Prelude hiding (readFile)
 import System.FilePath
        (splitFileName, dropExtension, takeExtension,
         combine, addExtension, (</>), normalise, splitPath, takeFileName,

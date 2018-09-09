@@ -19,8 +19,8 @@ module IDE.HeaderParser (
 
 ) where
 
-import Control.Applicative
-import Prelude hiding (readFile)
+import Prelude ()
+import Prelude.Compat hiding (readFile)
 import IDE.Core.CTypes hiding(SrcSpan(..))
 import GHC hiding (ImportDecl)
 import FastString(unpackFS)

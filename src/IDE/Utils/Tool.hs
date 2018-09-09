@@ -52,8 +52,9 @@ module IDE.Utils.Tool (
 
 ) where
 
-import Control.Applicative
-import Prelude
+import Prelude ()
+import Prelude.Compat
+import Control.Applicative ((<|>))
 import Control.Concurrent
        (tryPutMVar, tryTakeMVar, readMVar, takeMVar, putMVar,
         newEmptyMVar, forkIO, newChan, MVar, Chan, writeChan,
@@ -78,13 +79,12 @@ import System.Directory (getHomeDirectory)
 import System.FilePath (dropTrailingPathSeparator)
 import System.Timeout (timeout)
 import Data.Conduit as C
-       (fuseUpstream, runConduit, ($$), ($=))
+       ((.|), fuseUpstream, runConduit)
 import qualified Data.Conduit as C
 import Control.Monad.Trans.Resource (runResourceT)
 import qualified Data.Conduit.Text as CT (decode, utf8)
 import qualified Data.Conduit.List as CL
        (consume, sequence, map)
-import qualified Data.Conduit.Binary as CB
 import Data.Conduit.Attoparsec (sinkParser)
 import qualified Data.Attoparsec.Text as AP
        (endOfInput, takeWhile, Parser, endOfLine, char)
@@ -103,7 +103,7 @@ import qualified System.IO as IO (Handle)
 import qualified Data.ByteString as BS (null, hGetSome, ByteString)
 import Data.ByteString.Lazy.Internal (defaultChunkSize)
 import Control.Exception (catch, SomeException)
-import Data.Functor ((<&>))
+import Data.Void (Void)
 
 data ToolOutput = ToolInput Text
                 | ToolError Text
@@ -129,7 +129,7 @@ isEndOfCommandOutput (ToolPrompt _) = True
 isEndOfCommandOutput (ToolExit _) = True
 isEndOfCommandOutput _ = False
 
-data ToolCommand = ToolCommand Text Text (C.Sink ToolOutput IO ())
+data ToolCommand = ToolCommand Text Text (C.ConduitT ToolOutput Void IO ())
 data ToolState = ToolState {
     toolProcessMVar :: MVar ProcessHandle,
     outputClosed :: MVar Bool,
@@ -172,12 +172,12 @@ runTool' :: FilePath -> [Text] -> Maybe FilePath -> Maybe [(String,String)] -> I
 runTool' fp args mbDir mbEnv = do
     debugM "leksah-server" $ "Start: " ++ show (fp, args)
     (out,pid) <- runTool fp args mbDir mbEnv
-    output <- runResourceT $ out $$ CL.consume
+    output <- runResourceT $ runConduit $ out .| CL.consume
     _ <- waitForProcess pid
     debugM "leksah-server" $ "End: " ++ show (fp, args)
     return (output,pid)
 
-runTool :: MonadIO m => FilePath -> [Text] -> Maybe FilePath -> Maybe [(String,String)] -> IO (C.Source m ToolOutput, ProcessHandle)
+runTool :: MonadIO m => FilePath -> [Text] -> Maybe FilePath -> Maybe [(String,String)] -> IO (C.ConduitT () ToolOutput m (), ProcessHandle)
 runTool executable arguments mbDir mbEnv = do
 #ifdef MIN_VERSION_unix
     -- As of GHC 7.10.1 both createProcess and the GHC GC use
@@ -220,7 +220,7 @@ runInteractiveTool ::
     [Text] ->
     Maybe FilePath ->
     Maybe (Map String String) ->
-    C.Sink ToolOutput IO () ->
+    C.ConduitT ToolOutput Void IO () ->
     IO ()
 runInteractiveTool tool clr executable arguments mbDir mbEnv idleOutput = do
     (Just inp,Just out,Just err,pid) <- createProcess (proc executable (map T.unpack arguments))
@@ -249,7 +249,7 @@ runInteractiveTool tool clr executable arguments mbDir mbEnv idleOutput = do
         cmd <- newEmptyMVar
         _ <- forkIO $ outputSequence inp rawOutput output
         _ <- forkIO $ forM_ commands $ putMVar cmd
-        processNoCommand inp output cmd $$ idleOutput
+        runConduit $ processNoCommand inp output cmd .| idleOutput
         return ()
     return ()
   where
@@ -405,7 +405,7 @@ sourceHandle :: MonadIO m
              => String
              -> IO.Handle
              -> C.ConduitT i BS.ByteString m ()
-sourceHandle s h =
+sourceHandle _s h =
     loop
   where
     loop = do
@@ -449,11 +449,11 @@ getOutput clr inp out err pid = liftIO $ do
 
     readError :: MVar RawToolOutput -> Handle -> MVar () -> IO ()
     readError mvar errors foundExpectedError = do
-        sourceHandle "E: " errors $= CT.decode CT.utf8
-                    $= CL.map (T.filter (/= '\r'))
+        runConduit $ sourceHandle "E: " errors .| CT.decode CT.utf8
+                    .| CL.map (T.filter (/= '\r'))
 --                    $= CL.map (\x -> trace ("E : " <> show x) x)
-                    $= CL.sequence (sinkParser (parseError $ parseExpectedError clr))
-                    $$ sendErrors
+                    .| CL.sequence (sinkParser (parseError $ parseExpectedError clr))
+                    .| sendErrors
         hClose errors `catch` (\ (_ :: SomeException) -> return ())
       where
         sendErrors = C.awaitForever $ \x -> liftIO $ do
@@ -464,7 +464,7 @@ getOutput clr inp out err pid = liftIO $ do
                                     void $ tryPutMVar foundExpectedError ()
                                 Right line   -> putMVar mvar $ RawToolOutput $ ToolError line
 
-    outputSequence :: AP.Parser ToolOutput -> AP.Parser ToolOutput -> C.Conduit Text IO ToolOutput
+    outputSequence :: AP.Parser ToolOutput -> AP.Parser ToolOutput -> C.ConduitT Text ToolOutput IO ()
     outputSequence i1 i2 = loop
       where
         loop = C.await >>= maybe (return ()) (\x -> C.leftover x >> sinkParser i1 >>= check)
@@ -483,10 +483,10 @@ getOutput clr inp out err pid = liftIO $ do
                 <?> "parseLines"
             parseInitialLines = parseLines (parseInitialPrompt clr)
             parseFollowinglines = parseLines (parseFollowingPrompt clr)
-        sourceHandle "O: " output $= CT.decode CT.utf8
-                    $= CL.map (T.filter (/= '\r'))
-                    $= outputSequence parseInitialLines parseFollowinglines
-                    $$ sendErrors
+        runConduit $ sourceHandle "O: " output .| CT.decode CT.utf8
+                    .| CL.map (T.filter (/= '\r'))
+                    .| outputSequence parseInitialLines parseFollowinglines
+                    .| sendErrors
         hClose output `catch` (\ (_ :: SomeException) -> return ())
       where
         sendErrors = loop True False ""
@@ -525,7 +525,7 @@ fromRawOutput :: RawToolOutput -> Maybe ToolOutput
 fromRawOutput (RawToolOutput output) = Just output
 fromRawOutput _ = Nothing
 
-getOutputNoPrompt :: MonadIO m => Handle -> Handle -> Handle -> ProcessHandle -> IO (C.Source m ToolOutput)
+getOutputNoPrompt :: MonadIO m => Handle -> Handle -> Handle -> ProcessHandle -> IO (C.ConduitT () ToolOutput m ())
 getOutputNoPrompt inp out err pid = do
     output <- getOutput noInputCommandLineReader inp out err pid
     return $ loop output
@@ -535,7 +535,7 @@ getOutputNoPrompt inp out err pid = do
         mapM_ C.yield o
         unless (any isEndOfCommandOutput o) $ loop output
 
-newGhci' :: [Text] -> C.Sink ToolOutput IO () -> C.Sink ToolOutput IO () -> IO ToolState
+newGhci' :: [Text] -> C.ConduitT ToolOutput Void IO () -> C.ConduitT ToolOutput Void IO () -> IO ToolState
 newGhci' flags startupOutputHandler idleOutputHandler = do
     tool <- newToolState
     writeChan (toolCommands tool) $
@@ -543,7 +543,7 @@ newGhci' flags startupOutputHandler idleOutputHandler = do
     runInteractiveTool tool ghciCommandLineReader "ghci" flags Nothing Nothing idleOutputHandler
     return tool
 
-newGhci :: FilePath -> [Text] -> FilePath -> Maybe (Map String String) -> [Text] -> C.Sink ToolOutput IO () -> C.Sink ToolOutput IO () -> IO ToolState
+newGhci :: FilePath -> [Text] -> FilePath -> Maybe (Map String String) -> [Text] -> C.ConduitT ToolOutput Void IO () -> C.ConduitT ToolOutput Void IO () -> IO ToolState
 newGhci executable arguments dir mbEnv interactiveFlags startupOutputHandler idleOutputHandler = do
     tool <- newToolState
     home <- liftIO getHomeDirectory
@@ -560,11 +560,11 @@ newGhci executable arguments dir mbEnv interactiveFlags startupOutputHandler idl
     runInteractiveTool tool ghciCommandLineReader executable arguments (Just dir) mbEnv idleOutputHandler
     return tool
 
-executeCommand :: ToolState -> Text -> Text -> C.Sink ToolOutput IO () -> IO ()
+executeCommand :: ToolState -> Text -> Text -> C.ConduitT ToolOutput Void IO () -> IO ()
 executeCommand tool command rawCommand handler =
     writeChan (toolCommands tool) $ ToolCommand command rawCommand handler
 
-executeGhciCommand :: ToolState -> Text -> C.Sink ToolOutput IO () -> IO ()
+executeGhciCommand :: ToolState -> Text -> C.ConduitT ToolOutput Void IO () -> IO ()
 executeGhciCommand tool command handler =
     if '\n' `elem` T.unpack command
         then executeCommand tool safeCommand command handler

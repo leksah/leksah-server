@@ -23,6 +23,8 @@ module IDE.Utils.Server
         , WaitFor (waitFor))
 where
 
+import Prelude ()
+import Prelude.Compat
 import Network
 import Network.Socket hiding (accept)
 

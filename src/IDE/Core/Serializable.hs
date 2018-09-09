@@ -22,8 +22,8 @@ module IDE.Core.Serializable (
 
 ) where
 
-import Control.Applicative
-import Prelude
+import Prelude ()
+import Prelude.Compat
 import Distribution.Text (simpleParse,display)
 import Control.Monad (liftM)
 import Data.Maybe (fromJust)

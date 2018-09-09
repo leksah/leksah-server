@@ -17,6 +17,8 @@ module IDE.Utils.CabalPlan (
   , unitIdToPackageId
 ) where
 
+import Prelude ()
+import Prelude.Compat
 import GHC.Generics (Generic)
 import Data.List (sortOn)
 import qualified Data.Set as S (fromList, Set)

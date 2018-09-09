@@ -23,6 +23,8 @@ module IDE.Utils.GHCUtils (
 ,   myParseHeader
 ) where
 
+import Prelude ()
+import Prelude.Compat
 import Distribution.Simple (withinRange,PackageIdentifier(..),Dependency(..))
 import PackageConfig (sourcePackageIdString, PackageConfig)
 import Distribution.Text (simpleParse)

@@ -25,8 +25,9 @@ module IDE.Metainfo.SourceDB (
 
 ) where
 
-import Control.Applicative
-import Prelude
+import Prelude ()
+import Prelude.Compat
+import Control.Applicative (many, (<|>))
 import IDE.StrippedPrefs
        (getUnpackDirectory, getSourceDirectories, Prefs(..))
 import Data.Map (Map)

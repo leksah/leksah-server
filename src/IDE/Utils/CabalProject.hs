@@ -20,7 +20,8 @@ module IDE.Utils.CabalProject (
   , getCabalProjectPackages
 ) where
 
-import Prelude hiding (readFile)
+import Prelude ()
+import Prelude.Compat hiding (readFile)
 import System.Directory (doesFileExist, getHomeDirectory)
 import System.FilePath (takeDirectory, isDrive, (</>))
 import Control.Exception (catch, SomeException(..))

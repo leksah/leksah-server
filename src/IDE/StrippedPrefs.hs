@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -29,28 +28,23 @@ module IDE.StrippedPrefs (
 ,   getUnpackDirectory
 ) where
 
+import Prelude ()
+import Prelude.Compat
 import GHC.Generics (Generic)
-import qualified Text.PrettyPrint as  PP (text)
 import System.FilePath
        (joinPath, (</>), dropTrailingPathSeparator, splitPath)
 import System.Directory (getHomeDirectory)
-import Control.Monad (liftM)
 import IDE.Core.CTypes (RetrieveStrategy(..), configDirName)
 import Data.Text (Text)
-import qualified Data.Aeson as JSON (Result(..), Value)
 import Data.Aeson
-       (eitherDecode, fromJSON, toJSON, FromJSON(..), ToJSON(..))
+       (eitherDecode, toJSON, FromJSON(..), ToJSON(..))
 import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.Aeson.Types
        (Options, genericParseJSON, genericToEncoding, genericToJSON,
         defaultOptions, fieldLabelModifier)
-import Data.Monoid ((<>))
 import qualified Control.Exception as E (catch)
 import Control.Exception (IOException)
-import qualified Data.Map as M (lookup)
-import Data.Map (Map)
 import qualified Data.ByteString.Lazy as LBS (writeFile, readFile)
-import Data.Functor.Identity (Identity(..))
 import Data.Maybe (fromMaybe)
 import GHC.Stack (HasCallStack)
 
@@ -149,4 +143,4 @@ getSourceDirectories :: Prefs -> IO [FilePath]
 getSourceDirectories = mapM expandHomePath . sourceDirectories
 
 getUnpackDirectory :: Prefs -> IO (Maybe FilePath)
-getUnpackDirectory = maybe (return Nothing) (liftM Just . expandHomePath) . unpackDirectory
+getUnpackDirectory = maybe (return Nothing) (fmap Just . expandHomePath) . unpackDirectory

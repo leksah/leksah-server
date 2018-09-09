@@ -22,8 +22,8 @@ module IDE.Metainfo.PackageCollector (
 
 ) where
 
-import Control.Applicative
-import Prelude
+import Prelude ()
+import Prelude.Compat
 import IDE.StrippedPrefs
        (getUnpackDirectory, RetrieveStrategy(..), Prefs(..))
 import PackageConfig (PackageConfig)

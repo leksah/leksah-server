@@ -21,6 +21,8 @@ module IDE.Utils.VersionUtils (
 ,   ghcExeName
 ) where
 
+import Prelude ()
+import Prelude.Compat
 import IDE.Utils.Tool (ToolOutput(..), runTool')
 import Data.Char (ord)
 import Data.List (nub)

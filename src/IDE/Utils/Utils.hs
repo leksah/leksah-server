@@ -15,6 +15,9 @@
 
 module IDE.Utils.Utils where
 
+import Prelude ()
+import Prelude.Compat
+
 leksahSessionFileExtension           = ".lkshs"
 leksahWorkspaceFileExtension         = ".lkshw"
 leksahPreferencesFileExtension       = ".lkshp"

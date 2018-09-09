@@ -35,12 +35,13 @@ module IDE.Metainfo.WorkspaceCollector (
 ) where
 
 
-import Control.Applicative hiding(empty)
+import Prelude ()
+import Prelude.Compat
+import Control.Applicative ((<|>))
 import Control.Arrow ((&&&))
-import Prelude
 import IDE.Utils.Utils
 import IDE.Utils.GHCUtils
-import GHC hiding(Id,Failed,Succeeded,ModuleName,PackageKey)
+import GHC hiding(Id,Failed,Succeeded,ModuleName)
 import Outputable hiding(trace, (<>))
 import ErrUtils
 import qualified Data.Map as Map
@@ -563,8 +564,8 @@ transformToDescrs dflags pm = concatMap transformToDescr
 
 
 uncommentData :: TyClDecl a -> TyClDecl a
-uncommentData td@(DataDecl {tcdDataDefn = def@(HsDataDefn{dd_cons = conDecls})}) = td{
-    tcdDataDefn = def{dd_cons = map uncommentDecl conDecls}}
+uncommentData td@(DataDecl {tcdDataDefn = def'@(HsDataDefn{dd_cons = conDecls})}) = td{
+    tcdDataDefn = def'{dd_cons = map uncommentDecl conDecls}}
 uncommentData other                            = other
 
 uncommentDecl :: LConDecl a -> LConDecl a
