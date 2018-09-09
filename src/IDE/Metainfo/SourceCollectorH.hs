@@ -27,6 +27,8 @@ module IDE.Metainfo.SourceCollectorH (
 ,   PackageCollectStats(..)
 ) where
 
+import Prelude ()
+import Prelude.Compat
 import Data.Text (Text)
 import qualified Data.Text as T (unpack, pack, stripPrefix, stripSuffix)
 import Data.Monoid ((<>))
@@ -232,7 +234,7 @@ type DeclInfo = [LHsDecl GhcRn]
 
 extractDescrs :: Ord a => DynFlags -> PackModule -> Map a DeclInfo -> [ExportItem GhcRn] -> [ClsInst] -> [b] -> [Descr]
 extractDescrs dflags pm _ifaceDeclMap ifaceExportItems' ifaceInstances' _ifaceLocals =
-        -- transformToDescrs dflags pm exportedDeclInfo ++
+        transformToDescrs dflags pm exportedDeclInfo ++
           map (toDescrInst dflags pm) ifaceInstances'
     where
         exportedDeclInfo :: [(LHsDecl GhcRn, Maybe NDoc, [(Name, Maybe NDoc)])]
