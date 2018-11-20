@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
@@ -38,7 +39,7 @@ import IDE.Core.CTypes
         dscTypeHint', dscMbComment', dscMbLocation', dscMbModu',
         dscMbTypeStr', dscName', RealDescr(..), Descr, metadataVersion,
         PackageDescr(..), leksahVersion, packageIdentifierToString,
-        getThisPackage, packId, ModuleDescr(..))
+        getThisPackage, packId, ModuleDescr(..), PackageDBs(..))
 import IDE.Utils.FileUtils (runProjectTool, getCollectorPath, getSysLibDir)
 import System.Directory
        (createDirectoryIfMissing, doesDirectoryExist, doesFileExist,
@@ -78,19 +79,19 @@ import Distribution.Verbosity (normal)
 import Data.Maybe (fromMaybe, maybeToList)
 import Paths_leksah_server (getDataDir)
 
-collectPackage :: Bool -> Prefs -> Int -> ((PackageConfig, (Maybe FilePath, [FilePath])), Int) -> IO PackageCollectStats
-collectPackage writeAscii prefs numPackages ((packageConfig, (mbProject, dbs)), packageIndex) =
-    collectPackageNix prefs packageConfig mbProject >>= \case
+collectPackage :: Bool -> Prefs -> Int -> ((PackageConfig, PackageDBs), Int) -> IO PackageCollectStats
+collectPackage writeAscii prefs numPackages ((packageConfig, PackageDBs{..}), packageIndex) =
+    collectPackageNix prefs packageConfig pDBsProjectFile >>= \case
         Just s -> return s
         Nothing -> do
             infoM "leksah-server" ("update_toolbar " ++ show
                 ((fromIntegral packageIndex / fromIntegral numPackages) :: Double))
-            debugM "leksah-server" $ "collectPackage (mbProject, dbs) " <> show (mbProject, dbs)
-            eitherStrFp    <- findSourceForPackage prefs pid mbProject
+            debugM "leksah-server" $ "collectPackage (pDBsProjectFile, pDBsPaths) " <> show (pDBsProjectFile, pDBsPaths)
+            eitherStrFp    <- findSourceForPackage prefs pid pDBsProjectFile
             case eitherStrFp of
                 Left message -> do
                     debugM "leksah-server" . T.unpack $ message <> " : " <> packageName
-                    collectPackageFromHI mbProject packageConfig dbs >>= \case
+                    collectPackageFromHI pDBsProjectFile packageConfig pDBsPaths >>= \case
                         Just packageDescrHi -> do
                             writeExtractedPackage False packageDescrHi
                             return stat {packageString = message, modulesTotal = Just (length (pdModules packageDescrHi))}
@@ -153,11 +154,11 @@ collectPackage writeAscii prefs numPackages ((packageConfig, (mbProject, dbs)), 
 
         build :: FilePath -> IO (Maybe PackageDescr, PackageCollectStats)
         build fpSource =
-            collectPackageFromHI mbProject packageConfig dbs >>= \case
+            collectPackageFromHI pDBsProjectFile packageConfig pDBsPaths >>= \case
                 Nothing -> return (Nothing, stat)
                 Just packageDescrHi -> do
                     runCabalConfigure fpSource
-                    mbPackageDescrPair <- packageFromSource mbProject dbs fpSource packageConfig
+                    mbPackageDescrPair <- packageFromSource pDBsProjectFile pDBsPaths fpSource packageConfig
                     case mbPackageDescrPair of
                         (Just packageDescrS, bstat) -> do
                             writeMerged packageDescrS packageDescrHi fpSource
@@ -188,7 +189,7 @@ collectPackage writeAscii prefs numPackages ((packageConfig, (mbProject, dbs)), 
             let dirPath         = dropFileName fpSource
                 packageName'    = takeBaseName fpSource
                 flagsFor "base" = do
-                    libDir <- getSysLibDir mbProject Nothing
+                    libDir <- getSysLibDir pDBsProjectFile Nothing
                     return $ ["-finteger-gmp", "-finteger-gmp2"] ++ maybeToList ((\l -> T.pack $ "--configure-option=CFLAGS=-I" <> l </> "include") <$> libDir)
                 flagsFor ('g':'i':'-':_) = return ["-f-enable-overloading", "-f-overloaded-methods", "-f-overloaded-properties", "-f-overloaded-signals"]
                 flagsFor _      = return []
@@ -196,7 +197,7 @@ collectPackage writeAscii prefs numPackages ((packageConfig, (mbProject, dbs)), 
             E.catch (do _ <- runTool' "cabal" ["clean"] Nothing Nothing
                         debugM "leksah" $ "fpSource = " <> show fpSource
                         flags <- flagsFor packageName'
-                        _ <- runProjectTool mbProject "cabal" ("configure":flags ++ map (("--package-db="<>) .T.pack) dbs) Nothing Nothing
+                        _ <- runProjectTool pDBsProjectFile "cabal" ("configure":flags ++ map (("--package-db="<>) .T.pack) pDBsPaths) Nothing Nothing
                         return ())
                     (\ (_e :: E.SomeException) -> do
                         debugM "leksah-server" "Can't configure"

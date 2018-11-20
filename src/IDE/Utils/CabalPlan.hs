@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 -----------------------------------------------------------------------------
@@ -13,14 +14,18 @@
 module IDE.Utils.CabalPlan (
     PlanJson(..)
   , PlanItem(..)
+  , piNameAndVersion
   , PID
   , unitIdToPackageId
+  , takePackageId
 ) where
 
 import Prelude ()
 import Prelude.Compat
 import GHC.Generics (Generic)
+import Data.Maybe (fromMaybe)
 import Data.List (sortOn)
+import Data.Set (Set)
 import qualified Data.Set as S (fromList, Set)
 import qualified Data.Map as M (empty, Map, toList)
 import Data.Text (Text)
@@ -29,7 +34,6 @@ import qualified Data.Text as T
 import Data.Aeson (FromJSON(..), withObject, (.:), (.:?))
 import Distribution.Package (PackageIdentifier, UnitId)
 import Distribution.Text (display, simpleParse)
-import Data.Maybe (fromMaybe)
 
 -- $setup
 -- >>> import Data.Aeson (eitherDecodeStrict')
@@ -98,14 +102,21 @@ type PID = Text
 data PlanItem = PlanItem
      { piId :: !PID
      , piType :: !Text
-     , piComps :: [(Component, S.Set PID)]
+     , piName :: !Text
+     , piVersion :: !Text
+     , piComps :: [(Component, Set PID)]
      -- flags
      } deriving Show
+
+piNameAndVersion :: PlanItem -> Text
+piNameAndVersion PlanItem {..} = piName <> "-" <> piVersion
 
 instance FromJSON PlanItem where
     parseJSON = withObject "PlanItem" $ \o ->
       PlanItem <$> o .: "id"
                <*> o .: "type"
+               <*> o .: "pkg-name"
+               <*> o .: "pkg-version"
                <*> (doComps . fromMaybe M.empty <$> o .:? "components")
       where
         doComps :: M.Map Text CompInfo -> [(Component, S.Set PID)]
@@ -154,3 +165,4 @@ takePackageId t
   | otherwise = Nothing
   where
     (pfx, sfx) = T.breakOnEnd "-" t
+

@@ -89,7 +89,7 @@ import Data.Char (ord, isAlphaNum)
 import Distribution.Text (simpleParse, display)
 
 import IDE.Utils.Utils
-import IDE.Core.CTypes(configDirName, ModuleKey(..))
+import IDE.Core.CTypes(configDirName, ModuleKey(..), PackageDBs(..))
 import qualified Distribution.Text as  T (simpleParse)
 import System.Log.Logger(errorM,warningM,debugM)
 import IDE.Utils.Tool
@@ -103,7 +103,7 @@ import Data.Text (Text)
 import Control.DeepSeq (deepseq)
 import IDE.Utils.VersionUtils (ghcExeName, getDefaultGhcVersion)
 import Data.Aeson (eitherDecodeStrict')
-import IDE.Utils.CabalPlan (PlanJson(..))
+import IDE.Utils.CabalPlan (PlanJson(..), piNameAndVersion)
 import IDE.Utils.CabalProject (findProjectRoot)
 import qualified Data.ByteString as BS (readFile)
 import Data.Map (Map)
@@ -662,21 +662,25 @@ getStackPackageDBs project = do
     paths (ToolOutput n) = map T.unpack (T.splitOn ":" n)
     paths _ = []
 
-getPackageDBs' :: FilePath -> Maybe FilePath -> IO [FilePath]
+getPackageDBs' :: FilePath -> Maybe FilePath -> IO PackageDBs
 getPackageDBs' ghcVersion mbProject =
     E.catch (
         case mbProject of
             Just project | takeExtension project == "yaml" ->
-                getStackPackageDBs project
-            _ -> getCabalPackageDBs mbProject ghcVersion
-     ) $ \ (_ :: SomeException) -> return []
+                PackageDBs mbProject Nothing <$> getStackPackageDBs project
+            Just project -> do
+              dbs <- getCabalPackageDBs mbProject ghcVersion
+              plan <- readPlan (dropFileName project) "dist-newstyle"
+              return $ PackageDBs mbProject (Set.fromList . map piNameAndVersion . pjPlan <$> plan) dbs
+            _ -> PackageDBs mbProject Nothing <$> getCabalPackageDBs mbProject ghcVersion
+     ) $ \ (_ :: SomeException) -> return $ PackageDBs mbProject Nothing []
 
-getPackageDBs :: [FilePath] -> IO [(Maybe FilePath, [FilePath])]
+getPackageDBs :: [FilePath] -> IO [PackageDBs]
 getPackageDBs projects = do
     ghcVersion <- getDefaultGhcVersion
     globalDBs <- sequence [getGlobalPackageDB Nothing (Just ghcVersion), Just <$> getStorePackageDB ghcVersion]
         >>= filterM doesDirectoryExist . catMaybes
-    nub . ((Nothing, globalDBs):) <$> forM projects (\p -> (Just p,) <$> getPackageDBs' ghcVersion (Just p))
+    nub . (PackageDBs Nothing Nothing globalDBs:) <$> forM projects (getPackageDBs' ghcVersion . Just)
 
 figureOutHaddockOpts :: Maybe FilePath -> FilePath -> IO [Text]
 figureOutHaddockOpts mbProject package = do
@@ -702,7 +706,7 @@ figureOutGhcOpts mbProject package = do
             libDir <- getSysLibDir mbProject Nothing
             return $ ["-finteger-gmp", "-finteger-gmp2"] ++ maybeToList ((\l -> T.pack $ "--configure-option=CFLAGS=-I" <> l </> "include") <$> libDir)
         else return ["-f-enable-overloading", "-f-overloaded-methods", "-f-overloaded-properties", "-f-overloaded-signals"]
-    (!output,_) <- runProjectTool mbProject "cabal" ("configure" : flags <> map (("--package-db=" <>) . T.pack) packageDBs) (Just $ dropFileName package) Nothing
+    (!output,_) <- runProjectTool mbProject "cabal" ("configure" : flags <> map (("--package-db=" <>) . T.pack) (pDBsPaths packageDBs)) (Just $ dropFileName package) Nothing
     output `deepseq` figureOutGhcOpts' mbProject package
 
 figureOutGhcOpts' :: Maybe FilePath -> FilePath -> IO [Text]

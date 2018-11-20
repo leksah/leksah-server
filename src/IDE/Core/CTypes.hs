@@ -72,6 +72,8 @@ module IDE.Core.CTypes (
 ,   PackageIdAndKey(..)
 ,   RetrieveStrategy(..)
 
+,   PackageDBs(..)
+
 ,   prettyPrint
 ) where
 
@@ -154,12 +156,21 @@ data RetrieveStrategy = RetrieveThenBuild | BuildThenRetrieve | NeverRetrieve
 instance ToJSON RetrieveStrategy
 instance FromJSON RetrieveStrategy
 
+data PackageDBs = PackageDBs
+    { pDBsProjectFile  :: Maybe FilePath
+    , pDBsPlanPackages :: Maybe (Set Text)
+    , pDBsPaths        :: [FilePath]
+    } deriving (Show, Read, Eq, Ord, Generic)
+
+instance ToJSON PackageDBs
+instance FromJSON PackageDBs
+
 data ServerCommand =
         SystemCommand {
             scRebuild    :: Bool,
             scSources    :: Bool,
             scExtract    :: Bool,
-            scPackageDBs :: [(Maybe FilePath, [FilePath])]}
+            scPackageDBs :: [PackageDBs]}
     |   WorkspaceCommand {
             wcRebuild     :: Bool,
             wcPackage     :: PackageIdentifier,

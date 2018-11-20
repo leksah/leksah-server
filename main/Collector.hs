@@ -153,14 +153,14 @@ main =  withSocketsDo $ catch inner handler
             args            <- getArgs
             (o,_)           <- ideOpts args
             let verbosity'   =  catMaybes $
-                                    map (\x -> case x of
+                                    map (\case
                                         Verbosity s -> Just s
                                         _           -> Nothing) o
             let verbosity    =  case verbosity' of
                                     [] -> INFO
                                     h:_ -> read $ T.unpack h
             let logFile'     =  catMaybes $
-                                    map (\x -> case x of
+                                    map (\case
                                         LogFile s   -> Just s
                                         _           -> Nothing) o
             let logFile     =  case logFile' of
@@ -185,7 +185,7 @@ main =  withSocketsDo $ catch inner handler
                         let endWithLast =   elem EndWithLast o
                         let metadataCollectList = [(inDir, outDir) | PackageBuildDir inDir <- o, MetadataOutputDir outDir <- o]
                         forM_ metadataCollectList $ \(inDir, outDir) ->
-                            getPackageDBs [] >>= mapM_ (collectOne inDir outDir . snd)
+                            getPackageDBs [] >>= mapM_ (collectOne inDir outDir . pDBsPaths)
                         when (null metadataCollectList) $ do
                             dataDir         <- getDataDir
                             prefsPath       <- getConfigFilePathForLoad strippedPreferencesFilename Nothing dataDir
@@ -272,7 +272,7 @@ doCommands' prefs connRef (h,n,p) mvar = do
                             hFlush h)
             doCommands' prefs connRef (h,n,p) mvar
 
-collectSystem :: Prefs -> Bool -> Bool -> Bool -> [(Maybe FilePath, [FilePath])] -> IO()
+collectSystem :: Prefs -> Bool -> Bool -> Bool -> [PackageDBs] -> IO()
 collectSystem prefs writeAscii forceRebuild findSources dbLists = do
     collectorPath       <- getCollectorPath
     when forceRebuild $ do
@@ -281,22 +281,25 @@ collectSystem prefs writeAscii forceRebuild findSources dbLists = do
         reportPath       <-  getConfigFilePathForSave "collectSystem.report"
         exists'          <- doesFileExist reportPath
         when exists' (removeFile reportPath)
-        return ()
     knownPackages       <-  findKnownPackages collectorPath
     debugM "leksah-server" $ "collectSystem knownPackages= " ++ show knownPackages
+    let pkgId = packageIdentifierToString . packId . getThisPackage
     packageInfos        <-
         getSysLibDir Nothing (Just VERSION_ghc) >>= \case
             Nothing -> do
                 debugM "leksah-server" $ "Could not find system lib dir for GHC " <> VERSION_ghc <> " (used to build Leksah)"
                 return []
-            Just libDir -> concat <$> forM dbLists (\(mbPackege, dbs) ->
-                  inGhcIO libDir [] [] dbs (\ _ -> map (,(mbPackege, dbs)) <$> getInstalledPackageInfos)
+            Just libDir -> concat <$> forM dbLists (\dbs -> do
+                  let planIds = pDBsPlanPackages dbs
+                      isInPlan = maybe (const True) (\p -> (`Set.member` p)) planIds
+                  inGhcIO libDir [] [] (pDBsPaths dbs) (\ _ ->
+                    map (,dbs)
+                      . filter (isInPlan . pkgId) <$> getInstalledPackageInfos)
               `catch` (\(e :: SomeException) -> do
                   debugM "leksah-server" $ "collectSystem error " <> show e
                   return []))
     debugM "leksah-server" $ "collectSystem packageInfos= " ++ show (map (packId . getThisPackage . fst) packageInfos)
-    let pkgId = packageIdentifierToString . packId . getThisPackage
-        newPackages = sortBy (comparing (pkgId. fst)) . nub $
+    let newPackages = sortBy (comparing (pkgId. fst)) . nub $
                         filter (\pi' -> not $ Set.member (pkgId $ fst pi') knownPackages)
                             packageInfos
     if null newPackages
