@@ -298,19 +298,19 @@ runInteractiveTool tool clr executable arguments mbDir mbEnv idleOutput = do
         loop :: (Bool, Bool, Maybe (Int -> Text), Int, Text) -> IO ()
         loop s = takeMVar rawOut >>= (`writeCommandOutput` s)
         yieldOutput = putMVar output
-        writeCommandOutput (RawToolOutput (ToolPrompt line)) (False, False, Just outSyncCmd, n, _) = do
-            debugM "leksah-server" "Pre Sync Prompt"
-            (do hPutStrLn inp $ outSyncCmd n
-                hFlush inp) `catch` (\ (_ :: SomeException) -> return ())
-            loop (True, False, Just outSyncCmd, n, line)
-        writeCommandOutput (RawToolOutput (ToolPrompt _))(True, False, mbSyncCmd, n, promptLine) = do
-            debugM "leksah-server" "Unsynced Prompt"
-            loop (True, False, mbSyncCmd, n, promptLine)
-        writeCommandOutput (RawToolOutput o@(ToolOutput line)) (True, False, mbSyncCmd, n, promptLine) = do
-            let synced = isExpectedOutput clr n line
-            when synced $ debugM "leksah-server" "Output Sync Found"
-            unless synced $ yieldOutput o
-            loop (True, synced, mbSyncCmd, n, promptLine)
+--        writeCommandOutput (RawToolOutput (ToolPrompt line)) (False, False, Just outSyncCmd, n, _) = do
+--            debugM "leksah-server" "Pre Sync Prompt"
+--            (do hPutStrLn inp $ outSyncCmd n
+--                hFlush inp) `catch` (\ (_ :: SomeException) -> return ())
+--            loop (True, False, Just outSyncCmd, n, line)
+--        writeCommandOutput (RawToolOutput (ToolPrompt _))(True, False, mbSyncCmd, n, promptLine) = do
+--            debugM "leksah-server" "Unsynced Prompt"
+--            loop (True, False, mbSyncCmd, n, promptLine)
+--        writeCommandOutput (RawToolOutput o@(ToolOutput line)) (True, False, mbSyncCmd, n, promptLine) = do
+--            let synced = isExpectedOutput clr n line
+--            when synced $ debugM "leksah-server" "Output Sync Found"
+--            unless synced $ yieldOutput o
+--            loop (True, synced, mbSyncCmd, n, promptLine)
         writeCommandOutput (RawToolOutput (ToolPrompt _)) (_, _, mbSyncCmd, n, promptLine) = do
             debugM "leksah-server" "Synced Prompt - Ready For Next Command"
             _ <- tryTakeMVar (currentToolCommand tool)
@@ -375,7 +375,7 @@ ghciCommandLineReader    = CommandLineReader {
         , "_ <- System.IO.hPutStr System.IO.stderr [\'\\0\', \'\\n\'] Control.Monad.>> System.IO.hFlush System.IO.stderr"
         ]) <> ")",
     parseExpectedError   = ghciParsePrompt,
-    outputSyncCommand    = Just $ \count -> ":set prompt \"" <> marker count <> "\\n\"\n:set prompt " <> T.pack (show ghciPrompt),
+    outputSyncCommand    = Nothing, -- Just $ \count -> ":set prompt \"" <> marker count <> "\\n\"\n:set prompt " <> T.pack (show ghciPrompt),
     isExpectedOutput     = ghciIsExpectedOutput
     }
 
@@ -455,8 +455,8 @@ getOutput clr inp out err pid = liftIO $ do
                     .| sendErrors
         hClose errors `catch` (\ (_ :: SomeException) -> return ())
       where
-        sendErrors = C.awaitForever $ \x -> liftIO $ do
-                            debugM "leksah-server" $ show x
+        sendErrors = C.awaitForever $ \x -> liftIO $
+                            -- debugM "leksah-server" $ show x
                             case x of
                                 Left line -> do
                                     unless (T.null line) $ putMVar mvar $ RawToolOutput $ ToolError line
@@ -570,7 +570,7 @@ executeGhciCommand tool command handler =
         else executeCommand tool command command handler
     where
         filteredLines = filter safeLine (T.lines command)
-        safeCommand = ":cmd (return " <> T.pack (show $ ":{\n" <> T.unlines filteredLines <> "\n:}") <> ")"
+        safeCommand = ":cmd (Control.Monad.return " <> T.pack (show $ ":{\n" <> T.unlines filteredLines <> "\n:}") <> ")"
         safeLine ":{" = False
         safeLine ":}" = False
         safeLine _ = True

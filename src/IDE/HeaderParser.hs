@@ -116,6 +116,12 @@ transformImport dflags (L srcSpan importDecl) =
                         Just (hide, list) -> Just (ImportSpecList hide (mapMaybe (transformEntity dflags) (unLoc list)))
 
 transformEntity :: DynFlags -> LIE GhcPs -> Maybe ImportSpec
+#if MIN_VERSION_ghc(8,6,0)
+transformEntity dflags (L _ (IEVar _ name))              = Just (IVar (T.pack $ showSDoc dflags (pprPrefixOcc $ unLoc name)))
+transformEntity dflags (L _ (IEThingAbs _ name))         = Just (IAbs (T.pack . showRdrName dflags . unLoc $ ieLWrappedName name))
+transformEntity dflags (L _ (IEThingAll _ name))         = Just (IThingAll (T.pack . showRdrName dflags . unLoc $ ieLWrappedName name))
+transformEntity dflags (L _ (IEThingWith _ name _ list _)) = Just (IThingWith (T.pack . showRdrName dflags . unLoc $ ieLWrappedName name)
+#else
 transformEntity dflags (L _ (IEVar name))              = Just (IVar (T.pack $ showSDoc dflags (pprPrefixOcc $ unLoc name)))
 transformEntity dflags (L _ (IEThingAbs name))         = Just (IAbs (T.pack . showRdrName dflags . unLoc $ ieLWrappedName name))
 transformEntity dflags (L _ (IEThingAll name))         = Just (IThingAll (T.pack . showRdrName dflags . unLoc $ ieLWrappedName name))
@@ -123,6 +129,7 @@ transformEntity dflags (L _ (IEThingAll name))         = Just (IThingAll (T.pack
 transformEntity dflags (L _ (IEThingWith name _ list _)) = Just (IThingWith (T.pack . showRdrName dflags . unLoc $ ieLWrappedName name)
 #else
 transformEntity dflags (L _ (IEThingWith name list))   = Just (IThingWith (T.pack . showRdrName dflags $ unLoc name)
+#endif
 #endif
                                                         (map (T.pack . showRdrName dflags . unLoc . ieLWrappedName) list))
 transformEntity _ _                              = Nothing

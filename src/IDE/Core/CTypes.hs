@@ -4,7 +4,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 -----------------------------------------------------------------------------
 --
@@ -82,7 +81,7 @@ import Prelude.Compat
 import Data.Typeable (Typeable)
 import Data.Map (Map)
 import Data.Set (Set)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, fromJust)
 import Data.Default (Default(..))
 import Distribution.Package
        (PackageIdentifier(..))
@@ -98,19 +97,16 @@ import qualified Data.ByteString.Char8 as BS (unpack, empty)
 import qualified Data.Map as Map (lookup,keysSet,splitLookup, insertWith,empty,elems,union)
 import Data.Char (isAlpha, isSpace)
 import Control.DeepSeq (NFData(..))
-import PackageConfig (PackageConfig)
 #if MIN_VERSION_ghc(8,0,0)
 #if MIN_VERSION_ghc(8,2,0)
 import Module (InstalledUnitId)
 #else
 import Module (UnitId)
 #endif
-import PackageConfig (sourcePackageIdString, unitId)
-import Data.Maybe (fromJust)
+import PackageConfig (PackageConfig, sourcePackageIdString, unitId)
 #else
 import Module (PackageKey)
-import PackageConfig (sourcePackageIdString, packageKey)
-import Data.Maybe (fromJust)
+import PackageConfig (PackageConfig, sourcePackageIdString, packageKey)
 #endif
 import Data.Text (Text)
 import Text.PrettyPrint (fsep, Doc, (<+>), empty, text)
@@ -686,9 +682,5 @@ instance NFData PackModule where
     rnf pd =  rnf (pack pd)
                     `seq`   rnf (modu pd)
 
-#if !MIN_VERSION_Cabal(2,0,0)
-instance NFData ModuleName where
-    rnf =  rnf . components
-#endif
 
 

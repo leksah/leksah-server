@@ -89,11 +89,6 @@ ifConName :: IfaceConDecl -> OccName
 ifConName = ifConOcc
 #endif
 
-#if !MIN_VERSION_Cabal(2,0,0)
-mkPackageName :: String -> PackageName
-mkPackageName = PackageName
-#endif
-
 collectPackageFromHI :: HasCallStack => Maybe FilePath -> PackageConfig -> [FilePath] -> IO (Maybe PackageDescr)
 collectPackageFromHI mbProject packageConfig dbs = do
   let pIdAndKey = getThisPackage packageConfig

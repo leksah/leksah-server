@@ -25,30 +25,15 @@ module IDE.Core.Serializable (
 import Prelude ()
 import Prelude.Compat
 import Distribution.Text (simpleParse,display)
-import Control.Monad (liftM)
 import Data.Maybe (fromJust)
 import Data.Binary.Shared (BinaryShared(..))
-#if MIN_VERSION_Cabal(2,0,0)
 import Distribution.Package (PackageName, unPackageName, mkPackageName, PackageIdentifier(..))
 import Distribution.Version (Version, versionNumbers, mkVersion)
-#else
-import Distribution.Package (PackageName(..), unPackageName, PackageIdentifier(..))
-import Distribution.Version (Version(..))
-#endif
 import Distribution.ModuleName (ModuleName)
 
 import IDE.Core.CTypes
 import Data.Text (Text)
 import qualified Data.Text as T (pack, unpack)
-
-#if !MIN_VERSION_Cabal(2,0,0)
-versionNumbers :: Version -> [Int]
-versionNumbers = versionBranch
-mkPackageName :: String -> PackageName
-mkPackageName = PackageName
-mkVersion :: [Int] -> Version
-mkVersion = (`Version` [])
-#endif
 
 -----------------------------------------------------------
 
@@ -256,11 +241,11 @@ instance BinaryShared Location where
 
 instance BinaryShared ModuleName where
     put    =  put . display
-    get    =  liftM (fromJust . simpleParse) get
+    get    =  fromJust . simpleParse <$> get
 
 instance BinaryShared PackageName where
     put pn =  put (unPackageName pn)
-    get  =  liftM mkPackageName get
+    get    =  mkPackageName <$> get
 
 
 

@@ -212,7 +212,7 @@ collectPackageNix prefs packageConfig (Just project) = do
         True -> do
             collectorPath <- getCollectorPath
             leksahMetadataNix <- (</> "data/leksah-metadata.nix") <$> getDataDir
-            (nixOuput, _) <- runTool' "nix-build" ["-E", T.pack $
+            (nixOuput, _) <- runTool' "nix-build" ["--no-out-link", "-E", T.pack $
                                    "let ghc=(let fn = import ./.; in if builtins.isFunction fn then fn {} else fn).ghc; "
                                 <> "in import " <> leksahMetadataNix <> " { inherit ghc; "
                                 <> "pkg=ghc." <> display (pkgName pid) <> ";}"
