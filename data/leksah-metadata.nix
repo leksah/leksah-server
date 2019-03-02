@@ -7,8 +7,8 @@ let toList = x: if builtins.isList x then x else [x];
         leksah-server = haskellLib.dontCheck (self.callCabal2nix "leksah-server" ((import <nixpkgs> {}).fetchFromGitHub {
           owner = "leksah";
           repo = "leksah-server";
-          rev = "d02bce09f22ff4a028b6f9585632cea08181a304";
-          sha256 = "19dg61q6qxndczm38jvk41a6s06b4wkg221jcaw6zqvfypkjbm19";
+          rev = "6e6a02923cbc636dc589efff4e24ada7ddfd4093";
+          sha256 = "00p508zh113acxds76i9r7fmi8pg5sblyz22d5v54z82j5h78g6q";
         }) {});
     })).leksah-server;
 in pkg.overrideAttrs (old: {
