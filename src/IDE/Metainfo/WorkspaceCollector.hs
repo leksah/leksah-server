@@ -71,7 +71,11 @@ import Data.Maybe
 import PrelNames
 import System.Log.Logger
 import Control.DeepSeq (deepseq)
-import FastString(mkFastString,appendFS,nullFS,unpackFS)
+#if MIN_VERSION_ghc(8,6,0)
+import FastString (unpackFS)
+#else
+import FastString (mkFastString,appendFS,nullFS,unpackFS)
+#endif
 import Control.Monad.IO.Class (MonadIO, MonadIO(..))
 import Control.Monad (when)
 import Control.Exception as E
@@ -85,6 +89,7 @@ import HsImpExp (ieWrappedName)
 #if !MIN_VERSION_ghc(8,4,0)
 import Data.Kind (Constraint)
 #endif
+import IDE.Utils.Project (ProjectKey)
 
 #if !MIN_VERSION_ghc(8,2,0)
 ieWrappedName :: RdrName -> RdrName
@@ -127,9 +132,9 @@ isEmptyDoc (HsDocString fs) = nullFS fs
 showRdrName :: DynFlags -> RdrName -> Text
 showRdrName dflags r = T.pack . showSDoc dflags $ ppr r
 
-collectWorkspace :: PackageIdentifier -> [(Text,FilePath)] -> Bool -> Bool -> FilePath -> FilePath -> IO()
+collectWorkspace :: PackageIdentifier -> [(Text,FilePath)] -> Bool -> Bool -> ProjectKey -> FilePath -> IO()
 collectWorkspace pid moduleList forceRebuild writeAscii project package = do
-    debugM "leksah-server" $ "collectWorkspace called with modules " ++ show moduleList ++ " in project " ++ project ++ " package " ++ package
+    debugM "leksah-server" $ "collectWorkspace called with modules " ++ show moduleList ++ " in project " ++ show project ++ " package " ++ package
     collectorPath <- liftIO getCollectorPath
     let packageCollectorPath = collectorPath </> T.unpack (packageIdentifierToString pid)
     when forceRebuild $ do
@@ -615,6 +620,7 @@ transformToDescrs dflags pm = concatMap transformToDescr
                      ClsInstD _ t -> ppr t
                      DataFamInstD _ t -> ppr t
                      TyFamInstD _ t -> ppr t
+                     XInstDecl t -> ppr t
 #else
                      ClsInstD t -> ppr t
                      DataFamInstD t -> ppr t
@@ -648,6 +654,8 @@ uncommentDecl :: LConDecl a -> LConDecl a
 uncommentDecl (L l cd@ConDeclGADT{}) =
     L l cd{con_args = uncommentDetails (con_args cd), con_doc = Nothing}
 uncommentDecl (L l cd@ConDeclH98{}) =
+    L l cd{con_args = uncommentDetails (con_args cd), con_doc = Nothing}
+uncommentDecl (L l cd@XConDecl{}) =
     L l cd{con_args = uncommentDetails (con_args cd), con_doc = Nothing}
 #else
 uncommentDecl (L l cd@ConDeclGADT{}) =
@@ -687,13 +695,15 @@ mergeIdDescrs d1 d2 = dres ++ reexported
 #if MIN_VERSION_ghc(8,2,0)
 #if MIN_VERSION_ghc(8,6,0)
 extractDeriving :: (alpha ~ GhcPass pass, OutputableBndrId alpha) => DynFlags -> PackModule -> Text -> LHsDerivingClause alpha -> [Descr]
+extractDeriving _ _ _ (L _ XHsDerivingClause {}) = []
 #else
 extractDeriving :: (SourceTextX alpha, OutputableBndrId alpha) => DynFlags -> PackModule -> Text -> LHsDerivingClause alpha -> [Descr]
 #endif
-extractDeriving dflags pm name (L _ HsDerivingClause {deriv_clause_tys = L _ c}) = map (extractDeriving' dflags pm name) c
+extractDeriving dflags pm name (L _ HsDerivingClause {deriv_clause_tys = L _ c}) = c >>= extractDeriving' dflags pm name
 
 #if MIN_VERSION_ghc(8,6,0)
-extractDeriving' :: (alpha ~ GhcPass pass, OutputableBndrId alpha) => DynFlags -> PackModule -> Text -> LHsSigType alpha -> Descr
+extractDeriving' :: (alpha ~ GhcPass pass, OutputableBndrId alpha) => DynFlags -> PackModule -> Text -> LHsSigType alpha -> [Descr]
+extractDeriving' _ _ _ (XHsImplicitBndrs {}) = []
 #else
 extractDeriving' :: (SourceTextX alpha, OutputableBndrId alpha) => DynFlags -> PackModule -> Text -> LHsSigType alpha -> Descr
 #endif
@@ -705,14 +715,14 @@ extractDeriving dflags pm name HsIB { hsib_body = (L loc typ) } =
 extractDeriving :: OutputableBndr alpha => DynFlags -> PackModule -> Text -> LHsType alpha -> Descr
 extractDeriving dflags pm name (L loc typ) =
 #endif
-        Real RealDescr {
+    [ Real RealDescr {
         dscName'        =   className
     ,   dscMbTypeStr'   =   Just (BS.pack . T.unpack $ "instance " <> className <> " " <> name)
     ,   dscMbModu'      =   Just pm
     ,   dscMbLocation'  =   srcSpanToLocation loc
     ,   dscMbComment'   =   toComment (Nothing :: Maybe NDoc) []
     ,   dscTypeHint'    =   InstanceDescr (T.words name)
-    ,   dscExported'    =   True}
+    ,   dscExported'    =   True} ]
         where
         className = T.pack . showSDocUnqual dflags $ ppr typ
 
@@ -765,6 +775,9 @@ extractConstructor dflags decl@(L loc d') = extractDecl d'
  where
   extractDecl (ConDeclGADT {..}) = map (extractName con_doc) con_names
   extractDecl (ConDeclH98 {..}) = [extractName con_doc con_name]
+#if MIN_VERSION_ghc(8,6,0)
+  extractDecl (XConDecl {}) = []
+#endif
 #else
 extractConstructor dflags decl@(L loc (ConDecl {con_names = names, con_doc = doc})) =
     map (extractName doc) names
@@ -792,6 +805,7 @@ extractRecordFields dflags (L _ _decl@ConDecl {con_details = RecCon flds}) =
     where
 #if MIN_VERSION_ghc(8,6,0)
     extractRecordFields' :: (name ~ GhcPass pass, OutputableBndrId name) => LConDeclField name -> [SimpleDescr]
+    extractRecordFields' (L _ (XConDeclField _)) = []
     extractRecordFields' (L _ _field@(ConDeclField _ names typ doc)) = map extractName names
 #else
     extractRecordFields' :: (SourceTextX name, OutputableBndrId name) => LConDeclField name -> [SimpleDescr]

@@ -111,6 +111,9 @@ import qualified Data.Text.IO as T (writeFile, readFile)
 import Text.Read.Compat (readMaybe)
 import qualified Data.Map as M (insert, fromList, toList, lookup)
 import System.Process (showCommandForUser)
+import IDE.Utils.Project
+       (ProjectKey(..), CabalProject(..), StackProject(..),
+        CustomProject(..), pjDir)
 
 haskellSrcExts :: [FilePath]
 haskellSrcExts = ["hs","lhs","chs","hs.pp","lhs.pp","chs.pp","hsc"]
@@ -382,26 +385,27 @@ includeInNixCache name = not (null name)
     && all (\c -> isAlphaNum c || c == '_') name
     && name `notElem` ["POSIXLY_CORRECT", "SHELLOPTS", "BASHOPTS"]
 
-saveNixCache :: MonadIO m => FilePath -> Text -> [ToolOutput] -> m (Map String String)
+saveNixCache :: MonadIO m => ProjectKey -> Text -> [ToolOutput] -> m (Map String String)
 saveNixCache project compiler out = liftIO $ do
     let newEnv = M.fromList . filter (includeInNixCache . fst) $ mapMaybe (\case
             ToolOutput line -> Just . fixQuotes . second (drop 1) . span (/='=') $ T.unpack line
             _ -> Nothing) out
     configDir <- getConfigDir
     let filePath = configDir </> "nix.cache"
-    T.writeFile filePath . T.pack . show =<< M.insert (project, compiler) newEnv <$> loadNixCache
+    T.writeFile filePath . T.pack . show =<< M.insert (pjDir project, compiler) newEnv <$> loadNixCache
     return newEnv
   where
     fixQuotes ("IFS", _) = ("IFS", " \t\n")
     fixQuotes (n, '\'':rest) = (n, maybe rest T.unpack . T.stripSuffix "'" $ T.pack rest)
     fixQuotes x = x
 
-loadNixEnv :: MonadIO m => FilePath -> Text -> m (Maybe (Map String String))
-loadNixEnv project compiler = M.lookup (project, compiler) <$> loadNixCache
+loadNixEnv :: MonadIO m => ProjectKey -> Text -> m (Maybe (Map String String))
+loadNixEnv project compiler = M.lookup (pjDir project, compiler) <$> loadNixCache
 
-nixShellFile :: MonadIO m => FilePath -> m (Maybe FilePath)
-nixShellFile dir = do
-    let shellNix = dir </> "shell.nix"
+nixShellFile :: MonadIO m => ProjectKey -> m (Maybe FilePath)
+nixShellFile project = do
+    let dir = pjDir project
+        shellNix = dir </> "shell.nix"
         defaultNix = dir </> "default.nix"
     liftIO (doesFileExist shellNix) >>= \case
         True -> return $ Just shellNix
@@ -409,19 +413,19 @@ nixShellFile dir = do
             True -> return $ Just defaultNix
             False -> return Nothing
 
-nixPath :: FilePath -> IO (Maybe String)
+nixPath :: ProjectKey -> IO (Maybe String)
 nixPath project =
-    nixShellFile (dropFileName project) >>= \case
+    nixShellFile project >>= \case
         Just _ ->
             loadNixEnv project "ghc" >>= \case
                 Just nixEnv -> return $ M.lookup "PATH" nixEnv
                 Nothing -> return Nothing
         Nothing -> return Nothing
 
-runProjectTool :: Maybe FilePath -> FilePath -> [Text] -> Maybe FilePath -> Maybe [(String, String)] -> IO ([ToolOutput], ProcessHandle)
+runProjectTool :: Maybe ProjectKey -> FilePath -> [Text] -> Maybe FilePath -> Maybe [(String, String)] -> IO ([ToolOutput], ProcessHandle)
 runProjectTool Nothing fp args mbDir mbEnv = runTool' fp args mbDir mbEnv
 runProjectTool (Just project) fp args mbDir mbEnv =
-    nixShellFile (dropFileName project) >>= \case
+    nixShellFile project >>= \case
         Just nixFile ->
             loadNixEnv project "ghc" >>= \case
                 Just nixEnv -> do
@@ -465,7 +469,6 @@ autoExtractTarFiles' filePath =
                                 return ())
                     decompressionTargets
             mapM_ autoExtractTarFiles' dirs
-            return ()
     ) $ \ (_ :: SomeException) -> return ()
 
 
@@ -476,7 +479,7 @@ getCollectorPath = liftIO $ do
     createDirectoryIfMissing False filePath
     return filePath
 
-getSysLibDir :: Maybe FilePath -> Maybe FilePath -> IO (Maybe FilePath)
+getSysLibDir :: Maybe ProjectKey -> Maybe FilePath -> IO (Maybe FilePath)
 getSysLibDir project ver = E.catch (do
     (!output,_) <- runProjectTool project (ghcExeName ver) ["--print-libdir"] Nothing Nothing
     let libDir = listToMaybe [line | ToolOutput line <- output]
@@ -484,10 +487,10 @@ getSysLibDir project ver = E.catch (do
     output `deepseq` return $ normalise . T.unpack <$> libDir2
     ) $ \ (_ :: SomeException) -> return Nothing
 
-getStackPackages :: FilePath -> IO [(UnitId, Maybe FilePath)]
+getStackPackages :: StackProject -> IO [(UnitId, Maybe ProjectKey)]
 getStackPackages project = do
-    (!output', _) <- runTool' "stack" ["--stack-yaml", T.pack project, "exec", "ghc-pkg", "--", "list", "--simple-output"] Nothing Nothing
-    output' `deepseq` return $ map (,Just project) $ concatMap ghcPkgOutputToPackages output'
+    (!output', _) <- runTool' "stack" ["--stack-yaml", T.pack (pjStackFile project), "exec", "ghc-pkg", "--", "list", "--simple-output"] Nothing Nothing
+    output' `deepseq` return $ map (,Just (StackTool project)) $ concatMap ghcPkgOutputToPackages output'
 
 ghcPkgOutputToPackages :: ToolOutput -> [UnitId]
 ghcPkgOutputToPackages (ToolOutput n) = mapMaybe (T.simpleParse . T.unpack) (T.words n)
@@ -547,7 +550,7 @@ cabalProjectBuildDir projectRoot buildDir = do
 
 -- On windows there is no "ghc-pkg-8.2.2.exe" so we should look also
 -- for "ghc-pkg.exe" in the directory where "ghc-8.2.2.exe" is found
-findGhcPkg :: Maybe FilePath -> FilePath -> FilePath -> IO FilePath
+findGhcPkg :: Maybe ProjectKey -> FilePath -> FilePath -> IO FilePath
 findGhcPkg project hc hVer =
     maybe (return Nothing) nixPath project >>= \case
         Just _ -> return preferedName
@@ -559,18 +562,18 @@ findGhcPkg project hc hVer =
     ghcPkgAlongSide f = dropFileName f <> "ghc-pkg" <> takeExtension f
     preferedName = hc <> "-pkg-" <> hVer
 
-getPackages' :: Maybe FilePath -> FilePath -> FilePath -> [FilePath] -> IO [UnitId]
+getPackages' :: Maybe ProjectKey -> FilePath -> FilePath -> [FilePath] -> IO [UnitId]
 getPackages' project hc hVer packageDBs = do
     ghcPkg <- findGhcPkg project hc hVer
     (!output', _) <- runProjectTool project ghcPkg (["list", "--simple-output"] ++ map (("--package-db="<>) . T.pack) packageDBs) Nothing Nothing
     output' `deepseq` return $ concatMap ghcPkgOutputToPackages output'
 
-getPackages :: Maybe FilePath -> FilePath -> FilePath-> [FilePath] -> IO [(UnitId, Maybe FilePath)]
+getPackages :: Maybe ProjectKey -> FilePath -> FilePath-> [FilePath] -> IO [(UnitId, Maybe ProjectKey)]
 getPackages project hc hVer packageDBs =
     map (,project) <$> getPackages' project hc hVer packageDBs
 
 -- | Find the packages that the packages in the workspace
-getInstalledPackages :: FilePath -> [FilePath] -> IO [(UnitId, Maybe FilePath)]
+getInstalledPackages :: FilePath -> [ProjectKey] -> IO [(UnitId, Maybe ProjectKey)]
 getInstalledPackages ghcVer projects = do
     debugM "leksah" $ "getInstalledPackages " <> show ghcVer <> " " <> show projects
 --    versions <- nub . (ghcVer:) <$> forM projects (\project -> E.catch (
@@ -588,24 +591,26 @@ getInstalledPackages ghcVer projects = do
     globalPackages <- E.catch (getPackages Nothing "ghc" ghcVer globalDBs) $ \ (_ :: SomeException) -> return []
     debugM "leksah" $ "globalPackages = " <> show globalPackages
 
-    localPackages <- forM projects (\project -> E.catch (
-            if takeExtension project == "yaml"
-                then getStackPackages project
-                else do
-                    (hc, hVer, projectDB) <- getProjectPackageDB ghcVer project "dist-newstyle"
-                    doesDirectoryExist projectDB >>= \case
-                        False -> return []
-                        True  -> do
-                            projGlobalDBs <- sequence [getGlobalPackageDB (Just project) (Just hVer), Just <$> getStorePackageDB hVer]
-                                >>= filterM doesDirectoryExist . catMaybes
---                            projGlobalPackages <- E.catch (getPackages (Just project) hc hVer projGlobalDBs) $ \ (_ :: SomeException) -> return []
+    localPackages <- forM projects $ \projectKey -> E.catch (
+      case projectKey of
+        StackTool project -> getStackPackages project
+        CabalTool project -> do
+          let cabalFile = pjCabalFile project
+          (hc, hVer, projectDB) <- getProjectPackageDB ghcVer project "dist-newstyle"
+          doesDirectoryExist projectDB >>= \case
+              False -> return []
+              True  -> do
+                  projGlobalDBs <- sequence [getGlobalPackageDB (Just projectKey) (Just hVer), Just <$> getStorePackageDB hVer]
+                      >>= filterM doesDirectoryExist . catMaybes
+--                            projGlobalPackages <- E.catch (getPackages (Just cabalFile) hc hVer projGlobalDBs) $ \ (_ :: SomeException) -> return []
 
-                            map (,Just project) <$> getPackages' (Just project) hc hVer (projectDB : projGlobalDBs)
-        ) $ \ (_ :: SomeException) -> return [])
+                  map (,Just projectKey) <$> getPackages' (Just projectKey) hc hVer (projectDB : projGlobalDBs)
+        CustomTool project -> return []
+        ) $ \ (_ :: SomeException) -> return []
     debugM "leksah" $ "localPackages = " <> show localPackages
     return . nub $ globalPackages <> concat localPackages
 
-getGlobalPackageDB :: Maybe FilePath -> Maybe FilePath -> IO (Maybe FilePath)
+getGlobalPackageDB :: Maybe ProjectKey -> Maybe FilePath -> IO (Maybe FilePath)
 getGlobalPackageDB mbProject ghcVersion = do
     ghcLibDir <- getSysLibDir mbProject ghcVersion
 --    case mbProject of
@@ -624,9 +629,9 @@ getStorePackageDB ghcVersion = do
     cabalDir <- getAppUserDataDirectory "cabal"
     return $ cabalDir </> "store" </> "ghc-" ++ ghcVersion </> "package.db"
 
-getProjectPackageDB :: FilePath -> FilePath -> FilePath -> IO (FilePath, FilePath, FilePath)
+getProjectPackageDB :: FilePath -> CabalProject -> FilePath -> IO (FilePath, FilePath, FilePath)
 getProjectPackageDB ghcVersion project buildDir = do
-    let projectRoot = dropFileName project
+    let projectRoot = dropFileName (pjCabalFile project)
     c <- fromMaybe ("ghc-" <> ghcVersion) <$> getProjectCompilerId projectRoot buildDir
     let (hc, hVer) = span (/='-') c
     return (hc, drop 1 hVer, projectRoot </> buildDir </> "packagedb" </> c)
@@ -641,7 +646,7 @@ getProjectCompilerId projectRoot buildDir =
 --        Just PlanJson { pjCompilerId = Just c } -> return . Just . dropWhile (=='-') $ dropWhile (/='-') c
 --        _ -> return Nothing
 
-getCabalPackageDBs :: Maybe FilePath -> FilePath -> IO [FilePath]
+getCabalPackageDBs :: Maybe CabalProject -> FilePath -> IO [FilePath]
 getCabalPackageDBs Nothing ghcVersion =
     sequence [getGlobalPackageDB Nothing (Just ghcVersion), Just <$> getStorePackageDB ghcVersion]
         >>= filterM doesDirectoryExist . catMaybes
@@ -650,39 +655,39 @@ getCabalPackageDBs (Just project) ghcVersion = do
     doesDirectoryExist projectDB >>= \case
         False -> return []
         True  -> do
-            projGlobalDBs <- sequence [getGlobalPackageDB (Just project) (Just hVer), Just <$> getStorePackageDB hVer]
+            projGlobalDBs <- sequence [getGlobalPackageDB (Just (CabalTool project)) (Just hVer), Just <$> getStorePackageDB hVer]
                 >>= filterM doesDirectoryExist . catMaybes
             return (projectDB : projGlobalDBs)
 
-getStackPackageDBs :: FilePath -> IO [FilePath]
+getStackPackageDBs :: StackProject -> IO [FilePath]
 getStackPackageDBs project = do
-    (!output, _) <- runTool' "stack" ["--stack-yaml", T.pack project, "path", "--ghc-package-path"] Nothing Nothing
+    (!output, _) <- runTool' "stack" ["--stack-yaml", T.pack (pjStackFile project), "path", "--ghc-package-path"] Nothing Nothing
     filterM doesDirectoryExist $ concatMap paths output
   where
     paths (ToolOutput n) = map T.unpack (T.splitOn ":" n)
     paths _ = []
 
-getPackageDBs' :: FilePath -> Maybe FilePath -> IO PackageDBs
+getPackageDBs' :: FilePath -> Maybe ProjectKey -> IO PackageDBs
 getPackageDBs' ghcVersion mbProject =
     E.catch (
         case mbProject of
-            Just project | takeExtension project == "yaml" ->
+            Just (StackTool project) ->
                 PackageDBs mbProject Nothing <$> getStackPackageDBs project
-            Just project -> do
-              dbs <- getCabalPackageDBs mbProject ghcVersion
-              plan <- readPlan (dropFileName project) "dist-newstyle"
+            Just (CabalTool project) -> do
+              dbs <- getCabalPackageDBs (Just project) ghcVersion
+              plan <- readPlan (dropFileName $ pjCabalFile project) "dist-newstyle"
               return $ PackageDBs mbProject (Set.fromList . map piNameAndVersion . pjPlan <$> plan) dbs
-            _ -> PackageDBs mbProject Nothing <$> getCabalPackageDBs mbProject ghcVersion
+            _ -> PackageDBs mbProject Nothing <$> getCabalPackageDBs Nothing ghcVersion
      ) $ \ (_ :: SomeException) -> return $ PackageDBs mbProject Nothing []
 
-getPackageDBs :: [FilePath] -> IO [PackageDBs]
+getPackageDBs :: [ProjectKey] -> IO [PackageDBs]
 getPackageDBs projects = do
     ghcVersion <- getDefaultGhcVersion
     globalDBs <- sequence [getGlobalPackageDB Nothing (Just ghcVersion), Just <$> getStorePackageDB ghcVersion]
         >>= filterM doesDirectoryExist . catMaybes
     nub . (PackageDBs Nothing Nothing globalDBs:) <$> forM projects (getPackageDBs' ghcVersion . Just)
 
-figureOutHaddockOpts :: Maybe FilePath -> FilePath -> IO [Text]
+figureOutHaddockOpts :: Maybe ProjectKey -> FilePath -> IO [Text]
 figureOutHaddockOpts mbProject package = do
     (!output,_) <- runProjectTool mbProject "cabal" ["haddock", "--with-haddock=leksahecho", "--executables"] (Just $ dropFileName package) Nothing
     let opts = concat [words $ T.unpack l | ToolOutput l <- output]
@@ -696,7 +701,7 @@ figureOutHaddockOpts mbProject package = do
                                     Nothing -> filterOptGhc r
                                     Just s'  -> s' : filterOptGhc r
 
-figureOutGhcOpts :: Maybe FilePath -> FilePath -> IO [Text]
+figureOutGhcOpts :: Maybe ProjectKey -> FilePath -> IO [Text]
 figureOutGhcOpts mbProject package = do
     debugM "leksah-server" "figureOutGhcOpts"
     ghcVersion <- getDefaultGhcVersion
@@ -709,7 +714,7 @@ figureOutGhcOpts mbProject package = do
     (!output,_) <- runProjectTool mbProject "cabal" ("configure" : flags <> map (("--package-db=" <>) . T.pack) (pDBsPaths packageDBs)) (Just $ dropFileName package) Nothing
     output `deepseq` figureOutGhcOpts' mbProject package
 
-figureOutGhcOpts' :: Maybe FilePath -> FilePath -> IO [Text]
+figureOutGhcOpts' :: Maybe ProjectKey -> FilePath -> IO [Text]
 figureOutGhcOpts' mbProject package = do
     debugM "leksah-server" "figureOutGhcOpts'"
     cabalOrSetup <- case mbProject of

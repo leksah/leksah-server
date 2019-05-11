@@ -38,6 +38,7 @@ import System.IO.Strict (readFile)
 import qualified Data.Text as T (pack)
 import System.Directory (setCurrentDirectory)
 import System.FilePath (dropFileName)
+import IDE.Utils.Project (ProjectKey)
 
 #if !MIN_VERSION_ghc(8,2,0)
 ieLWrappedName :: a -> a
@@ -61,7 +62,7 @@ unLoc82 = id
 showRdrName :: DynFlags -> RdrName -> String
 showRdrName dflags r = showSDoc dflags (ppr r)
 
-parseTheHeader :: FilePath -> FilePath -> FilePath -> IO ServerAnswer
+parseTheHeader :: ProjectKey -> FilePath -> FilePath -> IO ServerAnswer
 parseTheHeader project package filePath = do
     setCurrentDirectory $ dropFileName package
     text        <- readFile filePath

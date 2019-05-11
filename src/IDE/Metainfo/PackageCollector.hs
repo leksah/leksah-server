@@ -48,7 +48,7 @@ import IDE.Utils.Utils
        (leksahMetadataPathFileExtension,
         leksahMetadataSystemFileExtension)
 import System.FilePath
-       (takeDirectory, dropFileName, takeBaseName, (<.>), (</>))
+       (dropFileName, takeBaseName, (<.>), (</>))
 import Data.Binary.Shared (encodeFileSer)
 import Distribution.Text (display)
 import Control.Monad.IO.Class (MonadIO, MonadIO(..))
@@ -78,20 +78,21 @@ import Distribution.Simple.Utils (installDirectoryContents)
 import Distribution.Verbosity (normal)
 import Data.Maybe (fromMaybe, maybeToList)
 import Paths_leksah_server (getDataDir)
+import IDE.Utils.Project (ProjectKey, pjDir)
 
 collectPackage :: Bool -> Prefs -> Int -> ((PackageConfig, PackageDBs), Int) -> IO PackageCollectStats
 collectPackage writeAscii prefs numPackages ((packageConfig, PackageDBs{..}), packageIndex) =
-    collectPackageNix prefs packageConfig pDBsProjectFile >>= \case
+    collectPackageNix prefs packageConfig pDBsProject >>= \case
         Just s -> return s
         Nothing -> do
             infoM "leksah-server" ("update_toolbar " ++ show
                 ((fromIntegral packageIndex / fromIntegral numPackages) :: Double))
-            debugM "leksah-server" $ "collectPackage (pDBsProjectFile, pDBsPaths) " <> show (pDBsProjectFile, pDBsPaths)
-            eitherStrFp    <- findSourceForPackage prefs pid pDBsProjectFile
+            debugM "leksah-server" $ "collectPackage (pDBsProjectFile, pDBsPaths) " <> show (pDBsProject, pDBsPaths)
+            eitherStrFp    <- findSourceForPackage prefs pid pDBsProject
             case eitherStrFp of
                 Left message -> do
                     debugM "leksah-server" . T.unpack $ message <> " : " <> packageName
-                    collectPackageFromHI pDBsProjectFile packageConfig pDBsPaths >>= \case
+                    collectPackageFromHI pDBsProject packageConfig pDBsPaths >>= \case
                         Just packageDescrHi -> do
                             writeExtractedPackage False packageDescrHi
                             return stat {packageString = message, modulesTotal = Just (length (pdModules packageDescrHi))}
@@ -154,11 +155,11 @@ collectPackage writeAscii prefs numPackages ((packageConfig, PackageDBs{..}), pa
 
         build :: FilePath -> IO (Maybe PackageDescr, PackageCollectStats)
         build fpSource =
-            collectPackageFromHI pDBsProjectFile packageConfig pDBsPaths >>= \case
+            collectPackageFromHI pDBsProject packageConfig pDBsPaths >>= \case
                 Nothing -> return (Nothing, stat)
                 Just packageDescrHi -> do
                     runCabalConfigure fpSource
-                    mbPackageDescrPair <- packageFromSource pDBsProjectFile pDBsPaths fpSource packageConfig
+                    mbPackageDescrPair <- packageFromSource pDBsProject pDBsPaths fpSource packageConfig
                     case mbPackageDescrPair of
                         (Just packageDescrS, bstat) -> do
                             writeMerged packageDescrS packageDescrHi fpSource
@@ -189,7 +190,7 @@ collectPackage writeAscii prefs numPackages ((packageConfig, PackageDBs{..}), pa
             let dirPath         = dropFileName fpSource
                 packageName'    = takeBaseName fpSource
                 flagsFor "base" = do
-                    libDir <- getSysLibDir pDBsProjectFile Nothing
+                    libDir <- getSysLibDir pDBsProject Nothing
                     return $ ["-finteger-gmp", "-finteger-gmp2"] ++ maybeToList ((\l -> T.pack $ "--configure-option=CFLAGS=-I" <> l </> "include") <$> libDir)
                 flagsFor ('g':'i':'-':_) = return ["-f-enable-overloading", "-f-overloaded-methods", "-f-overloaded-properties", "-f-overloaded-signals"]
                 flagsFor _      = return []
@@ -197,17 +198,17 @@ collectPackage writeAscii prefs numPackages ((packageConfig, PackageDBs{..}), pa
             E.catch (do _ <- runTool' "cabal" ["clean"] Nothing Nothing
                         debugM "leksah" $ "fpSource = " <> show fpSource
                         flags <- flagsFor packageName'
-                        _ <- runProjectTool pDBsProjectFile "cabal" ("configure":flags ++ map (("--package-db="<>) .T.pack) pDBsPaths) Nothing Nothing
+                        _ <- runProjectTool pDBsProject "cabal" ("configure":flags ++ map (("--package-db="<>) .T.pack) pDBsPaths) Nothing Nothing
                         return ())
                     (\ (_e :: E.SomeException) -> do
                         debugM "leksah-server" "Can't configure"
                         return ())
 
-collectPackageNix :: Prefs -> PackageConfig -> Maybe FilePath -> IO (Maybe PackageCollectStats)
+collectPackageNix :: Prefs -> PackageConfig -> Maybe ProjectKey -> IO (Maybe PackageCollectStats)
 collectPackageNix _ _ Nothing = return Nothing
 collectPackageNix prefs packageConfig (Just project) = do
     debugM "leksah-server" "collectPackageNix"
-    let nixFile = takeDirectory project </> "default.nix"
+    let nixFile = pjDir project </> "default.nix"
     doesFileExist nixFile >>= \case
         True -> do
             collectorPath <- getCollectorPath
@@ -216,7 +217,7 @@ collectPackageNix prefs packageConfig (Just project) = do
                                    "let ghc=(let fn = import ./.; in if builtins.isFunction fn then fn {} else fn).ghc; "
                                 <> "in import " <> leksahMetadataNix <> " { inherit ghc; "
                                 <> "pkg=ghc." <> display (pkgName pid) <> ";}"
-                                ] (Just $ takeDirectory project) Nothing
+                                ] (Just $ pjDir project) Nothing
             case reverse nixOuput of
                 (ToolExit ExitSuccess:ToolOutput lineMaybeQuoted:_) -> do
                     let line = T.unpack $ removeQuotes lineMaybeQuoted

@@ -74,6 +74,7 @@ import Data.Text (Text)
 import qualified Data.Text as T (pack)
 import System.Log.Logger (debugM)
 import GHC.Stack (HasCallStack)
+import IDE.Utils.Project (ProjectKey)
 
 #if MIN_VERSION_ghc(8,2,0)
 exposedName :: (Module.ModuleName, Maybe Module.Module) -> Module.ModuleName
@@ -89,7 +90,7 @@ ifConName :: IfaceConDecl -> OccName
 ifConName = ifConOcc
 #endif
 
-collectPackageFromHI :: HasCallStack => Maybe FilePath -> PackageConfig -> [FilePath] -> IO (Maybe PackageDescr)
+collectPackageFromHI :: HasCallStack => Maybe ProjectKey -> PackageConfig -> [FilePath] -> IO (Maybe PackageDescr)
 collectPackageFromHI mbProject packageConfig dbs = do
   let pIdAndKey = getThisPackage packageConfig
   debugM "leksah-server" $ "collectPackageFromHI " ++ show (packId pIdAndKey) ++ " " ++ show dbs

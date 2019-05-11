@@ -113,6 +113,7 @@ import Text.PrettyPrint (fsep, Doc, (<+>), empty, text)
 import qualified Text.PrettyPrint as PP
        (text, comma, punctuate, parens, Doc, empty, renderStyle, style)
 import qualified Data.Text as T (pack, tail, span, unpack)
+import IDE.Utils.Project (ProjectKey)
 
 -- ---------------------------------------------------------------------
 --  | Information about the system, extraced from .hi and source files
@@ -153,7 +154,7 @@ instance ToJSON RetrieveStrategy
 instance FromJSON RetrieveStrategy
 
 data PackageDBs = PackageDBs
-    { pDBsProjectFile  :: Maybe FilePath
+    { pDBsProject      :: Maybe ProjectKey
     , pDBsPlanPackages :: Maybe (Set Text)
     , pDBsPaths        :: [FilePath]
     } deriving (Show, Read, Eq, Ord, Generic)
@@ -170,11 +171,11 @@ data ServerCommand =
     |   WorkspaceCommand {
             wcRebuild     :: Bool,
             wcPackage     :: PackageIdentifier,
-            wcProject     :: FilePath,
+            wcProject     :: ProjectKey,
             wcPackageFile :: FilePath,
             wcModList     :: [(Text,FilePath)]}
     |   ParseHeaderCommand {
-            hcProject     :: FilePath,
+            hcProject     :: ProjectKey,
             hcPackageFile :: FilePath,
             hcFilePath    :: FilePath}
     deriving (Eq,Ord,Show,Read)

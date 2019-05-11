@@ -68,6 +68,7 @@ import qualified Data.Text as T (strip, pack, unpack)
 import Data.Text (Text)
 import Distribution.Package (pkgName)
 import Distribution.Text (display)
+import IDE.Utils.Project (filePathToProjectKey)
 
 -- --------------------------------------------------------------------
 -- Command line options
@@ -199,7 +200,8 @@ main =  withSocketsDo $ catch inner handler
                                   | otherwise = prefs
                             when (elem CollectSystem o) $ do
                                 debugM "leksah-server" "collectSystem"
-                                collectSystem prefs debug rebuild sources =<< getPackageDBs [p | ProjectFile p <- o]
+                                collectSystem prefs debug rebuild sources =<< getPackageDBs
+                                    (mapMaybe filePathToProjectKey [p | ProjectFile p <- o])
                             case [s | ServerCommand s <- o] of
                                 (Nothing:_)  -> do
                                     running <- serveOne Nothing (server (fromIntegral

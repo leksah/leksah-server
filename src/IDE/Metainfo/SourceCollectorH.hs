@@ -59,7 +59,7 @@ import IDE.StrippedPrefs (getUnpackDirectory, Prefs(..))
 import IDE.Metainfo.SourceDB (sourceForPackage, getSourcesMap)
 import MonadUtils (liftIO)
 import System.Directory (setCurrentDirectory, doesDirectoryExist, createDirectoryIfMissing, doesFileExist)
-import System.FilePath ((<.>), dropFileName, (</>), splitDirectories, dropExtension, takeDirectory)
+import System.FilePath ((<.>), dropFileName, (</>), splitDirectories, dropExtension)
 import System.Exit (ExitCode(..))
 import Data.Maybe(mapMaybe, listToMaybe, fromMaybe)
 import IDE.Utils.GHCUtils (inGhcIO)
@@ -76,6 +76,7 @@ import Data.ByteString.Char8 (ByteString)
 import Outputable hiding(trace, (<>))
 import GHC.Show(showSpace)
 import Name
+import IDE.Utils.Project (ProjectKey, pjDir)
 
 #if MIN_VERSION_ghc(8,2,0)
 exposedName :: (ModuleName, Maybe Module) -> ModuleName
@@ -108,7 +109,7 @@ data PackageCollectStats = PackageCollectStats {
     retrieved           :: Bool,
     mbError             :: Maybe Text}
 
-findSourceForPackage :: Prefs -> PackageIdentifier -> Maybe FilePath -> IO (Either Text FilePath)
+findSourceForPackage :: Prefs -> PackageIdentifier -> Maybe ProjectKey -> IO (Either Text FilePath)
 findSourceForPackage prefs packageId mbProject = do
     debugM "leksah-server" $ "findSourceForPackage" <> display packageId <> " " <> show mbProject
     sourceMap <- liftIO $ getSourcesMap prefs
@@ -133,14 +134,14 @@ findSourceForPackage prefs packageId mbProject = do
         packageName' = T.unpack packageName
 
 
-copyNixSource :: PackageIdentifier -> FilePath -> FilePath -> IO Bool
+copyNixSource :: PackageIdentifier -> FilePath -> ProjectKey -> IO Bool
 copyNixSource packageId fpUnpack project = return False
 copyNixSource packageId fpUnpack project = do
     debugM "leksah-server" "copyNixSource"
-    let nixFile = takeDirectory project </> "default.nix"
+    let nixFile = pjDir project </> "default.nix"
     doesFileExist nixFile >>= \case
         True -> do
-            (nixOuput, _) <- runTool' "nix-instantiate" [T.pack nixFile, "--eval", "-A", T.pack $ "ghc." <> display (pkgName packageId) <> ".src"] (Just $ takeDirectory project) Nothing
+            (nixOuput, _) <- runTool' "nix-instantiate" [T.pack nixFile, "--eval", "-A", T.pack $ "ghc." <> display (pkgName packageId) <> ".src"] (Just $ pjDir project) Nothing
             case reverse nixOuput of
                 (ToolExit ExitSuccess:ToolOutput lineMaybeQuoted:_) -> do
                     let line = removeQuotes lineMaybeQuoted
@@ -157,7 +158,7 @@ copyNixSource packageId fpUnpack project = do
         packageName' = T.unpack packageName
         removeQuotes s = fromMaybe s $ T.stripPrefix "\"" s >>= T.stripSuffix "\""
 
-packageFromSource :: Maybe FilePath -> [FilePath] -> FilePath -> PackageConfig -> IO (Maybe PackageDescr, PackageCollectStats)
+packageFromSource :: Maybe ProjectKey -> [FilePath] -> FilePath -> PackageConfig -> IO (Maybe PackageDescr, PackageCollectStats)
 packageFromSource mbProject dbs cabalPath packageConfig = do
     setCurrentDirectory (dropFileName cabalPath)
     ghcFlags <- figureOutGhcOpts' mbProject cabalPath
@@ -293,7 +294,7 @@ transformToDescrs dflags pm = concatMap transformToDescr
         ,   dscExported'    =   True}) names
 #endif
 
-    transformToDescr (L _loc (SigD {}), _mbComment, _subCommentList) = []
+    transformToDescr (L _loc SigD{}, _mbComment, _subCommentList) = []
 
 #if MIN_VERSION_ghc(8,6,0)
     transformToDescr (L loc for@(ForD _ (ForeignImport _ lid _ _)), mbComment, _sigList) =
@@ -431,6 +432,9 @@ extractConstructor dflags decl@(L loc d) = extractDecl d
  where
   extractDecl (ConDeclGADT {..}) = map (extractName con_doc) con_names
   extractDecl (ConDeclH98 {..}) = [extractName con_doc con_name]
+#if MIN_VERSION_ghc(8,6,0)
+  extractDecl (XConDecl {}) = []
+#endif
 #else
 extractConstructor dflags decl@(L loc ConDecl{con_names = names, con_doc = doc}) =
   map (extractName doc) names
@@ -458,6 +462,7 @@ extractRecordFields dflags (L _ _decl@ConDecl{con_details = (RecCon flds)}) =
     where
     extractRecordFields' :: LConDeclField GhcRn -> [SimpleDescr]
 #if MIN_VERSION_ghc(8,6,0)
+    extractRecordFields' (L _ (XConDeclField _)) = []
     extractRecordFields' (L _ _field@(ConDeclField _ names typ doc)) = map extractName names
 #else
     extractRecordFields' (L _ _field@(ConDeclField names typ doc)) = map extractName names

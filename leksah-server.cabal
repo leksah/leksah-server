@@ -80,22 +80,23 @@ library
         build-depends:
             ghc >=7.0.4 && <8.7
     exposed-modules:
-        IDE.Utils.CabalPlan
-        IDE.Utils.CabalProject
-        IDE.Utils.GHCUtils
-        IDE.Utils.Utils
-        IDE.Utils.Tool
-        IDE.Utils.FileUtils
         IDE.Core.CTypes
         IDE.Core.Serializable
-        IDE.StrippedPrefs
-        IDE.Utils.Server
-        IDE.Metainfo.PackageCollector
-        IDE.Utils.VersionUtils
-        IDE.Metainfo.WorkspaceCollector
-        IDE.Metainfo.SourceDB
         IDE.HeaderParser
+        IDE.Metainfo.PackageCollector
         IDE.Metainfo.SourceCollectorH
+        IDE.Metainfo.SourceDB
+        IDE.Metainfo.WorkspaceCollector
+        IDE.StrippedPrefs
+        IDE.Utils.CabalPlan
+        IDE.Utils.CabalProject
+        IDE.Utils.FileUtils
+        IDE.Utils.GHCUtils
+        IDE.Utils.Project
+        IDE.Utils.Server
+        IDE.Utils.Tool
+        IDE.Utils.Utils
+        IDE.Utils.VersionUtils
     build-depends:
         Cabal >=1.24 && <2.5,
         base >=4.0.0.0 && <4.13,
