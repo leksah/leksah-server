@@ -696,35 +696,37 @@ mergeIdDescrs d1 d2 = dres ++ reexported
 #if MIN_VERSION_ghc(8,6,0)
 extractDeriving :: (alpha ~ GhcPass pass, OutputableBndrId alpha) => DynFlags -> PackModule -> Text -> LHsDerivingClause alpha -> [Descr]
 extractDeriving _ _ _ (L _ XHsDerivingClause {}) = []
+extractDeriving dflags pm name (L _ HsDerivingClause {deriv_clause_tys = L _ c}) = c >>= extractDeriving' dflags pm name
 #else
 extractDeriving :: (SourceTextX alpha, OutputableBndrId alpha) => DynFlags -> PackModule -> Text -> LHsDerivingClause alpha -> [Descr]
+extractDeriving dflags pm name (L _ HsDerivingClause {deriv_clause_tys = L _ c}) = map (extractDeriving' dflags pm name) c
 #endif
-extractDeriving dflags pm name (L _ HsDerivingClause {deriv_clause_tys = L _ c}) = c >>= extractDeriving' dflags pm name
 
 #if MIN_VERSION_ghc(8,6,0)
 extractDeriving' :: (alpha ~ GhcPass pass, OutputableBndrId alpha) => DynFlags -> PackModule -> Text -> LHsSigType alpha -> [Descr]
 extractDeriving' _ _ _ (XHsImplicitBndrs {}) = []
+extractDeriving' dflags pm name (HsIB { hsib_body = (L loc typ) }) = [ descr ]
 #else
 extractDeriving' :: (SourceTextX alpha, OutputableBndrId alpha) => DynFlags -> PackModule -> Text -> LHsSigType alpha -> Descr
+extractDeriving' dflags pm name (HsIB { hsib_body = (L loc typ) }) = descr
 #endif
-extractDeriving' dflags pm name (HsIB { hsib_body = (L loc typ) }) =
 #elif MIN_VERSION_ghc(8,0,0)
 extractDeriving :: OutputableBndr alpha => DynFlags -> PackModule -> Text -> LHsSigType alpha -> Descr
-extractDeriving dflags pm name HsIB { hsib_body = (L loc typ) } =
+extractDeriving dflags pm name HsIB { hsib_body = (L loc typ) } = descr
 #else
 extractDeriving :: OutputableBndr alpha => DynFlags -> PackModule -> Text -> LHsType alpha -> Descr
-extractDeriving dflags pm name (L loc typ) =
+extractDeriving dflags pm name (L loc typ) = descr
 #endif
-    [ Real RealDescr {
-        dscName'        =   className
-    ,   dscMbTypeStr'   =   Just (BS.pack . T.unpack $ "instance " <> className <> " " <> name)
-    ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   srcSpanToLocation loc
-    ,   dscMbComment'   =   toComment (Nothing :: Maybe NDoc) []
-    ,   dscTypeHint'    =   InstanceDescr (T.words name)
-    ,   dscExported'    =   True} ]
-        where
-        className = T.pack . showSDocUnqual dflags $ ppr typ
+  where
+    descr = Real RealDescr {
+          dscName'        =   className
+      ,   dscMbTypeStr'   =   Just (BS.pack . T.unpack $ "instance " <> className <> " " <> name)
+      ,   dscMbModu'      =   Just pm
+      ,   dscMbLocation'  =   srcSpanToLocation loc
+      ,   dscMbComment'   =   toComment (Nothing :: Maybe NDoc) []
+      ,   dscTypeHint'    =   InstanceDescr (T.words name)
+      ,   dscExported'    =   True}
+    className = T.pack . showSDocUnqual dflags $ ppr typ
 
 extractMethods
   :: DynFlags
