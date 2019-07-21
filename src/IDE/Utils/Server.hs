@@ -25,8 +25,7 @@ where
 
 import Prelude ()
 import Prelude.Compat
-import Network
-import Network.Socket hiding (accept)
+import Network.Socket
 
 import System.IO
 import Control.Concurrent
@@ -49,25 +48,23 @@ ipAddress :: (Word8, Word8, Word8, Word8) -> HostAddress
 ipAddress (a, b, c, d) = fromIntegral a + 0x100 * fromIntegral b + 0x10000 * fromIntegral c + 0x1000000 * fromIntegral d
 
 -- | the functionality of a server
-type ServerRoutine = (Handle, HostName, PortNumber) -> MVar () -> IO ()
+type ServerRoutine = (Handle, SockAddr) -> MVar () -> IO ()
 
 serverSocket' :: Server -> IO Socket
-serverSocket' (Server (SockAddrInet _ _) t _) = socket AF_INET t defaultProtocol
-serverSocket' _ = fail "Unexpected Socket Address Type"
+serverSocket' (Server addrInfo _) = socket (addrFamily addrInfo) (addrSocketType addrInfo) (addrProtocol addrInfo)
 
 serverSocket :: Server -> IO (Socket, Server)
 serverSocket server = do
         sock <- serverSocket' server
         setSocketOption sock ReuseAddr 1
-        bind sock (serverAddr server)
+        bind sock (addrAddress $ serverAddr server)
         infoM "leksah-server" $ "Bind " ++ show (serverAddr server)
         listen sock maxListenQueue
         return (sock, server)
 
 -- |the specification of a serving process
 data Server = Server {
-        serverAddr :: SockAddr,
-        serverTyp :: SocketType,
+        serverAddr :: AddrInfo,
         serverRoutine :: ServerRoutine}
 
 startAccepting :: (Socket, Server) -> IO (ThreadId, MVar ())
@@ -102,8 +99,9 @@ instance WaitFor (ThreadId, MVar ()) where
 
 acceptance :: Socket -> MVar () -> ServerRoutine -> IO ()
 acceptance sock mvar action = E.catch (do
-                dta <- accept sock
-                void . forkIO $ action dta mvar)
+                (s, a) <- accept sock
+                h <- socketToHandle s ReadWriteMode
+                void . forkIO $ action (h, a) mvar)
                 (\(e :: SomeException) -> print e) >>
                 acceptance sock mvar action
 

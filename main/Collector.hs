@@ -47,9 +47,9 @@ import System.Log
 import System.Log.Logger(updateGlobalLogger,rootLoggerName,addHandler,debugM,infoM,errorM,
     setLevel)
 import System.Log.Handler.Simple(fileHandler)
-import Network(withSocketsDo)
 import Network.Socket
-       (inet_addr, SocketType(..), SockAddr(..))
+       (withSocketsDo, getAddrInfo, SocketType(..),
+        AddrInfo(..), defaultHints, AddrInfoFlag(..))
 import IDE.Utils.Server
 import System.IO (Handle, hPutStrLn, hGetLine, hFlush, hClose)
 import IDE.HeaderParser(parseTheHeader)
@@ -193,7 +193,7 @@ main =  withSocketsDo $ catch inner handler
                             prefs           <- readStrippedPrefs prefsPath
                             debugM "leksah-server" $ "prefs " ++ show prefs
                             connRef  <- newIORef []
-                            localServerAddr <- inet_addr "127.0.0.1"
+                            let hints = defaultHints { addrFlags = [AI_NUMERICHOST, AI_NUMERICSERV], addrSocketType = Stream }
                             let newPrefs
                                   | forever && not endWithLast = prefs{endWithLastConn = False}
                                   | not forever && endWithLast = prefs{endWithLastConn = True}
@@ -204,29 +204,28 @@ main =  withSocketsDo $ catch inner handler
                                     (mapMaybe filePathToProjectKey [p | ProjectFile p <- o])
                             case [s | ServerCommand s <- o] of
                                 (Nothing:_)  -> do
-                                    running <- serveOne Nothing (server (fromIntegral
-                                        (serverPort prefs)) newPrefs connRef localServerAddr)
+                                    localServerAddr:_ <- getAddrInfo (Just hints) (Just "127.0.0.1") (Just . show $ serverPort prefs)
+                                    running <- serveOne Nothing (server newPrefs connRef localServerAddr)
                                     waitFor running
                                     return ()
                                 (Just ps:_)  -> do
-                                    let port = read $ T.unpack ps
-                                    running <- serveOne Nothing (server
-                                        (fromIntegral port) newPrefs connRef localServerAddr)
+                                    let port :: Int = read $ T.unpack ps
+                                    localServerAddr:_ <- getAddrInfo (Just hints) (Just "127.0.0.1") (Just . show $ port)
+                                    running <- serveOne Nothing (server newPrefs connRef localServerAddr)
                                     waitFor running
                                     return ()
                                 _ -> return ()
 
-        server port prefs connRef hostAddr = Server (SockAddrInet port hostAddr) Stream
-                                        (doCommands prefs connRef)
+        server prefs connRef addrInfo = Server addrInfo (doCommands prefs connRef)
 
-doCommands :: Prefs -> IORef [Handle] -> (Handle, t1, t2) -> MVar ()-> IO ()
-doCommands prefs connRef (h,n,p) mvar = do
+doCommands :: Prefs -> IORef [Handle] -> (Handle, t1) -> MVar () -> IO ()
+doCommands prefs connRef (h,n) mvar = do
     atomicModifyIORef connRef (\ list -> (h : list, ()))
-    doCommands' prefs connRef (h,n,p) mvar
+    doCommands' prefs connRef (h,n) mvar
 
 
-doCommands' :: Prefs -> IORef [Handle] -> (Handle, t1, t2) -> MVar () -> IO ()
-doCommands' prefs connRef (h,n,p) mvar = do
+doCommands' :: Prefs -> IORef [Handle] -> (Handle, t1) -> MVar () -> IO ()
+doCommands' prefs connRef (h,n) mvar = do
     debugM "leksah-server" "***wait"
     mbLine <- catch (Just <$> hGetLine h)
                 (\ (_e :: SomeException) -> do
@@ -272,7 +271,7 @@ doCommands' prefs connRef (h,n,p) mvar = do
                         (\ (e :: SomeException) -> do
                             hPutStrLn h (show (ServerFailed (T.pack $ show e)))
                             hFlush h)
-            doCommands' prefs connRef (h,n,p) mvar
+            doCommands' prefs connRef (h,n) mvar
 
 collectSystem :: Prefs -> Bool -> Bool -> Bool -> [PackageDBs] -> IO()
 collectSystem prefs writeAscii forceRebuild findSources dbLists = do

@@ -109,9 +109,9 @@ library
         filepath >=1.1.0.1 && <1.5,
         parsec >=3.0.0.0 && <3.2,
         pretty >=1.0.1.0 && <1.2,
-        time >=1.1 && <1.9,
+        time >=1.1 && <1.10,
         deepseq >=1.1 && <1.5,
-        hslogger >=1.0.7 && <1.3,
+        hslogger >=1.0.7 && <1.4,
         conduit >=1.0.8 && <1.4,
         conduit-extra >=1.0.0.1 && <1.4,
         resourcet -any,
@@ -198,9 +198,9 @@ executable leksah-server
         filepath >=1.1.0.1 && <1.5,
         parsec >=3.0.0.0 && <3.2,
         pretty >=1.0.1.0 && <1.2,
-        time >=1.1 && <1.9,
+        time >=1.1 && <1.10,
         deepseq >=1.1 && <1.5,
-        hslogger >=1.0.7 && <1.3,
+        hslogger >=1.0.7 && <1.4,
         conduit >=1.0.8 && <1.4,
         conduit-extra >=1.0.0.1 && <1.4,
         resourcet -any,
@@ -231,7 +231,7 @@ executable leksahecho
     main-is: LeksahEcho.hs
     build-depends:
         base >=4.0.0.0 && <4.13,
-        hslogger >=1.0.7 && <1.3,
+        hslogger >=1.0.7 && <1.4,
         deepseq >=1.1 && <1.5,
         bytestring >=0.9.0.1 && <0.11,
         conduit >=1.0.8 && <1.4,
@@ -264,7 +264,7 @@ test-suite test-tool
     main-is: TestTool.hs
     build-depends:
         base >=4.0.0.0 && <4.13,
-        hslogger >=1.0.7 && <1.3,
+        hslogger >=1.0.7 && <1.4,
         leksah-server -any,
         HUnit >=1.2 && <1.7,
         transformers >=0.2.2.0 && <0.6,
