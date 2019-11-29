@@ -589,10 +589,10 @@ newtype VName = VName Text
 
 instance Pretty ImportSpec where
     pretty (IVar name)                = pretty (VName name)
-    pretty (IAbs name)                = pretty name
-    pretty (IThingAll name)           = pretty name <> text "(..)"
+    pretty (IAbs name)                = pretty (VName name)
+    pretty (IThingAll name)           = pretty (VName name) <> text "(..)"
     pretty (IThingWith name nameList) =
-        pretty name <> parenList (map (pretty . VName) nameList)
+        pretty (VName name) <> parenList (map (pretty . VName) nameList)
 
 instance Pretty VName  where
     pretty (VName t) = let str = T.unpack t in if isOperator str then PP.parens (PP.text str) else PP.text str
