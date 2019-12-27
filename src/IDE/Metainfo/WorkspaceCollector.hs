@@ -181,9 +181,16 @@ collectModule libDir collectorPackagePath writeAscii pid opts (modId,sourcePath)
 
 collectModule' :: FilePath -> FilePath -> FilePath -> Bool -> PackageIdentifier -> [Text] -> ModuleName -> IO()
 collectModule' libDir sourcePath destPath writeAscii pid opts moduleName' = gcatch (
-   inGhcIO libDir (opts++["-cpp"]) [Opt_Haddock] [] $ \ dynFlags -> do
-        session         <-  getSession
-        (dynFlags3,fp') <-  liftIO $ preprocess session (sourcePath,Nothing)
+  inGhcIO libDir (opts++["-cpp"]) [Opt_Haddock] [] $ \ dynFlags -> do
+    session         <-  getSession
+#if MIN_VERSION_ghc(8,8,0)
+    liftIO (preprocess session sourcePath Nothing Nothing) >>= \case
+      Left errMsg ->
+        liftIO . errorM "leksah-server" $ "Failed to preprocess " <> sourcePath
+      Right (dynFlags3,fp') -> do
+#else
+    liftIO (preprocess session (sourcePath,Nothing)) >>= \(dynFlags3,fp') -> do
+#endif
         let packIdAndKey = PackageIdAndKey pid
                                 (toInstalledUnitId $ thisPackage dynFlags3)
         mbInterfaceDescr <- mayGetInterfaceDescription dynFlags packIdAndKey moduleName'
@@ -758,7 +765,11 @@ extractMethod dflags (L loc (SigD ts@(TypeSig names _typ _)), mbDoc) = map (extr
 #endif
 extractMethod _ _ = []
 
-extractMethodName :: (Outputable o1, Outputable o2) => DynFlags
+extractMethodName :: (Outputable o1, Outputable o2
+#if MIN_VERSION_ghc(8,8,0) && !MIN_VERSION_ghc(8,8,2)
+  , HasSrcSpan (GenLocated l o2)
+#endif
+  ) => DynFlags
                            -> SrcSpan -> o1 -> Maybe NDoc -> GenLocated l o2 -> SimpleDescr
 extractMethodName dflags loc ts mbDoc name =
     SimpleDescr

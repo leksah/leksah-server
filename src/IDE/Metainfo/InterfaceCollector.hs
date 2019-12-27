@@ -75,6 +75,7 @@ import qualified Data.Text as T (pack)
 import System.Log.Logger (debugM)
 import GHC.Stack (HasCallStack)
 import IDE.Utils.Project (ProjectKey)
+import TysWiredIn
 
 #if MIN_VERSION_ghc(8,2,0)
 exposedName :: (Module.ModuleName, Maybe Module.Module) -> Module.ModuleName
@@ -274,7 +275,9 @@ extractConstructors dflags name = map (\decl -> SimpleDescr (T.pack . unpackFS $
                                 (t:ts) -> fsep (t : map (arrow <+>) ts)
                                 []     -> panic "pp_con_taus"
     pp_res_ty _decl  = ppr name <+> fsep [] -- TODO figure out what to do here
-#if MIN_VERSION_ghc(8,2,0)
+#if MIN_VERSION_ghc(8,8,0)
+    eq_ctxt decl    = [IfaceTyConApp (toIfaceTyCon_name eqTyConName) (IA_Arg (IfaceTyVar tv) Required (IA_Arg ty Required IA_Nil))
+#elif MIN_VERSION_ghc(8,2,0)
     eq_ctxt decl    = [IfaceTyConApp (toIfaceTyCon_name eqTyConName) (ITC_Vis (IfaceTyVar tv) (ITC_Vis ty ITC_Nil))
 #elif MIN_VERSION_ghc(8,0,0)
     eq_ctxt decl    = [IfaceTyConApp (IfaceTyCon eqTyConName NoIfaceTyConInfo) (ITC_Vis (IfaceTyVar tv) (ITC_Vis ty ITC_Nil))

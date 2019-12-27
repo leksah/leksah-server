@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE FlexibleContexts #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.Metainfo.SourceCollectorH
@@ -180,7 +181,7 @@ packageFromSource' ghcFlags dbs cabalPath packageConfig = do
         return (Nothing, PackageCollectStats packageName Nothing False False
                   (Just ("Ghc failed to process: could not find " <> VERSION_ghc <> " system lib dir (" <> T.pack cabalPath <> ")")))
       Just libDir -> inGhcIO libDir ghcFlags [Opt_Haddock] dbs $ \ dflags -> do
-        (interfaces,_) <- processModules verbose (exportedMods ++ hiddenMods) [] []
+        (interfaces,_) <- processModules maxBound (exportedMods ++ hiddenMods) [] []
         liftIO $ print (length interfaces)
         let mods = map (interfaceToModuleDescr dflags dirPath (packId $ getThisPackage packageConfig)) interfaces
         sp <- liftIO $ myCanonicalizePath dirPath
@@ -416,7 +417,11 @@ extractMethod dflags (L loc (SigD ts@(TypeSig names _typ _)), mbDoc) = map (extr
 #endif
 extractMethod _ _ = []
 
-extractMethodName :: (NamedThing a, Outputable o) => DynFlags
+extractMethodName :: (NamedThing a, Outputable o
+#if MIN_VERSION_ghc(8,8,0) && !MIN_VERSION_ghc(8,8,2)
+  , HasSrcSpan (GenLocated l a)
+#endif
+  ) => DynFlags
                            -> SrcSpan -> o -> Maybe NDoc -> GenLocated l a -> SimpleDescr
 extractMethodName dflags loc ts mbDoc name =
     SimpleDescr
@@ -534,7 +539,7 @@ instance Outputable alpha => Show (PPDoc alpha)  where
     showsPrec _ (PPDoc d (DocDefList li))          =
         foldr (\(l,r) f -> showString "[@" . shows (PPDoc d l) . showString "[@ " . shows (PPDoc d r) . f) id li
     showsPrec _ (PPDoc d (DocCodeBlock doc))      =   showChar '@' . shows (PPDoc d doc) . showChar '@'
-    showsPrec _ (PPDoc _ (DocHyperlink h))            =   showChar '<' . showString (show h) . showChar '>'
+    showsPrec _ (PPDoc d (DocHyperlink (Hyperlink url lbl)))  =   showChar '<' . showString (showSDoc d (ppr url)) . showChar '>'
     showsPrec _ (PPDoc _ (DocAName str))          =   showChar '#' . showString str . showChar '#'
     showsPrec _ (PPDoc _ _)                       =   id
 

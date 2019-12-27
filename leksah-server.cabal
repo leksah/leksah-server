@@ -36,28 +36,34 @@ library
 
     if !impl(ghcjs -any)
 
-        if impl(ghc >=8.6)
+        if impl(ghc >=8.8)
             build-depends:
-                haddock-api >=2.22.0 && <2.23,
-                haddock-library >=1.7.0 && <1.8,
-                ghc-boot >=8.6.1 && <8.7
+                haddock-api >=2.22.0 && <2.24,
+                haddock-library >=1.7.0 && <1.19,
+                ghc-boot >=8.6.1 && <8.9
         else
-          if impl(ghc >=8.4)
-              build-depends:
-                  haddock-api >=2.20.0 && <2.21,
-                  haddock-library >=1.6.0 && <1.7,
-                  ghc-boot >=8.4.1 && <8.5
-          else
-              if impl(ghc >=8.2)
+            if impl(ghc >=8.6)
+                build-depends:
+                    haddock-api >=2.22.0 && <2.23,
+                    haddock-library >=1.7.0 && <1.8,
+                    ghc-boot >=8.6.1 && <8.7
+            else
+              if impl(ghc >=8.4)
                   build-depends:
-                      haddock-api >=2.18.1 && <2.19,
-                      haddock-library >=1.4.1 && <1.5,
-                      ghc-boot >=8.2.1 && <8.3
+                      haddock-api >=2.20.0 && <2.21,
+                      haddock-library >=1.6.0 && <1.7,
+                      ghc-boot >=8.4.1 && <8.5
               else
-                  build-depends:
-                      haddock-api >=2.17.2 && <2.18,
-                      haddock-library >=1.4.1 && <1.5,
-                      ghc-boot >=8.0.1 && <8.1
+                  if impl(ghc >=8.2)
+                      build-depends:
+                          haddock-api >=2.18.1 && <2.19,
+                          haddock-library >=1.4.1 && <1.5,
+                          ghc-boot >=8.2.1 && <8.3
+                  else
+                      build-depends:
+                          haddock-api >=2.17.2 && <2.18,
+                          haddock-library >=1.4.1 && <1.5,
+                          ghc-boot >=8.0.1 && <8.1
 
     if os(windows)
         build-depends:
@@ -78,7 +84,7 @@ library
 
     if !impl(ghcjs -any)
         build-depends:
-            ghc >=7.0.4 && <8.7
+            ghc >=7.0.4 && <8.9
     exposed-modules:
         IDE.Core.CTypes
         IDE.Core.Serializable
@@ -98,8 +104,8 @@ library
         IDE.Utils.Utils
         IDE.Utils.VersionUtils
     build-depends:
-        Cabal >=1.24 && <2.5,
-        base >=4.0.0.0 && <4.13,
+        Cabal >=1.24 && <3.1,
+        base >=4.0.0.0 && <4.14,
         binary >=0.5.0.0 && <0.9,
         binary-shared >=0.8 && <0.9,
         bytestring >=0.9.0.1 && <0.11,
@@ -136,28 +142,34 @@ executable leksah-server
 
     if !impl(ghcjs -any)
 
-        if impl(ghc >=8.6)
+        if impl(ghc >=8.8)
             build-depends:
-                haddock-api >=2.22.0 && <2.23,
-                haddock-library >=1.7.0 && <1.8,
-                ghc-boot >=8.6.1 && <8.7
+                haddock-api >=2.22.0 && <2.24,
+                haddock-library >=1.7.0 && <1.19,
+                ghc-boot >=8.6.1 && <8.9
         else
-          if impl(ghc >=8.4)
-              build-depends:
-                  haddock-api >=2.20.0 && <2.21,
-                  haddock-library >=1.6.0 && <1.7,
-                  ghc-boot >=8.4.1 && <8.5
-          else
-              if impl(ghc >=8.2)
+            if impl(ghc >=8.6)
+                build-depends:
+                    haddock-api >=2.22.0 && <2.23,
+                    haddock-library >=1.7.0 && <1.8,
+                    ghc-boot >=8.6.1 && <8.7
+            else
+              if impl(ghc >=8.4)
                   build-depends:
-                      haddock-api >=2.18.1 && <2.19,
-                      haddock-library >=1.4.1 && <1.5,
-                      ghc-boot >=8.2.1 && <8.3
+                      haddock-api >=2.20.0 && <2.21,
+                      haddock-library >=1.6.0 && <1.7,
+                      ghc-boot >=8.4.1 && <8.5
               else
-                  build-depends:
-                      haddock-api >=2.17.2 && <2.18,
-                      haddock-library >=1.4.1 && <1.5,
-                      ghc-boot >=8.0.1 && <8.1
+                  if impl(ghc >=8.2)
+                      build-depends:
+                          haddock-api >=2.18.1 && <2.19,
+                          haddock-library >=1.4.1 && <1.5,
+                          ghc-boot >=8.2.1 && <8.3
+                  else
+                      build-depends:
+                          haddock-api >=2.17.2 && <2.18,
+                          haddock-library >=1.4.1 && <1.5,
+                          ghc-boot >=8.0.1 && <8.1
 
     if os(windows)
         build-depends:
@@ -184,11 +196,11 @@ executable leksah-server
 
     if !impl(ghcjs -any)
         build-depends:
-            ghc >=7.0.4 && <8.7
+            ghc >=7.0.4 && <8.9
     main-is: Collector.hs
     build-depends:
-        Cabal >=1.24 && <2.5,
-        base >=4.0.0.0 && <4.13,
+        Cabal >=1.24 && <3.1,
+        base >=4.0.0.0 && <4.14,
         binary >=0.5.0.0 && <0.9,
         binary-shared >=0.8 && <0.9,
         bytestring >=0.9.0.1 && <0.11,
@@ -230,7 +242,7 @@ executable leksahecho
         ghc-options: -threaded
     main-is: LeksahEcho.hs
     build-depends:
-        base >=4.0.0.0 && <4.13,
+        base >=4.0.0.0 && <4.14,
         hslogger >=1.0.7 && <1.4,
         deepseq >=1.1 && <1.5,
         bytestring >=0.9.0.1 && <0.11,
@@ -250,7 +262,7 @@ executable leksahecho
 executable leksahtrue
     main-is: LeksahTrue.hs
     build-depends:
-        base >=4.0.0.0 && <4.13,
+        base >=4.0.0.0 && <4.14,
         data-default >=0.7.1.1 && <0.8
     default-language: Haskell2010
     hs-source-dirs: main
@@ -263,7 +275,7 @@ test-suite test-tool
     type: exitcode-stdio-1.0
     main-is: TestTool.hs
     build-depends:
-        base >=4.0.0.0 && <4.13,
+        base >=4.0.0.0 && <4.14,
         hslogger >=1.0.7 && <1.4,
         leksah-server -any,
         HUnit >=1.2 && <1.7,

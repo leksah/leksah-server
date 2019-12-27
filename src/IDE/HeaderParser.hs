@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP, OverloadedStrings, TypeFamilies #-}
+{-# LANGUAGE CPP, OverloadedStrings, TypeFamilies, FlexibleContexts #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  IDE.HeaderParser
@@ -52,7 +52,11 @@ type instance IdP GhcPs = RdrName
 #endif
 
 #if MIN_VERSION_ghc(8,2,0)
-unLoc82 :: GenLocated l e -> e
+unLoc82 ::
+#if MIN_VERSION_ghc(8,8,0) && !MIN_VERSION_ghc(8,8,2)
+  (HasSrcSpan (GenLocated l e)) =>
+#endif
+  GenLocated l e -> e
 unLoc82 = unLoc
 #else
 unLoc82 :: a -> a

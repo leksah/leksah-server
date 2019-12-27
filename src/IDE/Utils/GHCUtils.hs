@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 -----------------------------------------------------------------------------
@@ -21,14 +22,21 @@ module IDE.Utils.GHCUtils (
 ,   findFittingPackages
 ,   myParseModule
 ,   myParseHeader
+,   mkDependency
+,   viewDependency
+,   LibraryName(..)
+,   libraryNameToMaybe
+,   maybeOrLibraryName
 ) where
 
 import Prelude ()
 import Prelude.Compat
-import Distribution.Simple (withinRange,PackageIdentifier(..),Dependency(..))
+import Distribution.Simple (withinRange,PackageIdentifier(..),Dependency(..), PackageName, VersionRange)
 import PackageConfig (sourcePackageIdString, PackageConfig)
 import Distribution.Text (simpleParse)
 import Data.Maybe (fromJust)
+import Data.Set (Set)
+import Data.Set as S (singleton)
 import GHC
 import DriverPipeline(preprocess)
 import StringBuffer (StringBuffer(..),hGetStringBuffer)
@@ -54,6 +62,33 @@ import Data.Text (Text)
 import qualified Data.Text as T (pack, unpack)
 import Data.Function (on)
 import GHC.Stack (HasCallStack)
+#if MIN_VERSION_Cabal (3,0,0)
+import Distribution.Types.LibraryName (LibraryName(..))
+#endif
+import Distribution.Types.UnqualComponentName (UnqualComponentName)
+
+#if MIN_VERSION_Cabal (3,0,0)
+viewDependency :: Dependency -> (PackageName, VersionRange, Set LibraryName)
+viewDependency (Dependency a b c) = (a, b, c)
+mkDependency :: PackageName -> VersionRange -> Set LibraryName -> Dependency
+mkDependency a b c = Dependency a b c
+maybeOrLibraryName :: Maybe UnqualComponentName -> LibraryName
+maybeOrLibraryName Nothing = LMainLibName
+maybeOrLibraryName (Just n) = LSubLibName n
+libraryNameToMaybe :: LibraryName -> Maybe UnqualComponentName
+libraryNameToMaybe LMainLibName = Nothing
+libraryNameToMaybe (LSubLibName n) = Just n
+#else
+data LibraryName = LMainLibName | LSubLibName UnqualComponentName
+viewDependency :: Dependency -> (PackageName, VersionRange, Set LibraryName)
+viewDependency (Dependency a b) = (a, b, S.singleton LMainLibName)
+mkDependency :: PackageName -> VersionRange -> Set LibraryName -> Dependency
+mkDependency a b _ = Dependency a b
+maybeOrLibraryName :: Maybe UnqualComponentName -> Maybe UnqualComponentName
+maybeOrLibraryName = id
+libraryNameToMaybe :: Maybe UnqualComponentName -> Maybe UnqualComponentName
+libraryNameToMaybe = id
+#endif
 
 inGhcIO :: HasCallStack => FilePath -> [Text] -> [GeneralFlag] -> [FilePath] -> (DynFlags -> Ghc a) -> IO a
 inGhcIO libDir flags' udynFlags dbs ghcAct = do
@@ -111,7 +146,7 @@ findFittingPackages dependencyList = do
     let packages    =   map (fromJust . simpleParse . sourcePackageIdString) knownPackages
     return (concatMap (fittingKnown packages) dependencyList)
     where
-    fittingKnown packages (Dependency dname versionRange) =
+    fittingKnown packages (viewDependency -> (dname, versionRange, _)) =
         let filtered =  filter (\ (PackageIdentifier name version) ->
                                     name == dname && withinRange version versionRange)
                         packages
@@ -189,15 +224,24 @@ myParseHeader fp _str opts =
     Just libDir ->
       inGhcIO libDir (opts++["-cpp"]) [] [] $ \ _dynFlags -> do
         session   <- getSession
-        (dynFlags',fp')    <-  liftIO $ preprocess session (fp,Nothing)
+#if MIN_VERSION_ghc(8,8,0)
+        liftIO $
+          preprocess session fp Nothing Nothing >>= \case
+            Left errMsg -> do
+                let str =  "Failed to preprocess " <> T.pack fp
+                return (Left str)
+            Right (dynFlags',fp') -> do
+#else
         liftIO $ do
-            stringBuffer  <-  hGetStringBuffer fp'
-            parseResult   <-  myParseModuleHeader dynFlags' fp (Just stringBuffer)
-            case parseResult of
-                Right (L _ mod') -> return (Right (dynFlags', mod'))
-                Left errMsg         -> do
-                    let str =  "Failed to parse " <> T.pack (show errMsg)
-                    return (Left str)
+                (dynFlags',fp') <- preprocess session (fp,Nothing)
+#endif
+                stringBuffer  <-  hGetStringBuffer fp'
+                parseResult   <-  myParseModuleHeader dynFlags' fp (Just stringBuffer)
+                case parseResult of
+                    Right (L _ mod') -> return (Right (dynFlags', mod'))
+                    Left errMsg         -> do
+                        let str =  "Failed to parse " <> T.pack (show errMsg)
+                        return (Left str)
 
  ---------------------------------------------------------------------
 --  | Parser function copied here, because it is not exported

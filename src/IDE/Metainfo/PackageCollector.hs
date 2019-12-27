@@ -79,6 +79,7 @@ import Distribution.Verbosity (normal)
 import Data.Maybe (fromMaybe, maybeToList)
 import Paths_leksah_server (getDataDir)
 import IDE.Utils.Project (ProjectKey, pjDir)
+import Data.Version (showVersion)
 
 collectPackage :: Bool -> Prefs -> Int -> ((PackageConfig, PackageDBs), Int) -> IO PackageCollectStats
 collectPackage writeAscii prefs numPackages ((packageConfig, PackageDBs{..}), packageIndex) =
@@ -179,7 +180,7 @@ collectPackage writeAscii prefs numPackages ((packageConfig, PackageDBs{..}), pa
         filterEmptyProxy (Proxy "" _) = NoProxy
         filterEmptyProxy p = p
         trim = f . f where f = reverse . dropWhile isSpace
-        userAgent = concat [ "leksah-server/", display Paths_leksah_server.version
+        userAgent = concat [ "leksah-server/", showVersion Paths_leksah_server.version
                            , " (", display buildOS, "; ", display buildArch, ")"
                            ]
         writeMerged packageDescrS packageDescrHi fpSource = do
