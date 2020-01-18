@@ -53,7 +53,7 @@ type instance IdP GhcPs = RdrName
 
 #if MIN_VERSION_ghc(8,2,0)
 unLoc82 ::
-#if MIN_VERSION_ghc(8,8,0) && !MIN_VERSION_ghc(8,8,2)
+#if MIN_VERSION_ghc(8,8,0)
   (HasSrcSpan (GenLocated l e)) =>
 #endif
   GenLocated l e -> e

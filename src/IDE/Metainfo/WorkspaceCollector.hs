@@ -766,7 +766,7 @@ extractMethod dflags (L loc (SigD ts@(TypeSig names _typ _)), mbDoc) = map (extr
 extractMethod _ _ = []
 
 extractMethodName :: (Outputable o1, Outputable o2
-#if MIN_VERSION_ghc(8,8,0) && !MIN_VERSION_ghc(8,8,2)
+#if MIN_VERSION_ghc(8,8,0)
   , HasSrcSpan (GenLocated l o2)
 #endif
   ) => DynFlags
