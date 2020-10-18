@@ -545,7 +545,10 @@ instance Outputable alpha => Show (PPDoc alpha)  where
 
 attachComments' :: DynFlags -> [LSig GhcRn] -> [MyLDocDecl] -> [(LHsDecl GhcRn, Maybe NDoc)]
 attachComments' dflags sigs docs = collectDocs' dflags $ sortByLoc
-#if MIN_VERSION_ghc(8,6,0)
+#if MIN_VERSION_ghc(8,10,2)
+    (map (\ (L l i) -> L l (SigD NoExtField i)) sigs ++
+        map (\ (L l i) -> L l (DocD NoExtField i)) docs)
+#elif MIN_VERSION_ghc(8,6,0)
     (map (\ (L l i) -> L l (SigD NoExt i)) sigs ++
         map (\ (L l i) -> L l (DocD NoExt i)) docs)
 #else

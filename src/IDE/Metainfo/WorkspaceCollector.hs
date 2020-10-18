@@ -67,7 +67,7 @@ import TcRnMonad (initTcRnIf, IfGblEnv(..))
 import qualified Maybes as M
 import IDE.Metainfo.InterfaceCollector
 import Data.Maybe
-       (isJust, catMaybes, isNothing, mapMaybe)
+       (isJust, catMaybes, isNothing, mapMaybe, listToMaybe)
 import PrelNames
 import System.Log.Logger
 import Control.DeepSeq (deepseq)
@@ -84,12 +84,19 @@ import qualified Data.Text as T
 #if MIN_VERSION_ghc(8,2,0)
 import DynFlags (thisPackage)
 import Module (toInstalledUnitId, InstalledModule(..), UnitId(..), DefUnitId(..))
+#if MIN_VERSION_ghc(8,10,2)
+import GHC.Hs.ImpExp (ieWrappedName)
+#else
 import HsImpExp (ieWrappedName)
+#endif
 #endif
 #if !MIN_VERSION_ghc(8,4,0)
 import Data.Kind (Constraint)
 #endif
 import IDE.Utils.Project (ProjectKey)
+import Data.Foldable (forM_)
+import Bag (bagToList)
+
 
 #if !MIN_VERSION_ghc(8,2,0)
 ieWrappedName :: RdrName -> RdrName
@@ -205,8 +212,10 @@ collectModule' libDir sourcePath destPath writeAscii pid opts moduleName' = gcat
                                             Just md  -> mergeWithInterfaceDescr moduleDescr md
                     E.catch (writeExtractedModule destPath writeAscii moduleDescr')
                         (\ (_:: IOException) -> errorM "leksah-server" ("Can't write extracted package " ++ destPath))
-                Left errMsg -> do
-                    errorM "leksah-server" $ "Failed to parse " ++ sourcePath ++ " " ++ show errMsg
+                Left errMsgs -> do
+                  let errorString = showSDoc dynFlags3 $ vcat $ pprErrMsgBagWithLoc errMsgs
+                  errorM "leksah-server" $ "Failed to parse " ++ sourcePath ++ " " ++ errorString
+                  forM_ (listToMaybe $ bagToList errMsgs) $ \errMsg -> do
                     let moduleDescr =  ModuleDescr {
                         mdModuleId          =   PM pid moduleName'
                     ,   mdMbSourcePath      =   Just sourcePath
@@ -216,7 +225,7 @@ collectModule' libDir sourcePath destPath writeAscii pid opts moduleName' = gcat
                         ,   dscMbTypeStr'   =   Nothing
                         ,   dscMbModu'      =   Just (PM pid moduleName')
                         ,   dscMbLocation'  =   srcSpanToLocation $ errMsgSpan errMsg
-                        ,   dscMbComment'   =   Just (BS.pack $ show errMsg)
+                        ,   dscMbComment'   =   Just (BS.pack $ errorString)
                         ,   dscTypeHint'    =   ErrorDescr
                         ,   dscExported'    =   False}]}
                     E.catch (deepseq moduleDescr $ writeExtractedModule destPath writeAscii moduleDescr)
@@ -701,7 +710,7 @@ mergeIdDescrs d1 d2 = dres ++ reexported
 
 #if MIN_VERSION_ghc(8,2,0)
 #if MIN_VERSION_ghc(8,6,0)
-extractDeriving :: (alpha ~ GhcPass pass, OutputableBndrId alpha) => DynFlags -> PackModule -> Text -> LHsDerivingClause alpha -> [Descr]
+extractDeriving :: (Outputable (HsType alpha)) => DynFlags -> PackModule -> Text -> LHsDerivingClause alpha -> [Descr]
 extractDeriving _ _ _ (L _ XHsDerivingClause {}) = []
 extractDeriving dflags pm name (L _ HsDerivingClause {deriv_clause_tys = L _ c}) = c >>= extractDeriving' dflags pm name
 #else
@@ -710,7 +719,7 @@ extractDeriving dflags pm name (L _ HsDerivingClause {deriv_clause_tys = L _ c})
 #endif
 
 #if MIN_VERSION_ghc(8,6,0)
-extractDeriving' :: (alpha ~ GhcPass pass, OutputableBndrId alpha) => DynFlags -> PackModule -> Text -> LHsSigType alpha -> [Descr]
+-- extractDeriving' :: (alpha ~ GhcPass pass, OutputableBndrId alpha) => DynFlags -> PackModule -> Text -> LHsSigType alpha -> [Descr]
 extractDeriving' _ _ _ (XHsImplicitBndrs {}) = []
 extractDeriving' dflags pm name (HsIB { hsib_body = (L loc typ) }) = [ descr ]
 #else
@@ -745,7 +754,7 @@ extractMethods dflags sigs docs =
     in concatMap (extractMethod dflags) pairs
 
 #if MIN_VERSION_ghc(8,6,0)
-extractMethod :: (alpha ~ GhcPass pass, OutputableBndrId alpha) => DynFlags -> (LHsDecl alpha, Maybe NDoc) -> [SimpleDescr]
+-- extractMethod :: (alpha ~ GhcPass pass, OutputableBndrId alpha) => DynFlags -> (LHsDecl alpha, Maybe NDoc) -> [SimpleDescr]
 extractMethod dflags (L loc (SigD _ ts@(TypeSig _ names _typ)), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names
 extractMethod dflags (L loc (SigD _ ts@(PatSynSig _ names _typ)), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names
 extractMethod dflags (L loc (SigD _ ts@(ClassOpSig _ _ names _typ)), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names
@@ -817,7 +826,7 @@ extractRecordFields dflags (L _ _decl@ConDecl {con_details = RecCon flds}) =
     concatMap extractRecordFields' (unLoc flds)
     where
 #if MIN_VERSION_ghc(8,6,0)
-    extractRecordFields' :: (name ~ GhcPass pass, OutputableBndrId name) => LConDeclField name -> [SimpleDescr]
+    extractRecordFields' :: (Outputable (HsType name)) => LConDeclField name -> [SimpleDescr]
     extractRecordFields' (L _ (XConDeclField _)) = []
     extractRecordFields' (L _ _field@(ConDeclField _ names typ doc)) = map extractName names
 #else
@@ -825,7 +834,7 @@ extractRecordFields dflags (L _ _decl@ConDecl {con_details = RecCon flds}) =
     extractRecordFields' (L _ _field@(ConDeclField names typ doc)) = map extractName names
 #endif
       where
-      extractName :: LFieldOcc name -> SimpleDescr
+      extractName :: (Outputable (HsType name)) => LFieldOcc name -> SimpleDescr
       extractName name =
         SimpleDescr
             (T.pack . showSDoc dflags . ppr $ unLoc name)
@@ -858,7 +867,9 @@ extractRecordFields _ _ = []
 
 attachComments :: [LSig GhcPs] -> [MyLDocDecl] -> [(LHsDecl GhcPs, Maybe NDoc)]
 attachComments sigs docs = collectDocs $ sortByLoc
-#if MIN_VERSION_ghc(8,6,0)
+#if MIN_VERSION_ghc(8,10,2)
+        (map (\ (L l i) -> L l (SigD NoExtField i)) sigs ++ map (\ (L l i) -> L l (DocD NoExtField i)) docs)
+#elif MIN_VERSION_ghc(8,6,0)
         (map (\ (L l i) -> L l (SigD NoExt i)) sigs ++ map (\ (L l i) -> L l (DocD NoExt i)) docs)
 #else
         (map (\ (L l i) -> L l (SigD i)) sigs ++ map (\ (L l i) -> L l (DocD i)) docs)

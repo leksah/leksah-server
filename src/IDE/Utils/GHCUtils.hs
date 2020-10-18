@@ -42,9 +42,9 @@ import DriverPipeline(preprocess)
 import StringBuffer (StringBuffer(..),hGetStringBuffer)
 import FastString (mkFastString)
 import Lexer (mkPState,ParseResult(..),getMessages,unP)
-import Outputable (ppr)
-import Bag (unitBag)
-import ErrUtils (dumpIfSet_dyn,printBagOfErrors,errorsFound,mkPlainErrMsg,showPass,ErrMsg(..))
+import Outputable (ppr, showSDoc, vcat)
+import Bag (unitBag,bagToList)
+import ErrUtils (dumpIfSet_dyn,printBagOfErrors,errorsFound,mkPlainErrMsg,showPass,ErrMsg(..), ErrorMessages,pprErrMsgBagWithLoc)
 import Control.Monad (unless, void)
 import Data.Foldable (maximumBy)
 import qualified Parser as P (parseModule,parseHeader)
@@ -158,7 +158,7 @@ findFittingPackages dependencyList = do
 --  | Parser function copied here, because it is not exported
 
 myParseModule :: DynFlags -> FilePath -> Maybe StringBuffer
-              -> IO (Either ErrMsg (Located (HsModule
+              -> IO (Either ErrorMessages (Located (HsModule
 #if MIN_VERSION_ghc(8,4,0)
                       GhcPs
 #else
@@ -179,37 +179,23 @@ myParseModule dflags src_filename maybe_src_buf
 
       let loc  = mkRealSrcLoc (mkFastString src_filename) 1 0
 
-      case unP P.parseModule (mkPState dflags buf' loc) of {
-
+      case unP P.parseModule (mkPState dflags buf' loc) of
         PFailed
-#if MIN_VERSION_ghc(8,4,0)
-          _
+#if MIN_VERSION_ghc(8,10,0)
+          pst ->
+            return (Left (snd (getMessages pst dflags)))
+#else
+          _ span' err -> return (Left (unitBag (mkPlainErrMsg dflags span' err)))
 #endif
-          span' err -> do {
-            let {errMsg = mkPlainErrMsg dflags span' err};
-            printBagOfErrors dflags (unitBag errMsg);
-            return (Left errMsg);
-            };
-
-        POk pst rdr_module -> do {
-
-      let {ms@(warnings, errors) = getMessages pst
-#if MIN_VERSION_ghc(8,2,0)
-                                               dflags
-#endif
-                                               };
-      printBagOfErrors dflags errors;
-      unless (errorsFound dflags ms) $ printBagOfErrors dflags warnings;
-      -- when (errorsFound dflags ms) $ exitWith (ExitFailure 1);
-
-      dumpIfSet_dyn dflags Opt_D_dump_parsed "Parser" (ppr rdr_module) ;
-
-      dumpIfSet_dyn dflags Opt_D_source_stats "Source Statistics"
-                           (ppSourceStats False rdr_module) ;
-
-      return (Right rdr_module)
-        -- ToDo: free the string buffer later.
-      }}
+        POk pst rdr_module -> do
+            let ms@(warnings, errors) = getMessages pst dflags
+            printBagOfErrors dflags errors;
+            unless (errorsFound dflags ms) $ printBagOfErrors dflags warnings;
+            dumpIfSet_dyn dflags Opt_D_dump_parsed "Parser" $
+                                   ppr rdr_module
+            dumpIfSet_dyn dflags Opt_D_source_stats "Source Statistics" $
+                                   ppSourceStats False rdr_module
+            return (Right rdr_module)
 
 myParseHeader :: FilePath -> String -> [Text] -> IO (Either Text (DynFlags, HsModule
 #if MIN_VERSION_ghc(8,4,0)
@@ -240,14 +226,14 @@ myParseHeader fp _str opts =
                 case parseResult of
                     Right (L _ mod') -> return (Right (dynFlags', mod'))
                     Left errMsg         -> do
-                        let str =  "Failed to parse " <> T.pack (show errMsg)
+                        let str =  "Failed to parse " <> T.pack (showSDoc dynFlags' $ vcat $ pprErrMsgBagWithLoc errMsg)
                         return (Left str)
 
  ---------------------------------------------------------------------
 --  | Parser function copied here, because it is not exported
 
 myParseModuleHeader :: DynFlags -> FilePath -> Maybe StringBuffer
-              -> IO (Either ErrMsg (Located (HsModule
+              -> IO (Either ErrorMessages (Located (HsModule
 #if MIN_VERSION_ghc(8,4,0)
                       GhcPs
 #else
@@ -268,31 +254,20 @@ myParseModuleHeader dflags src_filename maybe_src_buf
 
       let loc  = mkRealSrcLoc (mkFastString src_filename) 1 0
 
-      case unP P.parseHeader (mkPState dflags buf' loc) of {
-
+      case unP P.parseHeader (mkPState dflags buf' loc) of
         PFailed
-#if MIN_VERSION_ghc(8,4,0)
-          _
+#if MIN_VERSION_ghc(8,10,0)
+          pst ->
+            return (Left (snd (getMessages pst dflags)))
+#else
+          _ span' err -> return (Left (unitBag (mkPlainErrMsg dflags span' err)))
 #endif
-          span' err -> return (Left (mkPlainErrMsg dflags span' err));
-
-        POk pst rdr_module -> do {
-
-      let {ms@(warnings, errors) = getMessages pst
-#if MIN_VERSION_ghc(8,2,0)
-                                               dflags
-#endif
-                                               };
-      printBagOfErrors dflags errors;
-      unless (errorsFound dflags ms) $ printBagOfErrors dflags warnings;
-      -- when (errorsFound dflags ms) $ exitWith (ExitFailure 1);
-
-      dumpIfSet_dyn dflags Opt_D_dump_parsed "Parser" (ppr rdr_module) ;
-
-      dumpIfSet_dyn dflags Opt_D_source_stats "Source Statistics"
-                           (ppSourceStats False rdr_module) ;
-
-      return (Right rdr_module)
-        -- ToDo: free the string buffer later.
-      }}
-
+        POk pst rdr_module -> do
+            let ms@(warnings, errors) = getMessages pst dflags
+            printBagOfErrors dflags errors;
+            unless (errorsFound dflags ms) $ printBagOfErrors dflags warnings;
+            dumpIfSet_dyn dflags Opt_D_dump_parsed "Parser" $
+                                   ppr rdr_module
+            dumpIfSet_dyn dflags Opt_D_source_stats "Source Statistics" $
+                                   ppSourceStats False rdr_module
+            return (Right rdr_module)

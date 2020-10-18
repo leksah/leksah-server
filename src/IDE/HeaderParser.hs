@@ -97,7 +97,11 @@ transformImport dflags (L srcSpan importDecl) =
     ImportDecl {
         importLoc = srcSpanToLocation srcSpan,
         importModule = T.pack modName,
+#if MIN_VERSION_ghc(8,10,2)
+        importQualified = ideclQualified importDecl /= NotQualified,
+#else
         importQualified = ideclQualified importDecl,
+#endif
         importSrc = ideclSource importDecl,
         importPkg = T.pack <$> pkgQual,
         importAs  = T.pack <$> impAs,
