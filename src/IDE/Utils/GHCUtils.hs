@@ -206,7 +206,7 @@ myParseHeader :: FilePath -> String -> [Text] -> IO (Either Text (DynFlags, HsMo
                       ))
 myParseHeader fp _str opts =
   getSysLibDir Nothing (Just VERSION_ghc) >>= \case
-    Nothing -> return . Left $ "Could not find system lib dir for GHC " <> VERSION_ghc <> " (used to build Leksah)"
+    Nothing -> return . Left $ "myParseHeader could not find system lib dir for GHC " <> VERSION_ghc <> " (used to build Leksah)"
     Just libDir ->
       inGhcIO libDir (opts++["-cpp"]) [] [] $ \ _dynFlags -> do
         session   <- getSession

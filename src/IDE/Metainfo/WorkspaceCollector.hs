@@ -155,7 +155,7 @@ collectWorkspace pid moduleList forceRebuild writeAscii project package = do
 
     debugM "leksah-server" $ "before collect modules" ++ "\n\nopts1: " ++ show opts1 ++ "\n\n opt2: " ++ show opts2
     getSysLibDir Nothing (Just VERSION_ghc) >>= \case
-        Nothing -> debugM "leksah-server" $ "Could not find system lib dir for GHC " <> VERSION_ghc <> " (used to build Leksah)"
+        Nothing -> debugM "leksah-server" $ "collectWorkspace could not find system lib dir for GHC " <> VERSION_ghc <> " (used to build Leksah)"
         Just libDir -> mapM_ (collectModule libDir packageCollectorPath writeAscii pid opts1) moduleList
     debugM "leksah-server" "after collect modules"
   where

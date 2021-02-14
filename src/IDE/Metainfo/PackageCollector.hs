@@ -199,7 +199,7 @@ collectPackage writeAscii prefs numPackages ((packageConfig, PackageDBs{..}), pa
             E.catch (do _ <- runTool' "cabal" ["clean"] Nothing Nothing
                         debugM "leksah" $ "fpSource = " <> show fpSource
                         flags <- flagsFor packageName'
-                        _ <- runProjectTool pDBsProject "cabal" ("configure":flags ++ map (("--package-db="<>) .T.pack) pDBsPaths) Nothing Nothing
+                        _ <- runProjectTool pDBsProject "cabal" ("v1-configure":flags ++ map (("--package-db="<>) .T.pack) pDBsPaths) Nothing Nothing
                         return ())
                     (\ (_e :: E.SomeException) -> do
                         debugM "leksah-server" "Can't configure"

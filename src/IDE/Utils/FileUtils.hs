@@ -689,7 +689,7 @@ getPackageDBs projects = do
 
 figureOutHaddockOpts :: Maybe ProjectKey -> FilePath -> IO [Text]
 figureOutHaddockOpts mbProject package = do
-    (!output,_) <- runProjectTool mbProject "cabal" ["haddock", "--with-haddock=leksahecho", "--executables"] (Just $ dropFileName package) Nothing
+    (!output,_) <- runProjectTool mbProject "cabal" ["v1-haddock", "--with-haddock=leksahecho", "--executables"] (Just $ dropFileName package) Nothing
     let opts = concat [words $ T.unpack l | ToolOutput l <- output]
     let res = filterOptGhc opts
     debugM "leksah-server" ("figureOutHaddockOpts " ++ show res)
@@ -710,8 +710,8 @@ figureOutGhcOpts mbProject package = do
         then do
             libDir <- getSysLibDir mbProject Nothing
             return $ ["-finteger-gmp", "-finteger-gmp2"] ++ maybeToList ((\l -> T.pack $ "--configure-option=CFLAGS=-I" <> l </> "include") <$> libDir)
-        else return ["-f-enable-overloading", "-f-overloaded-methods", "-f-overloaded-properties", "-f-overloaded-signals"]
-    (!output,_) <- runProjectTool mbProject "cabal" ("configure" : flags <> map (("--package-db=" <>) . T.pack) (pDBsPaths packageDBs)) (Just $ dropFileName package) Nothing
+        else return []
+    (!output,_) <- runProjectTool mbProject "cabal" ("v1-configure" : flags <> map (("--package-db=" <>) . T.pack) (pDBsPaths packageDBs)) (Just $ dropFileName package) Nothing
     output `deepseq` figureOutGhcOpts' mbProject package
 
 figureOutGhcOpts' :: Maybe ProjectKey -> FilePath -> IO [Text]
@@ -722,7 +722,7 @@ figureOutGhcOpts' mbProject package = do
             True  -> return "./Setup"
             False -> return "cabal"
         _ -> return "cabal"
-    (!output,_) <- runProjectTool mbProject cabalOrSetup ["build","--with-ghc=leksahecho","--with-ghcjs=leksahecho"] (Just $ dropFileName package) Nothing
+    (!output,_) <- runProjectTool mbProject cabalOrSetup ["v1-build","--with-ghc=leksahecho","--with-ghcjs=leksahecho"] (Just $ dropFileName package) Nothing
     let res = case catMaybes [findMake $ T.unpack l | ToolOutput l <- output] of
                 options:_ -> words options
                 _         -> []

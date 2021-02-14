@@ -288,7 +288,7 @@ collectSystem prefs writeAscii forceRebuild findSources dbLists = do
     packageInfos        <-
         getSysLibDir Nothing (Just VERSION_ghc) >>= \case
             Nothing -> do
-                debugM "leksah-server" $ "Could not find system lib dir for GHC " <> VERSION_ghc <> " (used to build Leksah)"
+                debugM "leksah-server" $ "collectSystem could not find system lib dir for GHC " <> VERSION_ghc <> " (used to build Leksah)"
                 return []
             Just libDir -> concat <$> forM dbLists (\dbs -> do
                   let planIds = pDBsPlanPackages dbs
@@ -320,7 +320,7 @@ collectOne :: FilePath -> FilePath -> [FilePath] -> IO()
 collectOne fpSourceDir outDir dbs = do
     packageInfos <- getSysLibDir Nothing (Just VERSION_ghc) >>= \case
         Nothing -> do
-            debugM "leksah-server" $ "Could not find system lib dir for GHC " <> VERSION_ghc <> " (used to build Leksah)"
+            debugM "leksah-server" $ "collectOne could not find system lib dir for GHC " <> VERSION_ghc <> " (used to build Leksah)"
             return []
         Just libDir ->
             inGhcIO libDir [] [] [fpSourceDir </> "dist" </> "package.conf.inplace"] (const getInstalledPackageInfos)
