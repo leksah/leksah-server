@@ -31,11 +31,12 @@ import Control.Exception as E (SomeException, catch)
 import qualified Data.Text as T (unlines, unpack, init, last)
 import Data.Text (Text)
 import Control.DeepSeq (deepseq)
+import GHC.Stack (HasCallStack)
 
 supportedGhcVersions :: [FilePath]
 supportedGhcVersions = nub ["8.0.2", "8.2.2", VERSION_ghc]
 
-getDefaultGhcVersion :: IO FilePath
+getDefaultGhcVersion :: HasCallStack => IO FilePath
 getDefaultGhcVersion = E.catch (do
     (!output,_) <- runTool' "ghc" ["--numeric-version"] Nothing Nothing
     let vers = head [l | ToolOutput l <- output]
@@ -44,7 +45,9 @@ getDefaultGhcVersion = E.catch (do
                     else vers
     debugM "leksah-server" $ "Got GHC Version " ++ T.unpack vers2
     output `deepseq` return $ T.unpack vers2
-    ) $ \ (e :: SomeException) -> error $ "FileUtils>>getGhcVersion failed with " ++ show e
+    ) $ \ (e :: SomeException) -> do
+      debugM "leksah-server" $ "No `ghc` in path defaulting to " ++ VERSION_ghc
+      return VERSION_ghc
 
 ghcExeName :: Maybe FilePath -> FilePath
 #ifdef mingw32_HOST_OS
