@@ -37,6 +37,10 @@ import IDE.Core.CTypes
         Descr(..), ModuleDescr(..), PackModule(..), SimpleDescr(..),
         packageIdentifierToString, Location(..), RealDescr(..), PackageIdAndKey(..))
 
+
+#if MIN_VERSION_haddock_library(1,10,0)
+import Documentation.Haddock.Types (ModLink(..))
+#endif
 import Documentation.Haddock
 import Distribution.Text (simpleParse, display)
 import InstEnv (ClsInst(..))
@@ -529,7 +533,11 @@ instance Outputable alpha => Show (PPDoc alpha)  where
     showsPrec _ (PPDoc d (DocParagraph doc))       =   shows (PPDoc d doc) . showChar '\n'
     showsPrec _ (PPDoc d (DocIdentifier l))        =   foldr (\i _f -> showChar '\'' .
                                                      (showString . showSDoc d . ppr) i . showChar '\'') id [l]
+#if MIN_VERSION_haddock_library(1,10,0)
+    showsPrec _ (PPDoc _ (DocModule (ModLink str _))) = showChar '"' . showString str . showChar '"'
+#else
     showsPrec _ (PPDoc _ (DocModule str))          =   showChar '"' . showString str . showChar '"'
+#endif
     showsPrec _ (PPDoc d (DocEmphasis doc))        =   showChar '/' . shows (PPDoc d doc)  . showChar '/'
     showsPrec _ (PPDoc d (DocMonospaced doc))      =   showChar '@' . shows (PPDoc d doc) . showChar '@'
     showsPrec _ (PPDoc d (DocUnorderedList l))     =
