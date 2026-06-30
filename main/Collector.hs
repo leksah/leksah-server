@@ -37,7 +37,7 @@ import IDE.Utils.GHCUtils
 import IDE.StrippedPrefs
 import IDE.Metainfo.WorkspaceCollector
 import Data.Maybe(catMaybes, fromJust, mapMaybe, isJust)
-import qualified Data.Set as Set (member)
+import qualified Data.Set as Set (member, size, toList)
 import IDE.Core.CTypes hiding (Extension)
 import IDE.Metainfo.SourceDB (buildSourceForPackageDB, getDataDir, version)
 import Data.Time
@@ -291,11 +291,25 @@ collectSystem prefs writeAscii forceRebuild findSources dbLists = do
                 debugM "leksah-server" $ "collectSystem could not find system lib dir for GHC " <> VERSION_ghc <> " (used to build Leksah)"
                 return []
             Just libDir -> concat <$> forM dbLists (\dbs -> do
+                  -- `pDBsPlanPackages` holds the plan's exact unit ids (plan.json
+                  -- @id@s); match each package on its full unit id so we pick the
+                  -- precise build the project uses from the cabal store.
                   let planIds = pDBsPlanPackages dbs
                       isInPlan = maybe (const True) (\p -> (`Set.member` p)) planIds
-                  inGhcIO libDir [] [] (pDBsPaths dbs) (\ _ ->
-                    map (,dbs)
-                      . filter (isInPlan . pkgId) <$> getInstalledPackageInfos)
+                  collectDiagLog $ "collectSystem dbs: project=" <> show (pDBsProject dbs)
+                      <> " planIds=" <> show (maybe 0 Set.size planIds)
+                      <> " paths=" <> show (pDBsPaths dbs)
+                  forM_ (Set.toList <$> planIds) $ \ids ->
+                      collectDiagLog $ "collectSystem sample planIds: " <> show (take 15 ids)
+                  inGhcIO libDir [] [] (pDBsPaths dbs) (\ _ -> do
+                    allInfos <- getInstalledPackageInfos
+                    let withId = map (\i -> (T.pack (unitInfoIdString i), i)) allInfos
+                        matched = filter (isInPlan . fst) withId
+                    liftIO . collectDiagLog $ "collectSystem session: " <> show (length allInfos)
+                        <> " units, " <> show (length matched) <> " match the plan"
+                    liftIO . collectDiagLog $ "collectSystem sample session unit ids: "
+                        <> show (take 25 (map fst withId))
+                    return (map ((,dbs) . snd) matched))
               `catch` (\(e :: SomeException) -> do
                   debugM "leksah-server" $ "collectSystem error " <> show e
                   return []))

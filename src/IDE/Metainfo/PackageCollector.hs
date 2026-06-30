@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -27,7 +28,6 @@ import Prelude ()
 import Prelude.Compat
 import IDE.StrippedPrefs
        (getUnpackDirectory, RetrieveStrategy(..), Prefs(..))
-import PackageConfig (PackageConfig)
 import IDE.Metainfo.SourceCollectorH
        (findSourceForPackage, packageFromSource, PackageCollectStats(..))
 import System.Log.Logger (errorM, debugM, infoM)
@@ -51,6 +51,7 @@ import System.FilePath
        (dropFileName, takeBaseName, (<.>), (</>))
 import Data.Binary.Shared (encodeFileSer)
 import Distribution.Text (display)
+import Control.Applicative ((<|>))
 import Control.Monad.IO.Class (MonadIO, MonadIO(..))
 import qualified Control.Exception as E (SomeException, catch)
 import IDE.Utils.Tool (ToolOutput(..), runTool')
@@ -80,8 +81,15 @@ import Data.Maybe (fromMaybe, maybeToList)
 import Paths_leksah_server (getDataDir)
 import IDE.Utils.Project (ProjectKey, pjDir)
 import Data.Version (showVersion)
+#if MIN_VERSION_ghc(9,0,0)
+import GHC.Unit.Info (UnitInfo)
+type PackageConfig = UnitInfo
+#else
+import PackageConfig (PackageConfig)
+type UnitInfo = PackageConfig
+#endif
 
-collectPackage :: Bool -> Prefs -> Int -> ((PackageConfig, PackageDBs), Int) -> IO PackageCollectStats
+collectPackage :: Bool -> Prefs -> Int -> ((UnitInfo, PackageDBs), Int) -> IO PackageCollectStats
 collectPackage writeAscii prefs numPackages ((packageConfig, PackageDBs{..}), packageIndex) =
     collectPackageNix prefs packageConfig pDBsProject >>= \case
         Just s -> return s
@@ -339,7 +347,12 @@ makePairs (hd:tl) srcList = (Just hd, theMatching)
             | otherwise       = findMatching ele tail'
         findMatching _ele []  = Nothing
         matches :: Descr -> Descr -> Bool
-        matches d1 d2 = (descrType . dscTypeHint) d1 == (descrType . dscTypeHint) d2
+        matches d1 d2 = case (dscTypeHint d1, dscTypeHint d2) of
+            -- Several instances of one class share a name (the class name), so
+            -- pair them by the types they bind; otherwise the source location
+            -- of one instance could be attached to a different instance.
+            (InstanceDescr b1, InstanceDescr b2) -> b1 == b2
+            (h1, h2)                             -> descrType h1 == descrType h2
 makePairs [] rest = map (\ a -> (Nothing, Just a)) rest
 
 mergeDescr :: Maybe Descr -> Maybe Descr -> Descr
@@ -348,10 +361,10 @@ mergeDescr Nothing (Just descr) = descr
 mergeDescr (Just (Real rdhi)) (Just (Real rdsrc)) =
     Real RealDescr {
         dscName'        = dscName' rdhi
-    ,   dscMbTypeStr'   = dscMbTypeStr' rdsrc
-    ,   dscMbModu'      = dscMbModu' rdsrc
-    ,   dscMbLocation'  = dscMbLocation' rdsrc
-    ,   dscMbComment'   = dscMbComment' rdsrc
+    ,   dscMbTypeStr'   = dscMbTypeStr' rdsrc <|> dscMbTypeStr' rdhi
+    ,   dscMbModu'      = dscMbModu' rdsrc <|> dscMbModu' rdhi
+    ,   dscMbLocation'  = dscMbLocation' rdsrc <|> dscMbLocation' rdhi
+    ,   dscMbComment'   = dscMbComment' rdsrc <|> dscMbComment' rdhi
     ,   dscTypeHint'    = mergeTypeDescr (dscTypeHint' rdhi) (dscTypeHint' rdsrc)
     ,   dscExported'    = True
     }

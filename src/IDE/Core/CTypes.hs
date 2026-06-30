@@ -99,11 +99,19 @@ import Data.Char (isAlpha, isSpace)
 import Control.DeepSeq (NFData(..))
 #if MIN_VERSION_ghc(8,0,0)
 #if MIN_VERSION_ghc(8,2,0)
+#if MIN_VERSION_ghc(9,0,0)
+import GHC.Unit.Types (UnitId)
+#else
 import Module (InstalledUnitId)
+#endif
 #else
 import Module (UnitId)
 #endif
+#if MIN_VERSION_ghc(9,0,0)
+import GHC.Unit.Info (UnitInfo, unitPackageIdString, unitId)
+#else
 import PackageConfig (PackageConfig, sourcePackageIdString, unitId)
+#endif
 #else
 import Module (PackageKey)
 import PackageConfig (PackageConfig, sourcePackageIdString, packageKey)
@@ -128,7 +136,9 @@ metadataVersion = 7
 
 data PackageIdAndKey = PackageIdAndKey {
       packId  :: PackageIdentifier
-#if MIN_VERSION_ghc(8,2,0)
+#if MIN_VERSION_ghc(9,0,0)
+    , packUnitId :: UnitId
+#elif MIN_VERSION_ghc(8,2,0)
     , packUnitId :: InstalledUnitId
 #elif MIN_VERSION_ghc(8,0,0)
     , packUnitId :: UnitId
@@ -137,9 +147,16 @@ data PackageIdAndKey = PackageIdAndKey {
 #endif
     }
 
+#if MIN_VERSION_ghc(9,0,0)
+getThisPackage :: UnitInfo -> PackageIdAndKey
+#else
 getThisPackage :: PackageConfig -> PackageIdAndKey
+#endif
 getThisPackage p = PackageIdAndKey
-#if MIN_VERSION_ghc(8,0,0)
+#if MIN_VERSION_ghc(9,0,0)
+                        (fromJust . simpleParse $ unitPackageIdString p)
+                        (unitId p)
+#elif MIN_VERSION_ghc(8,0,0)
                         (fromJust . simpleParse $ sourcePackageIdString p)
                         (unitId p)
 #else

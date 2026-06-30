@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -30,6 +31,7 @@ module IDE.Utils.FileUtils (
 ,   runProjectTool
 ,   allCabalFiles
 ,   getConfigFilePathForLoad
+,   mbGetConfigFilePathForLoad
 ,   hasSavedConfigFile
 ,   getConfigDir
 ,   getConfigFilePathForSave
@@ -48,6 +50,8 @@ module IDE.Utils.FileUtils (
 ,   getInstalledPackages
 ,   findProjectRoot
 ,   cabalProjectBuildDir
+,   cabalBuildDir
+,   collectDiagLog
 ,   getPackageDBs'
 ,   getPackageDBs
 ,   figureOutGhcOpts
@@ -83,7 +87,7 @@ import Text.ParserCombinators.Parsec
 import Data.Set (Set)
 import Data.List
        (isPrefixOf, isSuffixOf, stripPrefix, nub)
-import qualified Data.Set as  Set (empty, fromList)
+import qualified Data.Set as  Set (empty, fromList, member)
 import Distribution.Package (UnitId)
 import Data.Char (ord, isAlphaNum)
 import Distribution.Text (simpleParse, display)
@@ -94,6 +98,7 @@ import qualified Distribution.Text as  T (simpleParse)
 import System.Log.Logger(errorM,warningM,debugM)
 import IDE.Utils.Tool
 import Control.Monad.IO.Class (MonadIO(..), MonadIO)
+import System.Environment (lookupEnv)
 import Control.Exception as E (SomeException, catch)
 import System.IO.Strict (readFile)
 import qualified Data.Text as T
@@ -103,7 +108,7 @@ import Data.Text (Text)
 import Control.DeepSeq (deepseq)
 import IDE.Utils.VersionUtils (ghcExeName, getDefaultGhcVersion)
 import Data.Aeson (eitherDecodeStrict')
-import IDE.Utils.CabalPlan (PlanJson(..), piNameAndVersion)
+import IDE.Utils.CabalPlan (PlanJson(..), piNameAndVersion, piId, unitIdToPackageId)
 import IDE.Utils.CabalProject (findProjectRoot)
 import qualified Data.ByteString as BS (readFile)
 import Data.Map (Map)
@@ -194,7 +199,18 @@ getConfigFilePathForLoad :: FilePath -- ^ Config filename with extension
                          -> Maybe FilePath -- ^ Optional directory to check first
                          -> FilePath -- ^ Data dir to check if not present in config dir
                          -> IO FilePath
-getConfigFilePathForLoad fn mbFilePath dataDir = do
+getConfigFilePathForLoad fn mbFilePath dataDir =
+    mbGetConfigFilePathForLoad fn mbFilePath dataDir >>= \case
+        Just fp -> return fp
+        Nothing -> error $ "Config file not found: " ++ fn
+
+-- | Like 'getConfigFilePathForLoad', but returns 'Nothing' instead of throwing
+-- when the file is present in neither the config dir nor the data dir.
+mbGetConfigFilePathForLoad :: FilePath -- ^ Config filename with extension
+                           -> Maybe FilePath -- ^ Optional directory to check first
+                           -> FilePath -- ^ Data dir to check if not present in config dir
+                           -> IO (Maybe FilePath)
+mbGetConfigFilePathForLoad fn mbFilePath dataDir = do
     mbCd <- case mbFilePath of
                 Just p -> return (Just p)
                 Nothing -> getConfigDirForLoad
@@ -203,13 +219,13 @@ getConfigFilePathForLoad fn mbFilePath dataDir = do
         Just cd -> do
             ex <- doesFileExist (cd </> fn)
             if ex
-                then return (cd </> fn)
+                then return (Just (cd </> fn))
                 else getFromData
     where getFromData = do
             ex <- doesFileExist (dataDir </> "data" </> fn)
             if ex
-                then return (dataDir </> "data" </> fn)
-                else error $"Config file not found: " ++ fn
+                then return (Just (dataDir </> "data" </> fn))
+                else return Nothing
 
 getConfigFilePathForSave :: FilePath -> IO FilePath
 getConfigFilePathForSave fn = do
@@ -383,7 +399,9 @@ loadNixCache = liftIO $ do
 includeInNixCache :: String -> Bool
 includeInNixCache name = not (null name)
     && all (\c -> isAlphaNum c || c == '_') name
-    && name `notElem` ["POSIXLY_CORRECT", "SHELLOPTS", "BASHOPTS"]
+    -- TMP/TMPDIR from the nix-shell point at a build-time temp dir that no
+    -- longer exists when the cached env is reused; keep the ambient ones.
+    && name `notElem` ["POSIXLY_CORRECT", "SHELLOPTS", "BASHOPTS", "TMP", "TMPDIR"]
 
 saveNixCache :: MonadIO m => ProjectKey -> Text -> [ToolOutput] -> m (Map String String)
 saveNixCache project compiler out = liftIO $ do
@@ -472,11 +490,16 @@ autoExtractTarFiles' filePath =
     ) $ \ (_ :: SomeException) -> return ()
 
 
+-- | Metadata is GHC-version-specific (it records the package set / interfaces
+-- of a particular compiler), so the cache is segregated by GHC version to
+-- avoid mixing, e.g., 9.10 and 9.14 collections.  The IDE and the
+-- `leksah-server` that collects are built with the same GHC, so they agree on
+-- `VERSION_ghc`.
 getCollectorPath :: MonadIO m => m FilePath
 getCollectorPath = liftIO $ do
     configDir <- getConfigDir
-    let filePath = configDir </> "metadata"
-    createDirectoryIfMissing False filePath
+    let filePath = configDir </> "metadata" </> VERSION_ghc
+    createDirectoryIfMissing True filePath
     return filePath
 
 getSysLibDir :: Maybe ProjectKey -> Maybe FilePath -> IO (Maybe FilePath)
@@ -574,41 +597,39 @@ getPackages project hc hVer packageDBs =
 
 -- | Find the packages that the packages in the workspace
 getInstalledPackages :: FilePath -> [ProjectKey] -> IO [(UnitId, Maybe ProjectKey)]
-getInstalledPackages ghcVer projects = do
-    debugM "leksah" $ "getInstalledPackages " <> show ghcVer <> " " <> show projects
---    versions <- nub . (ghcVer:) <$> forM projects (\project -> E.catch (
---            if takeExtension project == "yaml"
---                then return []
---                else do
---                    x <- getProjectCompilerId
---                    projectDB <- getProjectPackageDB ghcVer project "dist-newstyle"
---                    doesDirectoryExist projectDB >>= \case
---                        False -> return []
---                        True  -> map (,globalDBs<>[projectDB]) <$> getPackages' [projectDB]
---        ) $ \ (_ :: SomeException) -> return [])
+getInstalledPackages ghcVer [] = do
+    -- No workspace open: everything in the global + store package dbs.
+    debugM "leksah" $ "getInstalledPackages " <> show ghcVer <> " (no projects)"
     globalDBs <- sequence [getGlobalPackageDB Nothing (Just ghcVer), Just <$> getStorePackageDB ghcVer]
         >>= filterM doesDirectoryExist . catMaybes
-    globalPackages <- E.catch (getPackages Nothing "ghc" ghcVer globalDBs) $ \ (_ :: SomeException) -> return []
-    debugM "leksah" $ "globalPackages = " <> show globalPackages
-
-    localPackages <- forM projects $ \projectKey -> E.catch (
+    E.catch (getPackages Nothing "ghc" ghcVer globalDBs) $ \ (_ :: SomeException) -> return []
+getInstalledPackages ghcVer projects = do
+    debugM "leksah" $ "getInstalledPackages " <> show ghcVer <> " " <> show projects
+    -- With a workspace, the set is each project's install plan (local packages
+    -- + the store/global packages it depends on) — not every installed package.
+    fmap (nub . concat) . forM projects $ \projectKey -> E.catch (
       case projectKey of
         StackTool project -> getStackPackages project
         CabalTool project -> do
-          let cabalFile = pjCabalFile project
-          (hc, hVer, projectDB) <- getProjectPackageDB ghcVer project "dist-newstyle"
+          let buildDir = cabalBuildDir Nothing
+          (hc, hVer, projectDB) <- getProjectPackageDB ghcVer project buildDir
           doesDirectoryExist projectDB >>= \case
               False -> return []
               True  -> do
                   projGlobalDBs <- sequence [getGlobalPackageDB (Just projectKey) (Just hVer), Just <$> getStorePackageDB hVer]
                       >>= filterM doesDirectoryExist . catMaybes
---                            projGlobalPackages <- E.catch (getPackages (Just cabalFile) hc hVer projGlobalDBs) $ \ (_ :: SomeException) -> return []
-
-                  map (,Just projectKey) <$> getPackages' (Just projectKey) hc hVer (projectDB : projGlobalDBs)
-        CustomTool project -> return []
+                  pkgs <- getPackages' (Just projectKey) hc hVer (projectDB : projGlobalDBs)
+                  -- Keep only the packages in this project's plan.  Metadata
+                  -- files are name-version keyed, so match on name-version.
+                  plan <- readPlan (dropFileName $ pjCabalFile project) buildDir
+                  let inPlan = case plan of
+                        Nothing -> const True
+                        Just p  -> let nv = Set.fromList (map piNameAndVersion (pjPlan p))
+                                   in \u -> maybe False ((`Set.member` nv) . T.pack . display) (unitIdToPackageId u)
+                  return . map (,Just projectKey) $ filter inPlan pkgs
+        CustomTool _ -> return []
+        NixTool _ -> return []
         ) $ \ (_ :: SomeException) -> return []
-    debugM "leksah" $ "localPackages = " <> show localPackages
-    return . nub $ globalPackages <> concat localPackages
 
 getGlobalPackageDB :: Maybe ProjectKey -> Maybe FilePath -> IO (Maybe FilePath)
 getGlobalPackageDB mbProject ghcVersion = do
@@ -624,10 +645,51 @@ getGlobalPackageDB mbProject ghcVersion = do
 --                    Just d -> return $ Just d
     return $ (</> "package.conf.d") <$> ghcLibDir
 
+-- | The cabal store package db for a GHC version, located the way cabal does:
+-- @$CABAL_DIR@, else @~/.cabal@ (the legacy layout), else the XDG state dir
+-- (@$XDG_STATE_HOME@ or @~/.local/state@) — modern cabal stores it under XDG,
+-- so the old hard-coded @~/.cabal/store@ was usually never found.  Returns the
+-- first candidate that exists (callers filter by existence regardless).
 getStorePackageDB :: FilePath -> IO FilePath
 getStorePackageDB ghcVersion = do
-    cabalDir <- getAppUserDataDirectory "cabal"
-    return $ cabalDir </> "store" </> "ghc-" ++ ghcVersion </> "package.db"
+    -- The per-GHC store dir is usually @ghc-<version>@, but haskell.nix uses an
+    -- inplace GHC and names it @ghc-<version>-inplace@, so try both.
+    let subDirs    = ["ghc-" ++ ghcVersion, "ghc-" ++ ghcVersion ++ "-inplace"]
+        rels base  = [ base </> "store" </> sub </> "package.db" | sub <- subDirs ]
+    home       <- getHomeDirectory
+    mbCabalDir <- lookupEnv "CABAL_DIR"
+    mbXdgState <- lookupEnv "XDG_STATE_HOME"
+    let xdgState   = maybe (home </> ".local" </> "state") id mbXdgState
+        candidates = concatMap rels $
+            maybe [] (:[]) mbCabalDir ++ [ home </> ".cabal", xdgState </> "cabal" ]
+    existing <- filterM doesDirectoryExist candidates
+    let chosen = if null existing then last candidates else head existing
+    collectDiagLog $ "getStorePackageDB " <> ghcVersion
+        <> " candidates=" <> show candidates
+        <> " existing=" <> show existing
+        <> " chosen=" <> chosen
+    return chosen
+
+-- | The cabal build directory leksah builds into and reads from.  Always
+-- @dist-ghc-<version>@ (the GHC leksah was built with), or
+-- @dist-<prefix>-ghc-<version>@ when cross-compiling with a @<prefix>-cabal@
+-- (e.g. @Just "js-unknown-ghcjs"@ for a JavaScript build via
+-- @js-unknown-ghcjs-cabal@).  Using one versioned dir keeps builds for
+-- different targets separate and keeps the build leksah drives in step with
+-- where it looks for plan.json / the package db.
+cabalBuildDir :: Maybe String -> FilePath
+cabalBuildDir mbPrefix = "dist" ++ maybe "" ('-':) mbPrefix ++ "-ghc-" ++ VERSION_ghc
+
+-- | Append a diagnostic line to @~/.leksah/leksah-collect.log@ (best-effort).
+-- The leksah-server collector's logger output is captured by the IDE rather
+-- than reaching a terminal, so this gives a reliable file to examine when
+-- debugging metadata collection.
+collectDiagLog :: String -> IO ()
+collectDiagLog msg = (`E.catch` \(_ :: SomeException) -> return ()) $ do
+    home <- getHomeDirectory
+    let dir = home </> ".leksah"
+    createDirectoryIfMissing True dir
+    appendFile (dir </> "leksah-collect.log") (msg <> "\n")
 
 getProjectPackageDB :: FilePath -> CabalProject -> FilePath -> IO (FilePath, FilePath, FilePath)
 getProjectPackageDB ghcVersion project buildDir = do
@@ -651,7 +713,8 @@ getCabalPackageDBs Nothing ghcVersion =
     sequence [getGlobalPackageDB Nothing (Just ghcVersion), Just <$> getStorePackageDB ghcVersion]
         >>= filterM doesDirectoryExist . catMaybes
 getCabalPackageDBs (Just project) ghcVersion = do
-    (_, hVer, projectDB) <- getProjectPackageDB ghcVersion project "dist-newstyle"
+    let buildDir = cabalBuildDir Nothing
+    (_, hVer, projectDB) <- getProjectPackageDB ghcVersion project buildDir
     doesDirectoryExist projectDB >>= \case
         False -> return []
         True  -> do
@@ -674,18 +737,30 @@ getPackageDBs' ghcVersion mbProject =
             Just (StackTool project) ->
                 PackageDBs mbProject Nothing <$> getStackPackageDBs project
             Just (CabalTool project) -> do
+              let buildDir = cabalBuildDir Nothing
               dbs <- getCabalPackageDBs (Just project) ghcVersion
-              plan <- readPlan (dropFileName $ pjCabalFile project) "dist-newstyle"
-              return $ PackageDBs mbProject (Set.fromList . map piNameAndVersion . pjPlan <$> plan) dbs
+              plan <- readPlan (dropFileName $ pjCabalFile project) buildDir
+              -- Scope to the project's install plan, matching on the exact unit
+              -- id (plan.json @id@) so only the packages this project actually
+              -- uses — including the ones from the cabal store — are collected.
+              return $ PackageDBs mbProject (Set.fromList . map piId . pjPlan <$> plan) dbs
             _ -> PackageDBs mbProject Nothing <$> getCabalPackageDBs Nothing ghcVersion
      ) $ \ (_ :: SomeException) -> return $ PackageDBs mbProject Nothing []
 
 getPackageDBs :: [ProjectKey] -> IO [PackageDBs]
-getPackageDBs projects = do
+getPackageDBs [] = do
+    -- No workspace open: fall back to indexing everything in the global + store
+    -- package dbs (there's no plan to scope by).
     ghcVersion <- getDefaultGhcVersion
     globalDBs <- sequence [getGlobalPackageDB Nothing (Just ghcVersion), Just <$> getStorePackageDB ghcVersion]
         >>= filterM doesDirectoryExist . catMaybes
-    nub . (PackageDBs Nothing Nothing globalDBs:) <$> forM projects (getPackageDBs' ghcVersion . Just)
+    return [PackageDBs Nothing Nothing globalDBs]
+getPackageDBs projects = do
+    -- With a workspace, each project's entry is already scoped to its plan (and
+    -- includes the store db), so there's no unscoped global entry — that would
+    -- pull in every installed package regardless of the projects.
+    ghcVersion <- getDefaultGhcVersion
+    nub <$> forM projects (getPackageDBs' ghcVersion . Just)
 
 figureOutHaddockOpts :: Maybe ProjectKey -> FilePath -> IO [Text]
 figureOutHaddockOpts mbProject package = do

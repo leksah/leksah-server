@@ -4,7 +4,7 @@ module IDE.Utils.Project where
 import Data.Aeson (ToJSON(..), FromJSON(..))
 import Data.Text (Text)
 import GHC.Generics (Generic)
-import System.FilePath (dropFileName, takeExtension)
+import System.FilePath (dropFileName, takeExtension, takeFileName)
 
 newtype CabalProject = CabalProject
   { pjCabalFile :: FilePath
@@ -19,6 +19,16 @@ newtype StackProject = StackProject
 
 instance ToJSON StackProject
 instance FromJSON StackProject
+
+-- | A Nix flake project: its project file is the @flake.nix@.  The workspace
+-- tree shows the flake's outputs (evaluated via @builtins.getFlake@) and the
+-- project's files; see "IDE.Web.Widget.Flake".
+newtype NixProject = NixProject
+  { pjFlakeFile :: FilePath
+  } deriving (Show, Read, Eq, Ord, Generic)
+
+instance ToJSON NixProject
+instance FromJSON NixProject
 
 data CustomProject = CustomProject
   { pjCustomDir        :: FilePath
@@ -36,6 +46,7 @@ data ProjectKey =
     CabalTool CabalProject
   | StackTool StackProject
   | CustomTool CustomProject
+  | NixTool NixProject
   deriving (Show, Read, Eq, Ord, Generic)
 
 instance ToJSON ProjectKey
@@ -45,16 +56,19 @@ pjDir :: ProjectKey -> FilePath
 pjDir (CabalTool p)  = dropFileName (pjCabalFile p)
 pjDir (StackTool p)  = dropFileName (pjStackFile p)
 pjDir (CustomTool p) = pjCustomDir p
+pjDir (NixTool p)    = dropFileName (pjFlakeFile p)
 
 pjFile :: ProjectKey -> Maybe FilePath
 pjFile (CabalTool p)  = Just $ pjCabalFile p
 pjFile (StackTool p)  = Just $ pjStackFile p
+pjFile (NixTool p)    = Just $ pjFlakeFile p
 pjFile _ = Nothing
 
 pjFileOrDir :: ProjectKey -> FilePath
 pjFileOrDir (CabalTool p)  = pjCabalFile p
 pjFileOrDir (StackTool p)  = pjStackFile p
 pjFileOrDir (CustomTool p) = pjCustomDir p
+pjFileOrDir (NixTool p)    = pjFlakeFile p
 
 pjIsCabal :: ProjectKey -> Bool
 pjIsCabal (CabalTool _) = True
@@ -64,10 +78,16 @@ pjIsStack :: ProjectKey -> Bool
 pjIsStack (StackTool _) = True
 pjIsStack _ = False
 
+pjIsNix :: ProjectKey -> Bool
+pjIsNix (NixTool _) = True
+pjIsNix _ = False
+
 filePathToProjectKey :: FilePath -> Maybe ProjectKey
 filePathToProjectKey filePath =
-  case takeExtension filePath of
-    ".project" -> Just (CabalTool (CabalProject filePath))
-    ".yaml" -> Just (StackTool (StackProject filePath))
-    _ -> Nothing
+  case takeFileName filePath of
+    "flake.nix" -> Just (NixTool (NixProject filePath))
+    _ -> case takeExtension filePath of
+      ".project" -> Just (CabalTool (CabalProject filePath))
+      ".yaml" -> Just (StackTool (StackProject filePath))
+      _ -> Nothing
 

@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -19,6 +20,7 @@
 module IDE.Utils.GHCUtils (
     inGhcIO
 ,   getInstalledPackageInfos
+,   unitInfoIdString
 ,   findFittingPackages
 ,   myParseModule
 ,   myParseHeader
@@ -32,12 +34,35 @@ module IDE.Utils.GHCUtils (
 import Prelude ()
 import Prelude.Compat
 import Distribution.Simple (withinRange,PackageIdentifier(..),Dependency(..), PackageName, VersionRange)
-import PackageConfig (sourcePackageIdString, PackageConfig)
 import Distribution.Text (simpleParse)
 import Data.Maybe (fromJust)
-import Data.Set (Set)
-import Data.Set as S (singleton)
+import Distribution.Compat.NonEmptySet (NonEmptySet)
+import Distribution.Compat.NonEmptySet as S (singleton)
 import GHC
+#if MIN_VERSION_ghc(9,0,0)
+import GHC.Unit.Info (unitPackageIdString, unitId, UnitInfo)
+import GHC.Unit.State (listUnitInfo)
+import GHC.Unit.Types (unitIdString)
+import GHC.Driver.Env (hsc_units)
+import GHC.Driver.Pipeline(preprocess)
+import GHC.Data.StringBuffer (StringBuffer(..),hGetStringBuffer)
+import GHC.Data.FastString (mkFastString)
+import GHC.Parser.Lexer (ParseResult,unP,initParserState,getPsMessages,pattern POk,pattern PFailed)
+import GHC.Driver.Config.Parser (initParserOpts)
+import GHC.Driver.Config.Diagnostic (initPsMessageOpts)
+import GHC.Types.Error (getMessages,errMsgDiagnostic,diagnosticMessage,unDecorated,Messages)
+import GHC.Parser.Errors.Types (PsMessage)
+import GHC.Utils.Outputable (ppr, vcat, renderWithContext, defaultSDocContext)
+import GHC.Data.Bag (unitBag,bagToList)
+import GHC.Utils.Error (errorsFound,showPass,)
+import Control.Monad (unless, void)
+import Data.Foldable (maximumBy)
+import qualified GHC.Parser as P (parseModule,parseHeader)
+import GHC.Hs.Stats (ppSourceStats)
+import GHC.Types.SrcLoc (mkRealSrcLoc)
+import GHC.Utils.Logger (getLogger)
+#else
+import PackageConfig (sourcePackageIdString, PackageConfig)
 import DriverPipeline(preprocess)
 import StringBuffer (StringBuffer(..),hGetStringBuffer)
 import FastString (mkFastString)
@@ -50,8 +75,11 @@ import Data.Foldable (maximumBy)
 import qualified Parser as P (parseModule,parseHeader)
 import HscStats (ppSourceStats)
 import SrcLoc (mkRealSrcLoc)
+#endif
 import IDE.Utils.FileUtils (getSysLibDir)
-#if MIN_VERSION_ghc(8,2,0)
+#if MIN_VERSION_ghc(9,0,0)
+import GHC.Driver.Session (DumpFlag(..), gopt_set, PkgDbRef(..), PackageDBFlag(..))
+#elif MIN_VERSION_ghc(8,2,0)
 import DynFlags (DumpFlag(..), gopt_set, PkgConfRef(..), PackageDBFlag(..))
 #else
 import DynFlags (DumpFlag(..), gopt_set, PkgConfRef(..))
@@ -62,32 +90,27 @@ import Data.Text (Text)
 import qualified Data.Text as T (pack, unpack)
 import Data.Function (on)
 import GHC.Stack (HasCallStack)
-#if MIN_VERSION_Cabal (3,0,0)
 import Distribution.Types.LibraryName (LibraryName(..))
-#endif
 import Distribution.Types.UnqualComponentName (UnqualComponentName)
-
-#if MIN_VERSION_Cabal (3,0,0)
-viewDependency :: Dependency -> (PackageName, VersionRange, Set LibraryName)
-viewDependency (Dependency a b c) = (a, b, c)
-mkDependency :: PackageName -> VersionRange -> Set LibraryName -> Dependency
+#if MIN_VERSION_Cabal (3,4,0)
+import Distribution.Types.Dependency (mkDependency)
+#else
+mkDependency :: PackageName -> VersionRange -> NonEmptySet LibraryName -> Dependency
 mkDependency a b c = Dependency a b c
+#endif
+
+viewDependency :: Dependency -> (PackageName, VersionRange, NonEmptySet LibraryName)
+viewDependency (Dependency a b c) = (a, b, c)
 maybeOrLibraryName :: Maybe UnqualComponentName -> LibraryName
 maybeOrLibraryName Nothing = LMainLibName
 maybeOrLibraryName (Just n) = LSubLibName n
 libraryNameToMaybe :: LibraryName -> Maybe UnqualComponentName
 libraryNameToMaybe LMainLibName = Nothing
 libraryNameToMaybe (LSubLibName n) = Just n
-#else
-data LibraryName = LMainLibName | LSubLibName UnqualComponentName
-viewDependency :: Dependency -> (PackageName, VersionRange, Set LibraryName)
-viewDependency (Dependency a b) = (a, b, S.singleton LMainLibName)
-mkDependency :: PackageName -> VersionRange -> Set LibraryName -> Dependency
-mkDependency a b _ = Dependency a b
-maybeOrLibraryName :: Maybe UnqualComponentName -> Maybe UnqualComponentName
-maybeOrLibraryName = id
-libraryNameToMaybe :: Maybe UnqualComponentName -> Maybe UnqualComponentName
-libraryNameToMaybe = id
+
+#if !MIN_VERSION_ghc(9,0,0)
+type UnitInfo = PackageConfig
+unitPackageIdString = sourcePackageIdString
 #endif
 
 inGhcIO :: HasCallStack => FilePath -> [Text] -> [GeneralFlag] -> [FilePath] -> (DynFlags -> Ghc a) -> IO a
@@ -98,10 +121,14 @@ inGhcIO libDir flags' udynFlags dbs ghcAct = do
         dynflags  <- getSessionDynFlags
         let dynflags' = foldl gopt_set dynflags udynFlags
         let dynflags'' = dynflags' {
+#if !MIN_VERSION_ghc(9,0,0)
             hscTarget = HscNothing,
+#endif
             ghcMode   = CompManager,
             ghcLink   = NoLink,
-#if MIN_VERSION_ghc(8,2,0)
+#if MIN_VERSION_ghc(9,0,0)
+            packageDBFlags = map (PackageDB . PkgDbPath) dbs ++ packageDBFlags dynflags'
+#elif MIN_VERSION_ghc(8,2,0)
             packageDBFlags = map (PackageDB . PkgConfFile) dbs ++ packageDBFlags dynflags'
 #else
             extraPkgConfs = (map PkgConfFile dbs++) . extraPkgConfs dynflags'
@@ -116,7 +143,8 @@ inGhcIO libDir flags' udynFlags dbs ghcAct = do
         parseGhcFlags :: DynFlags -> [Located String]
                   -> [Text] -> Ghc DynFlags
         parseGhcFlags dynflags flags_ _origFlags = do
-            (dynflags', rest, _) <- parseDynamicFlags dynflags flags_
+            logger <- getLogger
+            (dynflags', rest, _) <- parseDynamicFlags logger dynflags flags_
             if not (null rest)
                 then do
                     liftIO $ debugM "leksah-server" ("No dynamic GHC options: " ++ unwords (map unLoc rest))
@@ -129,8 +157,15 @@ unload = do
    setTargets []
    void $ load LoadAllTargets
 
-getInstalledPackageInfos :: Ghc [PackageConfig]
+getInstalledPackageInfos :: Ghc [UnitInfo]
 getInstalledPackageInfos = do
+#if MIN_VERSION_ghc(9,0,0)
+    -- The unit state holds every package known to the session (the package
+    -- dbs passed to `inGhcIO` are folded in by `setSessionDynFlags`).
+    -- `listUnitInfo` enumerates them all, hidden ones included.
+    hscEnv <- getSession
+    return . listUnitInfo $ hsc_units hscEnv
+#else
     dflags1         <-  getSessionDynFlags
     case pkgDatabase dflags1 of
         Nothing -> return []
@@ -139,11 +174,23 @@ getInstalledPackageInfos = do
 #else
         Just fm -> return fm
 #endif
+#endif
+
+-- | The full installed unit id of a package (name-version-hash), in the same
+-- form cabal writes to plan.json's @id@ field — so the collector can match a
+-- package against the project's install plan exactly (not just by name-version,
+-- which would be ambiguous when the store holds several builds of a version).
+unitInfoIdString :: UnitInfo -> String
+#if MIN_VERSION_ghc(9,0,0)
+unitInfoIdString = unitIdString . unitId
+#else
+unitInfoIdString = unitPackageIdString
+#endif
 
 findFittingPackages :: [Dependency] -> Ghc [PackageIdentifier]
 findFittingPackages dependencyList = do
     knownPackages   <-  getInstalledPackageInfos
-    let packages    =   map (fromJust . simpleParse . sourcePackageIdString) knownPackages
+    let packages    =   map (fromJust . simpleParse . unitPackageIdString) knownPackages
     return (concatMap (fittingKnown packages) dependencyList)
     where
     fittingKnown packages (viewDependency -> (dname, versionRange, _)) =
@@ -157,6 +204,46 @@ findFittingPackages dependencyList = do
  ---------------------------------------------------------------------
 --  | Parser function copied here, because it is not exported
 
+#if MIN_VERSION_ghc(9,0,0)
+myParseModule :: DynFlags -> FilePath -> Maybe StringBuffer -> IO (Either (Messages PsMessage) (Located (HsModule GhcPs)))
+myParseModule dflags src_filename maybe_src_buf = do
+  buf' <- case maybe_src_buf of
+            Just b  -> return b
+            Nothing -> hGetStringBuffer src_filename
+  let loc = mkRealSrcLoc (mkFastString src_filename) 1 0
+      pst = initParserState (initParserOpts dflags) buf' loc
+  case unP P.parseModule pst of
+    PFailed pst'      -> return (Left (snd (getPsMessages pst')))
+    POk _ rdr_module  -> return (Right rdr_module)
+myParseHeader :: FilePath -> String -> [Text] -> IO (Either Text (DynFlags, HsModule GhcPs))
+myParseHeader fp _str opts =
+  getSysLibDir Nothing (Just VERSION_ghc) >>= \case
+    Nothing -> return . Left $ "myParseHeader could not find system lib dir for GHC " <> VERSION_ghc <> " (used to build Leksah)"
+    Just libDir ->
+      inGhcIO libDir (opts++["-cpp"]) [] [] $ \ _dynFlags -> do
+        session <- getSession
+        liftIO $
+          preprocess session fp Nothing Nothing >>= \case
+            Left _errs ->
+                return . Left $ "Failed to preprocess " <> T.pack fp
+            Right (dynFlags', fp') -> do
+                buf <- hGetStringBuffer fp'
+                let loc = mkRealSrcLoc (mkFastString fp) 1 0
+                    pst = initParserState (initParserOpts dynFlags') buf loc
+                case unP P.parseHeader pst of
+                    POk _ located -> return (Right (dynFlags', unLoc located))
+                    PFailed pst' ->
+                        let (_warns, errs) = getPsMessages pst'
+                            msgOpts = initPsMessageOpts dynFlags'
+                            doc = vcat
+                                [ d
+                                | e <- bagToList (getMessages errs)
+                                , d <- unDecorated (diagnosticMessage msgOpts (errMsgDiagnostic e))
+                                ]
+                        in return . Left $
+                            "Failed to parse " <> T.pack fp <> ":\n"
+                            <> T.pack (renderWithContext defaultSDocContext doc)
+#else
 myParseModule :: DynFlags -> FilePath -> Maybe StringBuffer
               -> IO (Either ErrorMessages (Located (HsModule
 #if MIN_VERSION_ghc(8,4,0)
@@ -271,3 +358,4 @@ myParseModuleHeader dflags src_filename maybe_src_buf
             dumpIfSet_dyn dflags Opt_D_source_stats "Source Statistics" $
                                    ppSourceStats False rdr_module
             return (Right rdr_module)
+#endif

@@ -23,15 +23,15 @@ import Prelude ()
 import Prelude.Compat hiding (readFile)
 import IDE.Core.CTypes hiding(SrcSpan(..))
 import GHC hiding (ImportDecl)
-import FastString(unpackFS)
+-- import FastString(unpackFS)
 import IDE.Utils.GHCUtils
 import Data.Maybe (mapMaybe)
 #if MIN_VERSION_ghc(8,2,0)
-import BasicTypes (StringLiteral(..), SourceText(..))
+import GHC.Types.SourceText (StringLiteral(..), SourceText(..))
 #elif MIN_VERSION_ghc(8,0,0)
 import BasicTypes (StringLiteral(..))
 #endif
-import Outputable(pprPrefixOcc, ppr,showSDoc)
+-- import Outputable(pprPrefixOcc, ppr,showSDoc)
 import IDE.Utils.FileUtils (figureOutHaddockOpts)
 import Control.Monad.IO.Class (MonadIO(..))
 import System.IO.Strict (readFile)
@@ -39,6 +39,10 @@ import qualified Data.Text as T (pack)
 import System.Directory (setCurrentDirectory)
 import System.FilePath (dropFileName)
 import IDE.Utils.Project (ProjectKey)
+import GHC.Data.FastString (unpackFS, mkFastString)
+import GHC.Driver.Ppr (showSDoc)
+import GHC.Utils.Outputable (pprPrefixOcc, ppr)
+import GHC.Types.PkgQual (RawPkgQual(..))
 
 #if !MIN_VERSION_ghc(8,2,0)
 ieLWrappedName :: a -> a
@@ -51,6 +55,10 @@ type family IdP p
 type instance IdP GhcPs = RdrName
 #endif
 
+#if MIN_VERSION_ghc(9,0,0)
+unLoc82 :: GenLocated l e -> e
+unLoc82 = unLoc
+#else
 #if MIN_VERSION_ghc(8,2,0)
 unLoc82 ::
 #if MIN_VERSION_ghc(8,8,0)
@@ -61,6 +69,7 @@ unLoc82 = unLoc
 #else
 unLoc82 :: a -> a
 unLoc82 = id
+#endif
 #endif
 
 showRdrName :: DynFlags -> RdrName -> String
@@ -76,12 +85,12 @@ parseTheHeader project package filePath = do
         Left str                                      -> return (ServerFailed str)
         Right (_, pr@HsModule{ hsmodImports = []})       -> do
             let i = case hsmodDecls pr of
-                        decls@(_hd:_tl) -> foldl (\ a b -> min a (srcSpanStartLine' (getLoc b))) 0 decls - 1
+                        decls@(_hd:_tl) -> foldl (\ a b -> min a (srcSpanStartLine' (getLocA b))) 0 decls - 1
                         [] -> case hsmodExports pr of
-                            Just list -> foldl (\ a b -> max a (srcSpanEndLine' (getLoc b))) 0 (unLoc list) + 1
+                            Just list -> foldl (\ a b -> max a (srcSpanEndLine' (getLocA b))) 0 (unLoc list) + 1
                             Nothing -> case hsmodName pr of
                                         Nothing -> 0
-                                        Just mn -> srcSpanEndLine' (getLoc mn) + 2
+                                        Just mn -> srcSpanEndLine' (getLocA mn) + 2
             return (ServerHeader (Right i))
         Right (dflags, _pr@HsModule{ hsmodImports = imports }) -> return (ServerHeader (Left (transformImports dflags imports)))
   where
@@ -93,7 +102,9 @@ transformImports :: DynFlags -> [LImportDecl GhcPs] -> [ImportDecl]
 transformImports dflags = map (transformImport dflags)
 
 transformImport :: DynFlags -> LImportDecl GhcPs -> ImportDecl
-transformImport dflags (L srcSpan importDecl) =
+transformImport dflags (L l importDecl) =
+  let srcSpan = locA l
+  in
     ImportDecl {
         importLoc = srcSpanToLocation srcSpan,
         importModule = T.pack modName,
@@ -102,34 +113,45 @@ transformImport dflags (L srcSpan importDecl) =
 #else
         importQualified = ideclQualified importDecl,
 #endif
-        importSrc = ideclSource importDecl,
+        importSrc = ideclSource importDecl == IsBoot,
+-- SourceText carries a FastString from GHC 9.8 on, a String before that.
+#if MIN_VERSION_ghc(9,8,0)
+        importPkg = T.pack . unpackFS <$> pkgQual,
+#else
         importPkg = T.pack <$> pkgQual,
+#endif
         importAs  = T.pack <$> impAs,
         importSpecs = specs}
     where
         modName =  moduleNameString $ unLoc $ ideclName importDecl
         pkgQual =  case ideclPkgQual importDecl of
-#if MIN_VERSION_ghc(8,2,0)
-                        Just StringLiteral { sl_st = SourceText s } -> Just s
-#elif MIN_VERSION_ghc(8,0,0)
-                        Just fs -> Just (sl_st fs)
-#else
-                        Just fs -> Just (unpackFS fs)
-#endif
+                        RawPkgQual StringLiteral { sl_st = SourceText s } -> Just s
+                        NoRawPkgQual -> Nothing
                         _ -> Nothing
         impAs   =  case ideclAs importDecl of
                         Nothing -> Nothing
                         Just mn -> Just (moduleNameString $ unLoc82 mn)
+#if MIN_VERSION_ghc(9,0,0)
+        specs =    case ideclImportList importDecl of
+                        Nothing -> Nothing
+                        Just (hide, list) -> Just (ImportSpecList (hide /= Exactly) (mapMaybe (transformEntity dflags) (unLoc list)))
+#else
         specs =    case ideclHiding importDecl of
                         Nothing -> Nothing
                         Just (hide, list) -> Just (ImportSpecList hide (mapMaybe (transformEntity dflags) (unLoc list)))
+#endif
 
 transformEntity :: DynFlags -> LIE GhcPs -> Maybe ImportSpec
-#if MIN_VERSION_ghc(8,6,0)
+#if MIN_VERSION_ghc(9,10,0)
+transformEntity dflags (L _ (IEVar _ name _))              = Just (IVar (T.pack $ showSDoc dflags (pprPrefixOcc $ unLoc name)))
+transformEntity dflags (L _ (IEThingAbs _ name _))         = Just (IAbs (T.pack . showRdrName dflags . unLoc $ ieLWrappedName name))
+transformEntity dflags (L _ (IEThingAll _ name _))         = Just (IThingAll (T.pack . showRdrName dflags . unLoc $ ieLWrappedName name))
+transformEntity dflags (L _ (IEThingWith _ name _ list _)) = Just (IThingWith (T.pack . showRdrName dflags . unLoc $ ieLWrappedName name)
+#elif MIN_VERSION_ghc(8,6,0)
 transformEntity dflags (L _ (IEVar _ name))              = Just (IVar (T.pack $ showSDoc dflags (pprPrefixOcc $ unLoc name)))
 transformEntity dflags (L _ (IEThingAbs _ name))         = Just (IAbs (T.pack . showRdrName dflags . unLoc $ ieLWrappedName name))
 transformEntity dflags (L _ (IEThingAll _ name))         = Just (IThingAll (T.pack . showRdrName dflags . unLoc $ ieLWrappedName name))
-transformEntity dflags (L _ (IEThingWith _ name _ list _)) = Just (IThingWith (T.pack . showRdrName dflags . unLoc $ ieLWrappedName name)
+transformEntity dflags (L _ (IEThingWith _ name _ list)) = Just (IThingWith (T.pack . showRdrName dflags . unLoc $ ieLWrappedName name)
 #else
 transformEntity dflags (L _ (IEVar name))              = Just (IVar (T.pack $ showSDoc dflags (pprPrefixOcc $ unLoc name)))
 transformEntity dflags (L _ (IEThingAbs name))         = Just (IAbs (T.pack . showRdrName dflags . unLoc $ ieLWrappedName name))
@@ -144,15 +166,15 @@ transformEntity dflags (L _ (IEThingWith name list))   = Just (IThingWith (T.pac
 transformEntity _ _                              = Nothing
 
 srcSpanToLocation :: SrcSpan -> Location
-srcSpanToLocation (RealSrcSpan span')
+srcSpanToLocation (RealSrcSpan span' _)
     =   Location (unpackFS $ srcSpanFile span') (srcSpanStartLine span') (srcSpanStartCol span')
                  (srcSpanEndLine span') (srcSpanEndCol span')
 srcSpanToLocation _ = error "srcSpanToLocation: unhelpful span"
 
 srcSpanStartLine' :: SrcSpan -> Int
-srcSpanStartLine' (RealSrcSpan span') = srcSpanStartLine span'
+srcSpanStartLine' (RealSrcSpan span' _) = srcSpanStartLine span'
 srcSpanStartLine' _ = error "srcSpanStartLine': unhelpful span"
 
 srcSpanEndLine' :: SrcSpan -> Int
-srcSpanEndLine' (RealSrcSpan span') = srcSpanEndLine span'
+srcSpanEndLine' (RealSrcSpan span' _) = srcSpanEndLine span'
 srcSpanEndLine' _ = error "srcSpanEndLine': unhelpful span"

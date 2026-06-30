@@ -43,49 +43,81 @@ import Documentation.Haddock.Types (ModLink(..))
 #endif
 import Documentation.Haddock
 import Distribution.Text (simpleParse, display)
-import InstEnv (ClsInst(..))
 import Data.Map (Map)
-import qualified Data.Map as Map (empty)
+import qualified Data.Map as Map (empty, fromList, lookup)
 
 import Data.List (nub, isSuffixOf)
 import qualified Data.ByteString.Char8 as BS (pack)
 import IDE.Metainfo.WorkspaceCollector
        (srcSpanToLocation, uncommentDecl, uncommentData, printHsDoc, sortByLoc)
-import PackageConfig (PackageConfig)
 import Distribution.Verbosity (verbose, normal)
 #if MIN_VERSION_ghc(8,2,0)
-import GHC.PackageDb (exposedModules, hiddenModules)
-import Module (ModuleName, Module)
 #else
 import GHC.PackageDb (exposedModules, hiddenModules, exposedName)
 #endif
 import Documentation.Haddock.Types (_doc)
 import IDE.StrippedPrefs (getUnpackDirectory, Prefs(..))
 import IDE.Metainfo.SourceDB (sourceForPackage, getSourcesMap)
-import MonadUtils (liftIO)
-import System.Directory (setCurrentDirectory, doesDirectoryExist, createDirectoryIfMissing, doesFileExist)
+import System.Directory (setCurrentDirectory, doesDirectoryExist, createDirectoryIfMissing, doesFileExist, makeAbsolute)
 import System.FilePath ((<.>), dropFileName, (</>), splitDirectories, dropExtension)
 import System.Exit (ExitCode(..))
-import Data.Maybe(mapMaybe, listToMaybe, fromMaybe)
+import Data.Maybe(mapMaybe, listToMaybe, fromMaybe, catMaybes, isJust)
 import IDE.Utils.GHCUtils (inGhcIO)
 import qualified Control.Exception as NewException (SomeException, catch)
 import IDE.Utils.Tool
 import IDE.Utils.FileUtils (figureOutGhcOpts', myCanonicalizePath, getSysLibDir)
 import Distribution.Package(PackageIdentifier, pkgName)
 import Distribution.Simple.Utils (installDirectoryContents)
+#if MIN_VERSION_ghc(9,0,0)
+import GHC hiding(Id,Failed,Succeeded,HsDoc)
+#else
 import GHC hiding(Id,Failed,Succeeded,ModuleName)
+#endif
+#if MIN_VERSION_ghc(9,0,0)
+import GHC.Utils.Outputable (Outputable, ppr, SDoc)
+import GHC.Driver.Ppr (showSDoc)
+import GHC.Types.Name (getOccString, getSrcSpan)
+import GHC.Unit.Info (UnitInfo, unitExposedModules, unitHiddenModules)
+import GHC.Core.InstEnv (ClsInst(..))
+import GHC.Parser.Annotation (locA, getLocA)
+import GHC.Hs.Doc (hsDocString)
+import GHC.Types.Name.Reader (rdrNameOcc)
+import GHC.Types.Name.Occurrence (occNameString, isTcOcc)
+import GHC.Unit.Module.Graph (mgModSummaries)
+import Data.Foldable (toList)
+import Control.Monad (forM)
+import Control.Monad.IO.Class (liftIO)
+#endif
+#if MIN_VERSION_ghc(9,14,0)
+import GHC.Hs.Type (HsConDeclRecField(..), HsConDeclField(..))
+#endif
+#if MIN_VERSION_haddock_api(2,28,0)
+import Haddock.Types (ExportD(..))
+#endif
+#if MIN_VERSION_ghc(9,6,0) && !MIN_VERSION_ghc(9,8,0)
+import Haddock.Types (HaddockClsInst(..))
+#endif
 import Distribution.ModuleName (components)
 import System.Log.Logger (warningM, debugM)
 import Control.DeepSeq (deepseq)
 import Data.ByteString.Char8 (ByteString)
-import Outputable hiding(trace, (<>))
 import GHC.Show(showSpace)
-import Name
 import IDE.Utils.Project (ProjectKey, pjDir)
 
 #if MIN_VERSION_ghc(8,2,0)
 exposedName :: (ModuleName, Maybe Module) -> ModuleName
 exposedName = fst
+#endif
+
+#if MIN_VERSION_ghc(9,0,0)
+type PackageConfig = UnitInfo
+showSDocUnqual :: DynFlags -> SDoc -> String
+showSDocUnqual = showSDoc
+#else
+locA :: SrcSpan -> SrcSpan
+locA = id
+getLocA :: GenLocated SrcSpan e -> SrcSpan
+getLocA = getLoc
 #endif
 
 #if !MIN_VERSION_ghc(8,4,0)
@@ -102,7 +134,11 @@ isEmptyDoc :: NDoc -> Bool
 isEmptyDoc DocEmpty  = True
 isEmptyDoc _         = False
 
+#if MIN_VERSION_ghc(9,0,0)
+type MyLDocDecl = LDocDecl GhcRn
+#else
 type MyLDocDecl = LDocDecl
+#endif
 
 show' :: Outputable alpha => DynFlags -> alpha  -> String
 show' dflags = showSDoc dflags . ppr
@@ -188,19 +224,157 @@ packageFromSource' ghcFlags dbs cabalPath packageConfig = do
         (interfaces,_) <- processModules maxBound (exportedMods ++ hiddenMods) [] []
         liftIO $ print (length interfaces)
         let mods = map (interfaceToModuleDescr dflags dirPath (packId $ getThisPackage packageConfig)) interfaces
+        -- Haddock can't build interfaces for modules that re-export across
+        -- packages (it lacks the dependencies' .haddock interfaces), so their
+        -- local declarations come back without source spans.  Recover those by
+        -- parsing such modules directly (parsing needs no deps/typecheck).
+        mods' <- fillSourceSpans dflags (packId $ getThisPackage packageConfig)
+                                 (exportedMods ++ hiddenMods) mods
         sp <- liftIO $ myCanonicalizePath dirPath
         let pd = PackageDescr {
                 pdPackage           =   packId (getThisPackage packageConfig)
-            ,   pdModules           =   mods
+            ,   pdModules           =   mods'
             ,   pdBuildDepends      =   [] -- TODO depends packageConfig
             ,   pdMbSourcePath      =   Just sp}
-        let stat = PackageCollectStats packageName (Just (length mods)) True False Nothing
+        let stat = PackageCollectStats packageName (Just (length mods')) True False Nothing
         liftIO $ deepseq pd $ return (Just pd, stat)
   where
+#if MIN_VERSION_ghc(9,0,0)
+    exportedMods = map (moduleNameString . exposedName) $ unitExposedModules packageConfig
+    hiddenMods   = map moduleNameString $ unitHiddenModules packageConfig
+#else
     exportedMods = map (moduleNameString . exposedName) $ exposedModules packageConfig
     hiddenMods   = map moduleNameString $ hiddenModules packageConfig
+#endif
     dirPath      = dropFileName cabalPath
     packageName  = packageIdentifierToString (packId $ getThisPackage packageConfig)
+
+-- | Recover source locations Haddock couldn't provide.  For any module whose
+-- declarations Haddock left without a source span (typically modules that
+-- re-export entities from other packages, which Haddock can't fully process
+-- without the dependencies' .haddock interfaces), parse the module directly —
+-- parsing needs no dependency resolution — and build descriptors with the real
+-- spans of its top-level type signatures.  These merge with the .hi data (which
+-- supplies types) in 'mergePackageDescrs'.
+fillSourceSpans :: DynFlags -> PackageIdentifier -> [String] -> [ModuleDescr] -> Ghc [ModuleDescr]
+#if MIN_VERSION_ghc(9,0,0)
+fillSourceSpans dflags pid modNames mods = do
+    summaries <- mgModSummaries <$> getModuleGraph
+    let byName     = Map.fromList [ (display (modu (mdModuleId m)), m) | m <- mods ]
+        realLoc (Real rd) = isJust (dscMbLocation' rd)
+        realLoc _         = False
+        located m  = not (maybe True null (mdMbSourcePath m)) && any realLoc (mdIdDescriptions m)
+        summaryOf n = listToMaybe [ ms | ms <- summaries, moduleNameString (moduleName (ms_mod ms)) == n ]
+    extras <- fmap catMaybes . forM modNames $ \n ->
+        case Map.lookup n byName of
+            Just m | located m -> return Nothing            -- Haddock already located it
+            _ -> case summaryOf n of
+                    Just ms -> Just <$> parseModuleDescr dflags pid ms
+                    Nothing -> return Nothing
+    let replaced = [ display (modu (mdModuleId m)) | m <- extras ]
+    return ([ m | m <- mods, display (modu (mdModuleId m)) `notElem` replaced ] ++ extras)
+
+parseModuleDescr :: DynFlags -> PackageIdentifier -> ModSummary -> Ghc ModuleDescr
+parseModuleDescr dflags pid ms = do
+    pm <- parseModule ms
+    -- The session's CWD is the package dir, so GHC's paths are relative; make
+    -- them absolute so the editor can open them from anywhere.
+    absSrc <- liftIO $ traverse makeAbsolute (ml_hs_file (ms_location ms))
+    let pmKey = PM pid (fromMaybe (error "parseModuleDescr: bad module name")
+                          (simpleParse (moduleNameString (moduleName (ms_mod ms)))))
+    return ModuleDescr
+        { mdModuleId       = pmKey
+        , mdMbSourcePath   = absSrc
+        , mdReferences     = Map.empty
+        , mdIdDescriptions = concatMap (parsedDeclDescr dflags pmKey absSrc)
+                                       (hsmodDecls (unLoc (pm_parsed_source pm))) }
+
+-- Top-level declarations from the parsed source give us names + real spans
+-- without needing the module to typecheck.  Types/comments aren't taken from
+-- here — they come from the .hi data in the merge (mergeDescr).
+parsedDeclDescr :: DynFlags -> PackModule -> Maybe FilePath -> LHsDecl GhcPs -> [Descr]
+parsedDeclDescr _dflags pm mbSrc (L loc decl) = case decl of
+    SigD _ sig                        -> lsig (L loc sig)
+    -- Give type-like declarations the same kind of type hint the .hi collector
+    -- uses (ClassDescr/DataDescr/TypeDescr), so the merge pairs them with the
+    -- .hi description (taking its methods/constructors) instead of leaving a
+    -- duplicate.  The empty lists are filled in from the .hi side by the merge.
+    TyClD _ ClassDecl{ tcdLName = ln, tcdSigs = sigs }
+                                      -> mkDH (occ ln) (locA loc) (ClassDescr [] []) : concatMap lsig sigs
+    TyClD _ DataDecl{ tcdLName = ln } -> [ mkDH (occ ln) (locA loc) (DataDescr [] []) ]
+    TyClD _ SynDecl{ tcdLName = ln }  -> [ mkDH (occ ln) (locA loc) TypeDescr ]
+    TyClD _ FamDecl{ tcdFam = FamilyDecl{ fdLName = ln } } -> [ mkDH (occ ln) (locA loc) TypeDescr ]
+    -- Class instances share the class name; pair them up in the merge by the
+    -- types they bind (InstanceDescr binds), matching the .hi collector so each
+    -- gets its own source span.
+    InstD _ (ClsInstD _ ClsInstDecl{ cid_poly_ty = ty }) ->
+        case instClassAndBinds ty of
+            Just (cls, binds) ->
+                [ Real RealDescr
+                    { dscName'       = T.pack cls
+                    , dscMbTypeStr'  = Nothing
+                    , dscMbModu'     = Just pm
+                    , dscMbLocation' = atFile mbSrc (srcSpanToLocation (locA loc))
+                    , dscMbComment'  = Nothing
+                    , dscTypeHint'   = InstanceDescr (map T.pack binds)
+                    , dscExported'   = True } ]
+            Nothing -> []
+    _ -> []
+  where
+    occ ln = occNameString (rdrNameOcc (unLoc ln))
+    mkD name sp = mkDH name sp VariableDescr
+    mkDH name sp hint = Real RealDescr
+        { dscName'       = T.pack name
+        , dscMbTypeStr'  = Nothing
+        , dscMbModu'     = Just pm
+        , dscMbLocation' = atFile mbSrc (srcSpanToLocation sp)
+        , dscMbComment'  = Nothing
+        , dscTypeHint'   = hint
+        , dscExported'   = True }
+    -- type signatures (top-level and class methods) carry the binder names
+    lsig (L sloc (TypeSig _ names _))      = [ mkD (occ n) (locA sloc) | n <- names ]
+    lsig (L sloc (ClassOpSig _ _ names _)) = [ mkD (occ n) (locA sloc) | n <- names ]
+    lsig _ = []
+
+-- Use the (absolute) module source path for the declaration's location file.
+atFile :: Maybe FilePath -> Maybe Location -> Maybe Location
+atFile (Just f) (Just l) = Just l { locationFile = f }
+atFile _        ml       = ml
+
+-- The class name and the head type constructors of an instance head, in the
+-- same shape the .hi collector records (class name + roughened arg tycons),
+-- so the two descriptions pair up in the merge.  Type-variable arguments have
+-- no head tycon and are dropped, matching @catMaybes . ifInstTys@.
+instClassAndBinds :: LHsSigType GhcPs -> Maybe (String, [String])
+instClassAndBinds (L _ (HsSig{ sig_body = body })) =
+    case hsTyConName hd of
+        Just cls -> Just (cls, mapMaybe hsTyConName args)
+        Nothing  -> Nothing
+  where (hd, args) = splitHsAppTy (peelForall body)
+
+peelForall :: LHsType GhcPs -> LHsType GhcPs
+peelForall (L _ (HsForAllTy _ _ b)) = peelForall b
+peelForall (L _ (HsQualTy _ _ b))   = peelForall b
+peelForall t                        = t
+
+splitHsAppTy :: LHsType GhcPs -> (LHsType GhcPs, [LHsType GhcPs])
+splitHsAppTy = go []
+  where
+    go acc (L _ (HsParTy _ t))   = go acc t
+    go acc (L _ (HsAppTy _ f x)) = go (x:acc) f
+    go acc t                     = (t, acc)
+
+hsTyConName :: LHsType GhcPs -> Maybe String
+hsTyConName (L _ (HsParTy _ t))   = hsTyConName t
+hsTyConName (L _ (HsAppTy _ f _)) = hsTyConName f
+hsTyConName (L _ (HsTyVar _ _ (L _ rdr)))
+    | isTcOcc (rdrNameOcc rdr)    = Just (occNameString (rdrNameOcc rdr))
+hsTyConName (L _ (HsListTy _ _))      = Just "[]"
+hsTyConName (L _ (HsTupleTy _ _ ts))  = Just ("(" ++ replicate (max 0 (length ts - 1)) ',' ++ ")")
+hsTyConName _ = Nothing
+#else
+fillSourceSpans _ _ _ mods = return mods
+#endif
 
 interfaceToModuleDescr :: DynFlags -> FilePath -> PackageIdentifier -> Interface -> ModuleDescr
 interfaceToModuleDescr dflags _dirPath pid interface =
@@ -213,14 +387,25 @@ interfaceToModuleDescr dflags _dirPath pid interface =
         -- ifaceOrigFilename points at the hs output file (not chs file)
         -- So if possible we look up one of the things in the module and
         -- get the file it is located in.
-        filepath   = fromMaybe (ifaceOrigFilename interface) $ listToMaybe
+        filepath   = fromMaybe fallbackFile $ listToMaybe
             [locationFile loc | Real RealDescr{dscMbLocation' = Just loc,
                 dscMbModu' = Just dscMod} <- descrs, dscMod == PM pid modName,
                 filenameMatchesModule (locationFile loc)]
+#if MIN_VERSION_haddock_api(2,28,0)
+        -- ifaceOrigFilename was removed; no portable source path remains, so
+        -- rely on the per-declaration locations above (empty fallback).
+        fallbackFile = ""
+#else
+        fallbackFile = ifaceOrigFilename interface
+#endif
         modName    = fromMaybe (error "Can't parse module name") ((simpleParse . moduleNameString . moduleName . ifaceMod) interface)
         filenameMatchesModule fn = components modName `isSuffixOf` splitDirectories (dropExtension fn)
         descrs     = extractDescrs dflags (PM pid modName)
+#if MIN_VERSION_haddock_api(2,28,0)
+                        (Map.empty :: Map Name DeclInfo) (ifaceExportItems interface)
+#else
                         (ifaceDeclMap interface) (ifaceExportItems interface)
+#endif
                         (ifaceInstances interface) [] --(ifaceLocals interface)
         imports    = Map.empty --TODO
 
@@ -229,7 +414,12 @@ getDoc = fmap _doc . documentationDoc
 
 type DeclInfo = [LHsDecl GhcRn]
 
+#if MIN_VERSION_ghc(9,6,0) && !MIN_VERSION_ghc(9,8,0)
+-- haddock-api for GHC 9.6 pre-processes instances into HaddockClsInst.
+extractDescrs :: Ord a => DynFlags -> PackModule -> Map a DeclInfo -> [ExportItem GhcRn] -> [HaddockClsInst] -> [b] -> [Descr]
+#else
 extractDescrs :: Ord a => DynFlags -> PackModule -> Map a DeclInfo -> [ExportItem GhcRn] -> [ClsInst] -> [b] -> [Descr]
+#endif
 extractDescrs dflags pm _ifaceDeclMap ifaceExportItems' ifaceInstances' _ifaceLocals =
         transformToDescrs dflags pm exportedDeclInfo ++
           map (toDescrInst dflags pm) ifaceInstances'
@@ -237,8 +427,13 @@ extractDescrs dflags pm _ifaceDeclMap ifaceExportItems' ifaceInstances' _ifaceLo
         exportedDeclInfo :: [(LHsDecl GhcRn, Maybe NDoc, [(Name, Maybe NDoc)])]
         exportedDeclInfo                    =  mapMaybe toDeclInfo  ifaceExportItems'
         toDeclInfo :: ExportItem GhcRn -> Maybe (LHsDecl GhcRn, Maybe NDoc, [(Name, Maybe NDoc)])
+#if MIN_VERSION_haddock_api(2,28,0)
+        toDeclInfo (ExportDecl ExportD{expDDecl=decl, expDMbDoc=mbDoc, expDSubDocs=subDocs})   =
+                                        Just(decl,getDoc $ fst mbDoc,map (\ (a,b) -> (a,getDoc $ fst b)) subDocs)
+#else
         toDeclInfo ExportDecl{expItemDecl=decl, expItemMbDoc=mbDoc, expItemSubDocs=subDocs}   =
                                         Just(decl,getDoc $ fst mbDoc,map (\ (a,b) -> (a,getDoc $ fst b)) subDocs)
+#endif
         toDeclInfo ExportNoDecl{}         = Nothing
         toDeclInfo ExportGroup{}          = Nothing
         toDeclInfo ExportDoc{}            = Nothing
@@ -259,7 +454,7 @@ transformToDescrs dflags pm = concatMap transformToDescr
                 dscName'        =   T.pack . getOccString $ unLoc name
             ,   dscMbTypeStr'   =   Just . BS.pack $ getOccString (unLoc name) <> " :: " <> showSDocUnqual dflags (ppr typ)
             ,   dscMbModu'      =   Just pm
-            ,   dscMbLocation'  =   srcSpanToLocation loc
+            ,   dscMbLocation'  =   srcSpanToLocation (locA loc)
             ,   dscMbComment'   =   toComment dflags mbComment []
             ,   dscTypeHint'    =   VariableDescr
             ,   dscExported'    =   True}
@@ -277,7 +472,7 @@ transformToDescrs dflags pm = concatMap transformToDescr
             dscName'        =   T.pack . getOccString $ unLoc name
         ,   dscMbTypeStr'   =   Just . BS.pack $ getOccString (unLoc name) <> " :: " <> showSDocUnqual dflags (ppr typ)
         ,   dscMbModu'      =   Just pm
-        ,   dscMbLocation'  =   srcSpanToLocation loc
+        ,   dscMbLocation'  =   srcSpanToLocation (locA loc)
         ,   dscMbComment'   =   toComment dflags mbComment []
         ,   dscTypeHint'    =   PatternSynonymDescr
         ,   dscExported'    =   True}
@@ -293,7 +488,7 @@ transformToDescrs dflags pm = concatMap transformToDescr
             dscName'        =   T.pack . getOccString $ unLoc name
         ,   dscMbTypeStr'   =   Just . BS.pack $ getOccString (unLoc name) <> " :: " <> showSDocUnqual dflags (ppr typ)
         ,   dscMbModu'      =   Just pm
-        ,   dscMbLocation'  =   srcSpanToLocation loc
+        ,   dscMbLocation'  =   srcSpanToLocation (locA loc)
         ,   dscMbComment'   =   toComment dflags mbComment []
         ,   dscTypeHint'    =   PatternSynonymDescr
         ,   dscExported'    =   True}) names
@@ -310,7 +505,7 @@ transformToDescrs dflags pm = concatMap transformToDescr
         dscName'        =   T.pack . getOccString $ unLoc lid
     ,   dscMbTypeStr'   =   Just . BS.pack . showSDocUnqual dflags $ ppr for
     ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   srcSpanToLocation loc
+    ,   dscMbLocation'  =   srcSpanToLocation (locA loc)
     ,   dscMbComment'   =   toComment dflags mbComment []
     ,   dscTypeHint'    =   TypeDescr
     ,   dscExported'    =   True}]
@@ -324,7 +519,7 @@ transformToDescrs dflags pm = concatMap transformToDescr
         dscName'        =   T.pack . getOccString $ unLoc lid
     ,   dscMbTypeStr'   =   Just . BS.pack . showSDocUnqual dflags $ ppr typ
     ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   srcSpanToLocation loc
+    ,   dscMbLocation'  =   srcSpanToLocation (locA loc)
     ,   dscMbComment'   =   toComment dflags mbComment []
     ,   dscTypeHint'    =   TypeDescr
     ,   dscExported'    =   True}]
@@ -338,7 +533,7 @@ transformToDescrs dflags pm = concatMap transformToDescr
         dscName'        =   T.pack . getOccString $ unLoc lid
     ,   dscMbTypeStr'   =   Just . BS.pack . showSDocUnqual dflags $ ppr typ
     ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   srcSpanToLocation loc
+    ,   dscMbLocation'  =   srcSpanToLocation (locA loc)
     ,   dscMbComment'   =   toComment dflags mbComment []
     ,   dscTypeHint'    =   TypeDescr
     ,   dscExported'    =   True}]
@@ -354,7 +549,7 @@ transformToDescrs dflags pm = concatMap transformToDescr
         dscName'        =   T.pack name
     ,   dscMbTypeStr'   =   Just . BS.pack . showSDocUnqual dflags . ppr $ uncommentData typ
     ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   srcSpanToLocation loc
+    ,   dscMbLocation'  =   srcSpanToLocation (locA loc)
     ,   dscMbComment'   =   toComment dflags mbComment []
     ,   dscTypeHint'    =   DataDescr constructors fields
     ,   dscExported'    =   True}
@@ -375,7 +570,7 @@ transformToDescrs dflags pm = concatMap transformToDescr
         dscName'        =   T.pack . getOccString $ unLoc tcdLName'
     ,   dscMbTypeStr'   =   Just . BS.pack . showSDocUnqual dflags $ ppr cl{tcdMeths = emptyLHsBinds}
     ,   dscMbModu'      =   Just pm
-    ,   dscMbLocation'  =   srcSpanToLocation loc
+    ,   dscMbLocation'  =   srcSpanToLocation (locA loc)
     ,   dscMbComment'   =   toComment dflags mbComment []
     ,   dscTypeHint'    =   ClassDescr super methods
     ,   dscExported'    =   True    }]
@@ -385,6 +580,21 @@ transformToDescrs dflags pm = concatMap transformToDescr
 
     transformToDescr (_, _mbComment, _sigList) = []
 
+#if MIN_VERSION_ghc(9,6,0) && !MIN_VERSION_ghc(9,8,0)
+-- haddock-api for GHC 9.6 hands us a pre-digested HaddockClsInst.
+toDescrInst :: DynFlags -> PackModule -> HaddockClsInst -> Descr
+toDescrInst _dflags pm HaddockClsInst{ haddockClsInstClsName = clsName
+                                     , haddockClsInstName    = instName
+                                     , haddockClsInstPprHoogle = mbHoogle } =
+        Real RealDescr {
+        dscName'        =   T.pack $ getOccString clsName
+    ,   dscMbTypeStr'   =   Just . BS.pack $ fromMaybe (getOccString clsName) mbHoogle
+    ,   dscMbModu'      =   Just pm
+    ,   dscMbLocation'  =   srcSpanToLocation (getSrcSpan instName)
+    ,   dscMbComment'   =   Nothing
+    ,   dscTypeHint'    =   InstanceDescr []
+    ,   dscExported'    =   True}
+#else
 toDescrInst :: DynFlags -> PackModule -> ClsInst -> Descr
 toDescrInst dflags pm inst@ClsInst{is_cls = is_cls', is_tys = is_tys'} =
         Real RealDescr {
@@ -395,6 +605,7 @@ toDescrInst dflags pm inst@ClsInst{is_cls = is_cls', is_tys = is_tys'} =
     ,   dscMbComment'   =   Nothing
     ,   dscTypeHint'    =   InstanceDescr (map (T.pack . showSDocUnqual dflags . ppr) is_tys')
     ,   dscExported'    =   True}
+#endif
 
 extractMethods :: DynFlags -> [LSig GhcRn] -> [MyLDocDecl] -> [SimpleDescr]
 extractMethods dflags sigs docs =
@@ -403,26 +614,26 @@ extractMethods dflags sigs docs =
 
 extractMethod :: DynFlags -> (LHsDecl GhcRn, Maybe NDoc) -> [SimpleDescr]
 #if MIN_VERSION_ghc(8,6,0)
-extractMethod dflags (L loc (SigD _ ts@(TypeSig _ names _typ)), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names
-extractMethod dflags (L loc (SigD _ ts@(PatSynSig _ names _typ)), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names
-extractMethod dflags (L loc (SigD _ ts@(ClassOpSig _ _ names _typ)), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names
+extractMethod dflags (L loc (SigD _ ts@(TypeSig _ names _typ)), mbDoc) = map (extractMethodName dflags (locA loc) ts mbDoc) names
+extractMethod dflags (L loc (SigD _ ts@(PatSynSig _ names _typ)), mbDoc) = map (extractMethodName dflags (locA loc) ts mbDoc) names
+extractMethod dflags (L loc (SigD _ ts@(ClassOpSig _ _ names _typ)), mbDoc) = map (extractMethodName dflags (locA loc) ts mbDoc) names
 #else
 #if MIN_VERSION_ghc(8,0,0)
-extractMethod dflags (L loc (SigD ts@(TypeSig names _typ)), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names
+extractMethod dflags (L loc (SigD ts@(TypeSig names _typ)), mbDoc) = map (extractMethodName dflags (locA loc) ts mbDoc) names
 #if MIN_VERSION_ghc(8,2,0)
-extractMethod dflags (L loc (SigD ts@(PatSynSig names _typ)), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names
+extractMethod dflags (L loc (SigD ts@(PatSynSig names _typ)), mbDoc) = map (extractMethodName dflags (locA loc) ts mbDoc) names
 #else
-extractMethod dflags (L loc (SigD ts@(PatSynSig name _typ)), mbDoc) = [extractMethodName dflags loc ts mbDoc name]
+extractMethod dflags (L loc (SigD ts@(PatSynSig name _typ)), mbDoc) = [extractMethodName dflags (locA loc) ts mbDoc name]
 #endif
-extractMethod dflags (L loc (SigD ts@(ClassOpSig _ names _typ)), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names
+extractMethod dflags (L loc (SigD ts@(ClassOpSig _ names _typ)), mbDoc) = map (extractMethodName dflags (locA loc) ts mbDoc) names
 #else
-extractMethod dflags (L loc (SigD ts@(TypeSig names _typ _)), mbDoc) = map (extractMethodName dflags loc ts mbDoc) names
+extractMethod dflags (L loc (SigD ts@(TypeSig names _typ _)), mbDoc) = map (extractMethodName dflags (locA loc) ts mbDoc) names
 #endif
 #endif
 extractMethod _ _ = []
 
 extractMethodName :: (NamedThing a, Outputable o
-#if MIN_VERSION_ghc(8,8,0)
+#if MIN_VERSION_ghc(8,8,0) && !MIN_VERSION_ghc(9,0,0)
   , HasSrcSpan (GenLocated l a)
 #endif
   ) => DynFlags
@@ -439,7 +650,7 @@ extractConstructor :: DynFlags -> LConDecl GhcRn -> [SimpleDescr]
 #if MIN_VERSION_ghc(8,0,0)
 extractConstructor dflags decl@(L loc d) = extractDecl d
  where
-  extractDecl (ConDeclGADT {..}) = map (extractName con_doc) con_names
+  extractDecl (ConDeclGADT {..}) = map (extractName con_doc) (toList con_names)
   extractDecl (ConDeclH98 {..}) = [extractName con_doc con_name]
 #if MIN_VERSION_ghc(8,6,0)
   extractDecl (XConDecl {}) = []
@@ -453,10 +664,14 @@ extractConstructor dflags decl@(L loc ConDecl{con_names = names, con_doc = doc})
     SimpleDescr
         (T.pack . getOccString $ unLoc name)
         (Just . BS.pack . showSDocUnqual dflags . ppr $uncommentDecl decl)
-        (srcSpanToLocation loc)
+        (srcSpanToLocation (locA loc))
         (case doc of
             Nothing -> Nothing
+#if MIN_VERSION_ghc(9,0,0)
+            Just ld -> Just . BS.pack . T.unpack $ printHsDoc (hsDocString (unLoc ld)))
+#else
             Just (L _ d') -> Just . BS.pack . T.unpack $ printHsDoc d')
+#endif
         True
 
 extractRecordFields :: DynFlags -> LConDecl GhcRn -> [SimpleDescr]
@@ -469,40 +684,56 @@ extractRecordFields dflags (L _ _decl@ConDecl{con_details = (RecCon flds)}) =
 #endif
     concatMap extractRecordFields' (unLoc flds)
     where
+#if MIN_VERSION_ghc(9,14,0)
+    extractRecordFields' (L _ (HsConDeclRecField _ names spec)) = map extractName names
+#elif MIN_VERSION_ghc(8,6,0)
     extractRecordFields' :: LConDeclField GhcRn -> [SimpleDescr]
-#if MIN_VERSION_ghc(8,6,0)
     extractRecordFields' (L _ (XConDeclField _)) = []
     extractRecordFields' (L _ _field@(ConDeclField _ names typ doc)) = map extractName names
 #else
+    extractRecordFields' :: LConDeclField GhcRn -> [SimpleDescr]
     extractRecordFields' (L _ _field@(ConDeclField names typ doc)) = map extractName names
 #endif
       where
+#if MIN_VERSION_ghc(9,14,0)
+      typ = cdf_type spec
+#endif
       extractName name =
         SimpleDescr
             (T.pack . showSDoc dflags . ppr $ unLoc name)
             (Just (BS.pack (showSDocUnqual dflags $ ppr typ)))
+#if MIN_VERSION_ghc(9,0,0)
+            (srcSpanToLocation $ getLocA name)
+            Nothing
+#else
             (srcSpanToLocation $ getLoc name)
             (case doc of
                 Nothing -> Nothing
                 Just (L _ d) -> Just . BS.pack . T.unpack $ printHsDoc d)
+#endif
             True
 #if MIN_VERSION_ghc(8,0,0)
 extractRecordFields dflags (L _ _decl@ConDeclGADT
 #if MIN_VERSION_ghc(8,6,0)
-        {con_names = names, con_args = typ, con_doc = doc}) =
+        {con_names = names, con_res_ty = typ, con_doc = doc}) =
 #else
         {con_names = names, con_type = typ, con_doc = doc}) =
 #endif
-    map extractName names
+    map extractName (toList names)
   where
     extractName name =
         SimpleDescr
             (T.pack . showSDoc dflags . ppr $ unLoc name)
             (Just (BS.pack (showSDocUnqual dflags $ ppr typ)))
+#if MIN_VERSION_ghc(9,0,0)
+            (srcSpanToLocation $ getLocA name)
+            Nothing
+#else
             (srcSpanToLocation $ getLoc name)
             (case doc of
                 Nothing -> Nothing
                 Just (L _ d) -> Just . BS.pack . T.unpack $ printHsDoc d)
+#endif
             True
 #endif
 extractRecordFields _ _ = []
@@ -543,11 +774,16 @@ instance Outputable alpha => Show (PPDoc alpha)  where
     showsPrec _ (PPDoc d (DocUnorderedList l))     =
         foldr (\s r -> showString "* " . shows (PPDoc d s) . showChar '\n' . r) id l
     showsPrec _ (PPDoc d (DocOrderedList l))       =
+#if MIN_VERSION_haddock_library(1,11,0)
+        -- list items carry their number since haddock-library 1.11
+        foldr (\(n,i) _f -> shows n . showSpace .  shows (PPDoc d i)) id l
+#else
         foldr (\(i,n) _f -> shows n . showSpace .  shows (PPDoc d i)) id (zip l [1 .. length l])
+#endif
     showsPrec _ (PPDoc d (DocDefList li))          =
         foldr (\(l,r) f -> showString "[@" . shows (PPDoc d l) . showString "[@ " . shows (PPDoc d r) . f) id li
     showsPrec _ (PPDoc d (DocCodeBlock doc))      =   showChar '@' . shows (PPDoc d doc) . showChar '@'
-    showsPrec _ (PPDoc d (DocHyperlink (Hyperlink url lbl)))  =   showChar '<' . showString (showSDoc d (ppr url)) . showChar '>'
+    showsPrec _ (PPDoc d (DocHyperlink (Hyperlink url lbl)))  =   showChar '<' . showString url . showChar '>'
     showsPrec _ (PPDoc _ (DocAName str))          =   showChar '#' . showString str . showChar '#'
     showsPrec _ (PPDoc _ _)                       =   id
 
@@ -595,8 +831,8 @@ collect' dflags d doc_so_far (e:es) =
       Nothing -> collect' dflags (Just e) doc_so_far es
       Just d0 -> finishedDoc' d0 doc_so_far (collect' dflags (Just e) DocEmpty es)
 
-finishedDoc' :: LHsDecl alpha -> NDoc -> [(LHsDecl alpha, Maybe NDoc)]
-                    -> [(LHsDecl alpha, Maybe NDoc)]
+finishedDoc' :: LHsDecl GhcRn -> NDoc -> [(LHsDecl GhcRn, Maybe NDoc)]
+                    -> [(LHsDecl GhcRn, Maybe NDoc)]
 finishedDoc' d doc rest | isEmptyDoc doc = (d, Nothing) : rest
 finishedDoc' d doc rest | notDocDecl d   = (d, Just doc) : rest
   where

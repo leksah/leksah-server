@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 -----------------------------------------------------------------------------
 --
@@ -36,9 +37,8 @@ import IDE.Utils.Utils (standardSourcesFilename)
 import qualified Data.Map as Map
        (fromList, toList, fromListWith, lookup)
 import IDE.Utils.FileUtils
-       (myCanonicalizePath, getConfigFilePathForLoad,
+       (myCanonicalizePath, mbGetConfigFilePathForLoad,
         getConfigFilePathForSave, allCabalFiles)
-import System.Directory (doesFileExist)
 import Data.List (foldl')
 import qualified Text.PrettyPrint as PP
        (colon, (<>), text, ($$), vcat, Doc, render, char)
@@ -128,10 +128,14 @@ parseFromFile p f = do
 parseSourceForPackageDB :: IO (Maybe (Map PackageIdentifier [FilePath]))
 parseSourceForPackageDB = do
     dataDir         <-  getDataDir
-    filePath        <-  getConfigFilePathForLoad standardSourcesFilename Nothing dataDir
-    exists          <-  doesFileExist filePath
-    if exists
-        then do
+    -- Use the non-throwing lookup: when the sources file is in neither the
+    -- config dir nor the data dir, return Nothing so `getSourcesMap` can fall
+    -- back to building it, rather than crashing.
+    mbGetConfigFilePathForLoad standardSourcesFilename Nothing dataDir >>= \case
+        Nothing -> do
+            debugM "leksah-server" "No source packages file found"
+            return Nothing
+        Just filePath -> do
             res <- parseFromFile sourceForPackageParser filePath
             case res of
                 Left pe ->  do
@@ -139,9 +143,6 @@ parseSourceForPackageDB = do
                             ++ filePath ++ " " ++ show pe
                     return Nothing
                 Right r ->  return (Just r)
-        else do
-            errorM "leksah-server" $" No source packages file found: " ++ filePath
-            return Nothing
 
 --
 -- ---------------------------------------------------------------------
