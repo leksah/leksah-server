@@ -629,6 +629,7 @@ getInstalledPackages ghcVer projects = do
                   return . map (,Just projectKey) $ filter inPlan pkgs
         CustomTool _ -> return []
         NixTool _ -> return []
+        MakeTool _ -> return []
         ) $ \ (_ :: SomeException) -> return []
 
 getGlobalPackageDB :: Maybe ProjectKey -> Maybe FilePath -> IO (Maybe FilePath)
