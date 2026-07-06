@@ -91,7 +91,7 @@ library
 
     if os(windows)
         build-depends:
-            Win32 >=2.2.0.0 && <2.14
+            Win32 >=2.2.0.0 && <2.15
         extra-libraries:
             kernel32
     else
@@ -173,7 +173,7 @@ executable leksah-server
 
     if os(windows)
         build-depends:
-            Win32 >=2.2.0.0 && <2.14
+            Win32 >=2.2.0.0 && <2.15
         extra-libraries:
             kernel32
     else
