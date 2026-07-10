@@ -51,6 +51,9 @@ import qualified Data.ByteString.Char8 as BS (pack)
 import IDE.Metainfo.WorkspaceCollector
        (srcSpanToLocation, uncommentDecl, uncommentData, printHsDoc, sortByLoc)
 import Distribution.Verbosity (verbose, normal)
+#if MIN_VERSION_Cabal(3,17,0)
+import Distribution.Verbosity (mkVerbosity, defaultVerbosityHandles)
+#endif
 #if MIN_VERSION_ghc(8,2,0)
 #else
 import GHC.PackageDb (exposedModules, hiddenModules, exposedName)
@@ -103,6 +106,15 @@ import Control.DeepSeq (deepseq)
 import Data.ByteString.Char8 (ByteString)
 import GHC.Show(showSpace)
 import IDE.Utils.Project (ProjectKey, pjDir)
+
+-- Cabal 3.17 (stable-haskell fork) split Verbosity into VerbosityFlags plus
+-- output handles, so `normal` is now VerbosityFlags; rebuild a Verbosity for
+-- the Cabal utils that still take one (installDirectoryContents below).
+#if MIN_VERSION_Cabal(3,17,0)
+normalVerbosity = mkVerbosity defaultVerbosityHandles normal
+#else
+normalVerbosity = normal
+#endif
 
 #if MIN_VERSION_ghc(8,2,0)
 exposedName :: (ModuleName, Maybe Module) -> ModuleName
@@ -188,7 +200,7 @@ copyNixSource packageId fpUnpack project = do
                     let line = removeQuotes lineMaybeQuoted
                         cabalFile = T.unpack line </> display (pkgName packageId) <.> "cabal"
                     doesFileExist cabalFile >>= \case
-                        True -> installDirectoryContents normal (T.unpack line) (fpUnpack </> packageName') >> return True
+                        True -> installDirectoryContents normalVerbosity (T.unpack line) (fpUnpack </> packageName') >> return True
                         False -> do
                             debugM "leksah-server" $ "copyNixSource cabal file not found " <> cabalFile
                             return False

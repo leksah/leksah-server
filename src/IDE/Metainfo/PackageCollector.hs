@@ -77,6 +77,9 @@ import GHC.IO.Exception (ExitCode(..))
 import Distribution.Package (pkgName)
 import Distribution.Simple.Utils (installDirectoryContents)
 import Distribution.Verbosity (normal)
+#if MIN_VERSION_Cabal(3,17,0)
+import Distribution.Verbosity (mkVerbosity, defaultVerbosityHandles)
+#endif
 import Data.Maybe (fromMaybe, maybeToList)
 import Paths_leksah_server (getDataDir)
 import IDE.Utils.Project (ProjectKey, pjDir)
@@ -87,6 +90,14 @@ type PackageConfig = UnitInfo
 #else
 import PackageConfig (PackageConfig)
 type UnitInfo = PackageConfig
+#endif
+
+-- Cabal 3.17 (stable-haskell fork) split Verbosity into VerbosityFlags plus
+-- handles; rebuild a Verbosity for the Cabal utils that still take one.
+#if MIN_VERSION_Cabal(3,17,0)
+normalVerbosity = mkVerbosity defaultVerbosityHandles normal
+#else
+normalVerbosity = normal
 #endif
 
 collectPackage :: Bool -> Prefs -> Int -> ((UnitInfo, PackageDBs), Int) -> IO PackageCollectStats
@@ -244,7 +255,7 @@ collectPackageNix prefs packageConfig (Just project) = do
                                         Nothing -> return $ Just stat {packageString = "metadata from nix (no unpack dir)"}
                                         Just fpUnpack -> do
                                             createDirectoryIfMissing True fpUnpack
-                                            installDirectoryContents normal pkgSource (fpUnpack </> packageName')
+                                            installDirectoryContents normalVerbosity pkgSource (fpUnpack </> packageName')
                                             writePackagePath (fpUnpack </> packageName' <> "/") packageName
                                             return $ Just stat {packageString = "metadata and source from nix"}
                                 False -> return $ Just stat {packageString = "metadata from nix"}
