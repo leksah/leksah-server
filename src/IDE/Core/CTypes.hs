@@ -67,8 +67,12 @@ module IDE.Core.CTypes (
 ,   ImportSpecList(..)
 ,   ImportSpec(..)
 
+#if !defined(ghcjs_HOST_OS)
+    -- GHC-API bound (UnitInfo/UnitId): collector-side only, absent on the
+    -- GHC JavaScript backend where this module is compiled without `ghc`.
 ,   getThisPackage
 ,   PackageIdAndKey(..)
+#endif
 ,   RetrieveStrategy(..)
 
 ,   PackageDBs(..)
@@ -97,6 +101,10 @@ import qualified Data.ByteString.Char8 as BS (unpack, empty)
 import qualified Data.Map as Map (lookup,keysSet,splitLookup, insertWith,empty,elems,union)
 import Data.Char (isAlpha, isSpace)
 import Control.DeepSeq (NFData(..))
+-- ghcjs_HOST_OS (the GHC JavaScript backend): compiled without the `ghc`
+-- package — the GHC-API imports below (and getThisPackage/PackageIdAndKey,
+-- which are collector-side only) are skipped.
+#if !defined(ghcjs_HOST_OS)
 #if MIN_VERSION_ghc(8,0,0)
 #if MIN_VERSION_ghc(8,2,0)
 #if MIN_VERSION_ghc(9,0,0)
@@ -116,6 +124,7 @@ import PackageConfig (PackageConfig, sourcePackageIdString, unitId)
 import Module (PackageKey)
 import PackageConfig (PackageConfig, sourcePackageIdString, packageKey)
 #endif
+#endif
 import Data.Text (Text)
 import Text.PrettyPrint (fsep, Doc, (<+>), empty, text)
 import qualified Text.PrettyPrint as PP
@@ -134,6 +143,7 @@ configDirName = ".leksah-" <> leksahVersion
 metadataVersion :: Integer
 metadataVersion = 7
 
+#if !defined(ghcjs_HOST_OS)
 data PackageIdAndKey = PackageIdAndKey {
       packId  :: PackageIdentifier
 #if MIN_VERSION_ghc(9,0,0)
@@ -162,6 +172,7 @@ getThisPackage p = PackageIdAndKey
 #else
                         (fromJust . simpleParse $ sourcePackageIdString p)
                         (packageKey p)
+#endif
 #endif
 
 data RetrieveStrategy = RetrieveThenBuild | BuildThenRetrieve | NeverRetrieve

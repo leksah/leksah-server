@@ -1,4 +1,10 @@
 {-# LANGUAGE CPP #-}
+-- The GHC JavaScript backend builds this module without the `ghc` package,
+-- so cabal defines no VERSION_ghc macro; the web demo has no real compiler,
+-- the version only names metadata/dist paths.
+#ifndef VERSION_ghc
+#define VERSION_ghc "9.14.1"
+#endif
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
