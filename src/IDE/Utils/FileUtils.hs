@@ -677,15 +677,15 @@ getStorePackageDB ghcVersion = do
         <> " chosen=" <> chosen
     return chosen
 
--- | The cabal build directory leksah builds into and reads from.  Always
--- @dist-ghc-<version>@ (the GHC leksah was built with), or
--- @dist-<prefix>-ghc-<version>@ when cross-compiling with a @<prefix>-cabal@
--- (e.g. @Just "js-unknown-ghcjs"@ for a JavaScript build via
--- @js-unknown-ghcjs-cabal@).  Using one versioned dir keeps builds for
--- different targets separate and keeps the build leksah drives in step with
--- where it looks for plan.json / the package db.
+-- | The cabal build directory leksah builds into and reads from.  Cabal's
+-- default @dist-newstyle@ (matching plain @cabal build@ and the leksah.sh
+-- loop), or @dist-<prefix>-ghc-<version>@ when cross-compiling with a
+-- @<prefix>-cabal@ (e.g. @Just "js-unknown-ghcjs"@ for a JavaScript build via
+-- @js-unknown-ghcjs-cabal@) — cross builds keep a separate versioned dir so
+-- they never clobber the native one.
 cabalBuildDir :: Maybe String -> FilePath
-cabalBuildDir mbPrefix = "dist" ++ maybe "" ('-':) mbPrefix ++ "-ghc-" ++ VERSION_ghc
+cabalBuildDir Nothing = "dist-newstyle"
+cabalBuildDir (Just prefix) = "dist-" ++ prefix ++ "-ghc-" ++ VERSION_ghc
 
 -- | Append a diagnostic line to @~/.leksah/leksah-collect.log@ (best-effort).
 -- The leksah-server collector's logger output is captured by the IDE rather
